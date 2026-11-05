@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"slices"
@@ -934,5 +935,112 @@ func TestConformanceSetMembers(t *testing.T) {
 			require.EqualValues(t, 2, removed)
 			require.Equal(t, []string{"carol", "dan", "eve"}, byName(t, app.Users.Query()))
 		})
+	})
+}
+
+// Ledger is a versioned model with a unique code, for upserts.
+type Ledger struct {
+	ID      int64
+	Code    string
+	Total   int
+	Version int64 `ant:"version"`
+}
+
+func (Ledger) Configure(b *ant.ModelBuilder[Ledger]) {
+	b.Table("ledgers")
+	b.Index(&Lg.Code).Unique()
+}
+
+var Lg = ant.Fields[Ledger]()
+
+type LedgerDB struct {
+	ant.Context
+	Ledgers ant.Table[Ledger]
+}
+
+// An upsert that updates moves the version on, as every write does. Where the
+// database takes a condition on an upsert, a copy that carries a version updates
+// only that version. ON DUPLICATE KEY takes none, so on MySQL and MariaDB the
+// copy's update goes ahead.
+func TestConformanceUpsertVersion(t *testing.T) {
+	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
+		ctx := t.Context()
+		_, err := target.DB.ExecContext(ctx, `CREATE TABLE ledgers (
+			id BIGINT PRIMARY KEY,
+			code VARCHAR(20) NOT NULL UNIQUE,
+			total INT NOT NULL,
+			version BIGINT NOT NULL)`)
+		require.NoError(t, err)
+
+		t.Cleanup(func() {
+			_, _ = target.DB.ExecContext(context.Background(), "DROP TABLE ledgers")
+		})
+
+		db, err := ant.Open[LedgerDB](ctx, target.Dialect, target.DSN)
+		require.NoError(t, err)
+		t.Cleanup(func() { db.Close() })
+
+		onCode := ant.OnConflict(&Lg.Code)
+
+		if !has(target, dialect.OnConflict) {
+			_, err := db.Ledgers.Upsert(ctx, &Ledger{ID: 1, Code: "a"}, onCode)
+			require.ErrorIs(t, err, ant.ErrUnsupported)
+
+			return
+		}
+
+		version := func() int64 {
+			stored, err := db.Ledgers.NoTracking().Where(ant.Eq(&Lg.Code, "a")).First(ctx)
+			require.NoError(t, err)
+
+			return stored.Version
+		}
+
+		_, err = db.Ledgers.Upsert(ctx, &Ledger{ID: 1, Code: "a", Total: 1}, onCode)
+		require.NoError(t, err)
+		require.EqualValues(t, 1, version())
+
+		for i, conflict := range []*ant.Conflict{
+			onCode,
+			onCode.DoUpdate(ant.F(&Lg.Total)),
+			onCode.Set(ant.Inc(&Lg.Total, 1)),
+		} {
+			fresh := &Ledger{ID: 2, Code: "a", Total: 5}
+			_, err = db.Ledgers.Upsert(ctx, fresh, conflict)
+			require.NoError(t, err)
+			require.EqualValues(t, i+2, version(), "the version moves on, not back to 1")
+			require.EqualValues(t, i+2, fresh.Version)
+		}
+
+		_, err = db.Ledgers.Upsert(
+			ctx,
+			&Ledger{
+				ID:      1,
+				Code:    "a",
+				Total:   9,
+				Version: 1,
+			},
+			onCode,
+		)
+
+		if has(target, dialect.ConflictWhere) {
+			require.ErrorIs(t, err, ant.ErrConcurrency, "a stale copy is refused")
+			require.EqualValues(t, 4, version())
+		} else {
+			require.NoError(t, err, "ON DUPLICATE KEY has no condition")
+			require.EqualValues(t, 5, version())
+		}
+
+		n, err := db.Ledgers.InsertMany(ctx,
+			[]*Ledger{{ID: 3, Code: "a", Total: 1}, {ID: 4, Code: "b", Total: 1}},
+			ant.WithConflict(onCode))
+		require.NoError(t, err)
+		require.Positive(t, n)
+
+		stored, err := db.Ledgers.NoTracking().OrderBy(&Lg.Code).All(ctx)
+		require.NoError(t, err)
+		require.Equal(t, version(), stored[0].Version)
+		require.Greater(t, stored[0].Version, int64(1), "InsertMany moved it on too")
+		require.EqualValues(t, 1, stored[1].Version)
 	})
 }

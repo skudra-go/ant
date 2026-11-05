@@ -401,6 +401,14 @@ A plan that replaces a column builds and drops every index without `CONCURRENTLY
 
 A column that stops being generated is not replaced: `DROP EXPRESSION` (PostgreSQL 13) keeps its values and everything on it. Before this, it was dropped and added empty, which lost the data, or failed on a `NOT NULL` column with rows.
 
+## 80. Every write moves the version on
+
+An upsert that updated copied every column from the row it tried to insert, the version included, and `Insert` starts a version at 1. So the stored version went back to 1, and a copy loaded at version 1, two saves earlier, matched again and saved over both. `DoUpdate` and `Set` left the version where it was, which hid the upsert from every copy loaded before it. `Merge` did the same, and `InsertMany` with a conflict shares the upsert's clause.
+
+Now each of them moves the stored version on by one when it updates a row, as `SaveChanges` and bulk `Update` do, and a row `Merge` inserts starts at 1 unless the source gives a version. The version is ant's to keep, so naming it in `DoUpdate`, `Set`, or a `Merge` assignment is an error before anything runs.
+
+An entity passed to `Upsert` with a version of its own is a loaded copy, so its update applies only while the stored row still has that version, and otherwise `Upsert` returns a `ConcurrencyError`, as `SaveChanges` would. A zero version is a new entity, with nothing to check. `ON DUPLICATE KEY UPDATE` takes no condition, so on MySQL and MariaDB the version moves on but the copy's update goes ahead. `InsertMany` cannot tell a row's own version from the 1 it stamps on a new one, so it moves versions on without checking them.
+
 ## 81. A set operation's members keep their own paging
 
 `Union` built its statement from the left query and appended the right one, so the left query's `ORDER BY`, `LIMIT`, and `OFFSET` were written after the right member, where SQL applies them to the whole set. The youngest two users united with the oldest came back as the youngest of all three, a `Delete` on such a set removed rows outside it, and an ordering by a table's column failed on PostgreSQL, which orders a set only by its output columns. SQLite writes members without parentheses, so there the right member's paging escaped too, and SQL Server and SQLite refuse an ordered member outright.
