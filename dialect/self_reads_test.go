@@ -3,6 +3,7 @@ package dialect_test
 import (
 	"context"
 	"errors"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -458,6 +459,21 @@ func TestSelfReadInRawSQLAsMySQLReadsIt(t *testing.T) {
 			true,
 		},
 		{
+			"an executable comment's version may run into its SQL",
+			`/*!80000users */ 1 = 1 AND /*!800340users */ 1 = 1`,
+			true,
+		},
+		{
+			"a five-digit version runs into the table",
+			`user_id IN (SELECT id FROM /*!80000users*/)`,
+			true,
+		},
+		{
+			"a six-digit version, as a later MySQL may read, runs into the table",
+			`user_id IN (SELECT id FROM /*!800340users*/)`,
+			true,
+		},
+		{
 			"double quotes name the table with ANSI_QUOTES",
 			`user_id IN (SELECT id FROM "users")`,
 			true,
@@ -596,5 +612,51 @@ func TestSelfReadStarBesideColumnsIsRefused(t *testing.T) {
 	})
 	if !errors.Is(err, ant.ErrUnsupported) {
 		t.Fatalf("got %v, want ErrUnsupported", err)
+	}
+}
+
+// A wrapped subquery is written again over what it wrote first, not after a
+// copy of the statement so far, so a write with many of them renders in space
+// that grows with their number, not its square.
+func TestManySelfReadsRenderInLinearSpace(t *testing.T) {
+	users := &qb.TableRef{Name: "users"}
+	id := qb.Column{Table: users, Name: "id"}
+
+	allocated := func(n int) uint64 {
+		where := make([]qb.Cond, n)
+
+		for i := range where {
+			where[i] = qb.In{
+				Left: id,
+				Sub: &qb.Select{
+					Columns: []qb.Selected{{Value: id}},
+					From:    qb.Source{Table: users},
+				},
+			}
+		}
+
+		stmt := &qb.Update{
+			Table: users,
+			Set:   []qb.Assignment{{Column: "age", Value: qb.Param{Value: 1}}},
+			Where: where,
+		}
+
+		var before, after runtime.MemStats
+
+		runtime.GC()
+		runtime.ReadMemStats(&before)
+
+		if _, _, err := mysql.Dialect.Render(stmt); err != nil {
+			t.Fatal(err)
+		}
+
+		runtime.ReadMemStats(&after)
+
+		return after.TotalAlloc - before.TotalAlloc
+	}
+
+	small, large := allocated(500), allocated(2000)
+	if large > 8*small {
+		t.Errorf("4 times the subqueries took %.1f times the memory", float64(large)/float64(small))
 	}
 }

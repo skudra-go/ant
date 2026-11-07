@@ -1,6 +1,7 @@
 package dialect
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"slices"
@@ -49,7 +50,7 @@ type renderer struct {
 	d    Dialect
 	s    *Syntax
 	ctx  context.Context
-	sql  strings.Builder
+	sql  bytes.Buffer
 	args []any
 	err  error
 
@@ -350,7 +351,7 @@ func namesTable(q, table string) bool {
 // namesTableIn is namesTable in one SQL mode. Its comments are MySQL's: # and
 // -- to the end of the line, where -- needs a space or a control character
 // after it, and /* */, except that /*! */ holds SQL that MySQL runs, so that is
-// read on.
+// read on, past the version it may start with.
 func namesTableIn(q, table string, backslash, ansiQuotes bool) bool {
 	word := func(c byte) bool {
 		return isNameByte(c, false) || c == '$' || c >= 0x80
@@ -384,6 +385,34 @@ func namesTableIn(q, table string, backslash, ansiQuotes bool) bool {
 			i = lineEnd(i)
 		case strings.HasPrefix(rest, "/*!"):
 			i += len("/*!")
+
+			// A version may come first, of five digits, which MySQL 8.4 reads,
+			// or six, as a later version may, and the SQL may follow it with no
+			// space between. Both are read, as either may be the server's.
+			digits := 0
+			for i+digits < len(q) && '0' <= q[i+digits] && q[i+digits] <= '9' {
+				digits++
+			}
+
+			for _, version := range []int{5, 6} {
+				j := i + version
+				if version > digits || j == len(q) || !word(q[j]) {
+					continue
+				}
+
+				end := j
+				for end < len(q) && word(q[end]) {
+					end++
+				}
+
+				if strings.EqualFold(q[j:end], table) {
+					return true
+				}
+			}
+
+			if digits >= 5 {
+				i += 5
+			}
 		case strings.HasPrefix(rest, "/*"):
 			if end := strings.Index(rest[2:], "*/"); end >= 0 {
 				i += 2 + end + 2
@@ -956,9 +985,7 @@ func (r *renderer) subquery(s *qb.Select, exists bool) {
 
 	// Written again inside the wrapper, which names its columns itself, as IN,
 	// EXISTS, and a value read them by position.
-	text := r.sql.String()
-	r.sql.Reset()
-	r.sql.WriteString(text[:start])
+	r.sql.Truncate(start)
 	r.args = r.args[:args]
 	r.replay = r.lazies
 
