@@ -11,6 +11,7 @@ import (
 
 	"github.com/skudra-go/ant/dialect"
 	"github.com/skudra-go/ant/internal/exec"
+	"github.com/skudra-go/ant/internal/track"
 )
 
 // txState is an open transaction, shared by nested Tx calls.
@@ -18,17 +19,98 @@ type txState struct {
 	tx      *sql.Tx
 	done    bool
 	depth   int                     // nested savepoints so far, for naming
-	undo    []func()                // tracker changes to reverse on rollback
+	undo    []undoStep              // tracker changes to settle when it ends
 	pending []func(context.Context) // observers to run after commit
+	// external marks a transaction from UseTx, which its caller ends, so ant
+	// never learns whether it committed. open counts the savepoints ant has
+	// open in it, whose end ant does see.
+	external bool
+	open     int
+	// ctx is the context the transaction began with, and stop stops the
+	// rollback that waits for it to end. taken is the connection ant took for
+	// the transaction, given back when it ends.
+	ctx   context.Context
+	stop  func() bool
+	taken *sql.Conn
 }
 
-// committed runs what was waiting for the commit.
+// sees reports whether ant will learn how the changes made in t now end: in a
+// transaction of its own always, and in one from UseTx only inside a savepoint
+// ant opened, which it releases or rolls back itself.
+func (t *txState) sees() bool { return !t.external || t.open > 0 }
+
+// undoStep is one tracker change the transaction settles: undone if it rolls
+// back, kept if it commits. A session made inside a transaction has a tracker of
+// its own, so each step names the tracker it changes.
+type undoStep struct {
+	tracker *track.Tracker
+	change  track.Change
+}
+
+// record hands tracker changes to the transaction, which settles them when it
+// ends. A change made outside a transaction stands at once, and is kept, as is
+// one made where ant cannot see the transaction end: holding it would keep its
+// history for good.
+func (s *state) record(changes ...track.Change) {
+	for _, c := range changes {
+		if s.tx == nil || !s.tx.sees() {
+			c.Keep()
+
+			continue
+		}
+
+		s.tx.undo = append(s.tx.undo, undoStep{s.tracker, c})
+	}
+}
+
+// committed keeps the tracker changes the transaction made and runs what was
+// waiting for the commit.
 func (t *txState) committed(ctx context.Context) {
+	steps := t.undo
+	t.undo = nil
+
+	settle(ctx, steps, track.Change.Keep)
+
 	for _, f := range t.pending {
 		f(ctx)
 	}
 
 	t.pending = nil
+}
+
+// settle runs each step's change, by tracker, in the order given. It writes to
+// tracked entries, so each tracker's run while it is claimed: at once if ctx's
+// operation holds it, and otherwise through Tracker.Settle, which never waits.
+func settle(ctx context.Context, steps []undoStep, run func(track.Change)) {
+	var trackers []*track.Tracker
+
+	for _, step := range steps {
+		if !slices.Contains(trackers, step.tracker) {
+			trackers = append(trackers, step.tracker)
+		}
+	}
+
+	for _, tracker := range trackers {
+		var work []track.Change
+
+		for _, step := range steps {
+			if step.tracker == tracker {
+				work = append(work, step.change)
+			}
+		}
+
+		do := func() {
+			for _, c := range work {
+				run(c)
+			}
+		}
+
+		if holding(ctx, tracker) {
+			do()
+		} else {
+			tracker.Settle(do)
+		}
+	}
 }
 
 // txOptions holds what TxOption configures.
@@ -80,13 +162,95 @@ func (s *state) starter() beginner {
 	return s.db
 }
 
+// begin starts a transaction that ant ends itself. go-mssqldb, as of v1.11.2,
+// rolls back with the context the transaction began with, and if that context
+// has ended, it leaves a goroutine reading the connection after the connection
+// went back to the pool, where the next statement on it races that goroutine.
+// So the transaction begins on a context that does not end, on a connection
+// taken with ctx, which still bounds the wait for one. Its statements run with
+// their own contexts, and if ctx ends first, the transaction is rolled back
+// from a goroutine of its own, as database/sql would do, but with a context the
+// driver can finish on.
 func (s *state) begin(ctx context.Context, o txOptions) (*txState, error) {
-	tx, err := s.starter().BeginTx(ctx, &o.sql)
-	if err != nil {
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 
-	return &txState{tx: tx}, nil
+	t := &txState{ctx: ctx}
+	on := s.starter()
+
+	if s.conn == nil {
+		conn, err := s.db.Conn(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		t.taken, on = conn, conn
+	}
+
+	tx, err := on.BeginTx(context.WithoutCancel(ctx), &o.sql)
+	if err != nil {
+		t.giveBack()
+
+		return nil, err
+	}
+
+	t.tx = tx
+
+	t.stop = context.AfterFunc(ctx, func() {
+		_ = tx.Rollback()
+
+		t.giveBack()
+	})
+
+	return t, nil
+}
+
+// commit commits the transaction and gives back its connection. If the context
+// it began with has ended, it rolls back instead, as database/sql does. A
+// transaction from UseTx began elsewhere, and has neither.
+func (t *txState) commit() error {
+	defer t.giveBack()
+
+	if t.ended() {
+		return errors.Join(t.ctx.Err(), t.rollback())
+	}
+
+	return t.tx.Commit()
+}
+
+// ended stops the rollback that waits for the context the transaction began
+// with, and reports whether that context has ended.
+func (t *txState) ended() bool {
+	if t.stop == nil {
+		return false
+	}
+
+	t.stop()
+
+	return t.ctx.Err() != nil
+}
+
+// rollback rolls the transaction back and gives back its connection. A
+// transaction that is already over, as when its context ended, is not an error.
+func (t *txState) rollback() error {
+	defer t.giveBack()
+
+	t.ended()
+
+	if err := t.tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+		return err
+	}
+
+	return nil
+}
+
+// giveBack returns the connection ant took for the transaction to the pool,
+// once the transaction has let go of it. Doing so twice does nothing.
+func (t *txState) giveBack() {
+	if t.taken != nil {
+		_ = t.taken.Close()
+	}
 }
 
 // transact runs write. With several set, it uses a transaction of its own, or
@@ -100,31 +264,18 @@ func (s *state) transact(ctx context.Context, several bool, write func(exec.Exec
 		return s.savepoint(ctx, func() error { return write(s.exec) })
 	}
 
-	tx, err := s.starter().BeginTx(ctx, nil)
+	t, err := s.begin(ctx, txOptions{})
 	if err != nil {
 		return err
 	}
 
-	return finish(tx, write(exec.Wrap(tx, s.settings.interceptors, false, s.settings.detailed)))
-}
-
-// finish commits on success and rolls back on failure.
-func finish(tx *sql.Tx, err error) error {
-	if err != nil {
-		return errors.Join(err, rollback(tx))
+	if err := write(
+		exec.Wrap(t.tx, s.settings.interceptors, false, s.settings.detailed),
+	); err != nil {
+		return errors.Join(err, t.rollback())
 	}
 
-	return tx.Commit()
-}
-
-// rollback ends tx. A cancelled context ends a transaction by itself, so a
-// transaction that is already over is not an error here.
-func rollback(tx *sql.Tx) error {
-	if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
-		return err
-	}
-
-	return nil
+	return t.commit()
 }
 
 func (s *state) savepoint(ctx context.Context, body func() error) error {
@@ -139,8 +290,16 @@ func (s *state) savepoint(ctx context.Context, body func() error) error {
 
 	mark, waiting := len(root.undo), len(root.pending)
 
-	if err := body(); err != nil {
-		root.rollbackTo(mark)
+	// The savepoint is open while body runs, however body ends.
+	err := func() error {
+		root.open++
+
+		defer func() { root.open-- }()
+
+		return body()
+	}()
+	if err != nil {
+		root.rollbackTo(ctx, mark)
 		root.pending = root.pending[:waiting]
 		// The caller's context may be cancelled, and the transaction must still
 		// return to the savepoint.
@@ -149,30 +308,37 @@ func (s *state) savepoint(ctx context.Context, body func() error) error {
 		return errors.Join(err, undo)
 	}
 
+	if !root.sees() {
+		// What the savepoint kept is now the caller's transaction's, whose end
+		// ant does not see: its changes stand, and its observers never run.
+		steps := slices.Clone(root.undo[mark:])
+		root.undo = root.undo[:mark]
+		root.pending = root.pending[:waiting]
+
+		settle(ctx, steps, track.Change.Keep)
+	}
+
 	if release == "" {
 		return nil
 	}
 
-	_, err := s.exec.ExecContext(ctx, release+name)
+	_, err = s.exec.ExecContext(ctx, release+name)
 
 	return err
 }
 
-// rollbackTo reverses tracker changes back to mark.
-func (t *txState) rollbackTo(mark int) {
-	undo := t.undo[mark:]
-	slices.Reverse(undo)
-
-	for _, f := range undo {
-		f()
-	}
-
+// rollbackTo undoes the tracker changes made since mark, newest first.
+func (t *txState) rollbackTo(ctx context.Context, mark int) {
+	steps := slices.Clone(t.undo[mark:])
 	t.undo = t.undo[:mark]
+
+	slices.Reverse(steps)
+	settle(ctx, steps, track.Change.Undo)
 }
 
 // abort forgets everything the transaction did.
-func (t *txState) abort() {
-	t.rollbackTo(0)
+func (t *txState) abort(ctx context.Context) {
+	t.rollbackTo(ctx, 0)
 	t.pending = nil
 	t.done = true
 }
@@ -186,7 +352,13 @@ func Attempts(n int) TxOption { return func(o *txOptions) { o.attempts = n } }
 // The transaction commits if f returns nil, and rolls back if it returns an
 // error or panics. Inside a transaction, Tx uses a savepoint instead, so only
 // the inner part rolls back. The context shares this one's tracker, and a
-// rollback restores the tracker's view of what was saved.
+// rollback restores the tracker's view of what was saved, and takes back the
+// keys, timestamps, and versions the saves wrote into tracked entities, so the
+// next SaveChanges writes them again.
+//
+// A transaction is one connection, which runs one statement at a time, so use
+// tx from one goroutine at a time, as with a *sql.Tx: goroutines that share it
+// take turns. Give each goroutine a transaction of its own to work at once.
 func (c *Context) Tx[DB any](ctx context.Context, f func(tx *DB) error, options ...TxOption) error {
 	s := c.state
 	if s == nil {
@@ -244,28 +416,28 @@ func runTx[DB any](ctx context.Context, s *state, o txOptions, f func(tx *DB) er
 
 	db, err := bindState[DB](s.child(t))
 	if err != nil {
-		return errors.Join(err, rollback(t.tx))
+		return errors.Join(err, t.rollback())
 	}
 
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			t.abort()
-			_ = rollback(t.tx)
+			t.abort(ctx)
+			_ = t.rollback()
 
 			panic(recovered)
 		}
 	}()
 
 	if err := f(db); err != nil {
-		t.abort()
+		t.abort(ctx)
 
-		return errors.Join(err, rollback(t.tx))
+		return errors.Join(err, t.rollback())
 	}
 
 	t.done = true
 
-	if err := t.tx.Commit(); err != nil {
-		t.abort()
+	if err := t.commit(); err != nil {
+		t.abort(ctx)
 
 		return err
 	}
@@ -299,15 +471,18 @@ func Begin[DB any](ctx context.Context, db *DB, options ...TxOption) (*DB, error
 
 	tx, err := bindState[DB](s.child(t))
 	if err != nil {
-		return nil, errors.Join(err, rollback(t.tx))
+		return nil, errors.Join(err, t.rollback())
 	}
 
 	return tx, nil
 }
 
 // UseTx returns a context bound to a transaction started outside ant, so that
-// ant's queries can join it. The caller commits or rolls back tx. Observers wait
-// for a commit that ant cannot see, so they do not run.
+// ant's queries can join it. The caller commits or rolls back tx, which ant does
+// not see: the tracker takes what ant saves in it as saved, so after rolling tx
+// back, reload or clear what it saved. A savepoint ant makes in it, through Tx,
+// is ant's own, and its rollback is taken back in the tracker as usual.
+// Observers wait for a commit that ant cannot see, so they do not run.
 func UseTx[DB any](db *DB, tx *sql.Tx) (*DB, error) {
 	h, ok := any(db).(Handle)
 	if !ok {
@@ -319,12 +494,13 @@ func UseTx[DB any](db *DB, tx *sql.Tx) (*DB, error) {
 		return nil, ErrNotOpen
 	}
 
-	return bindState[DB](s.child(&txState{tx: tx}))
+	return bindState[DB](s.child(&txState{tx: tx, external: true}))
 }
 
 // UseConn returns a context on one connection from database/sql, such as one
 // holding a session setting or an advisory lock. Everything it does, including
-// transactions, stays on conn. It shares db's tracker. The caller closes conn.
+// transactions, stays on conn, so use it from one goroutine at a time, as a
+// transaction. It shares db's tracker. The caller closes conn.
 func UseConn[DB any](db *DB, conn *sql.Conn) (*DB, error) {
 	h, ok := any(db).(Handle)
 	if !ok {
@@ -376,8 +552,8 @@ func (c *Context) Commit() error {
 
 	t.done = true
 
-	if err := t.tx.Commit(); err != nil {
-		t.abort()
+	if err := t.commit(); err != nil {
+		t.abort(context.Background())
 
 		return err
 	}
@@ -394,9 +570,9 @@ func (c *Context) Rollback() error {
 		return err
 	}
 
-	t.abort()
+	t.abort(context.Background())
 
-	return rollback(t.tx)
+	return t.rollback()
 }
 
 // Savepoint marks a point to return to with RollbackTo.

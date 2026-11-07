@@ -33,6 +33,7 @@ var syntax = dialect.Syntax{
 	NoBooleans:         true,
 	NoRowIn:            true,
 	MergeSemicolon:     true,
+	MergeHoldLock:      true,
 	TransactSavepoints: true,
 	UTCTimes:           true,
 	Functions:          map[string]string{"LENGTH": "LEN", "RANDOM": "NEWID"},

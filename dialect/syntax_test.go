@@ -89,6 +89,15 @@ func TestSyntax(t *testing.T) {
 
 	empty := &qb.Insert{Table: users}
 
+	merge := &qb.Merge{
+		Table: users,
+		Using: qb.Source{Table: users},
+		On:    []qb.Cond{qb.Compare{Left: age, Op: qb.OpEq, Right: qb.Param{Value: 1}}},
+		Actions: []qb.MergeAction{
+			{Columns: []string{"age"}, Values: []qb.Expr{qb.Param{Value: 1}}},
+		},
+	}
+
 	for _, tt := range []struct {
 		name string
 		d    dialect.Dialect
@@ -113,6 +122,9 @@ func TestSyntax(t *testing.T) {
 		{"sqlserver paging", sqlserver.Dialect, page, "SELECT [age] FROM [users] ORDER BY (SELECT NULL) OFFSET @p1 ROWS FETCH NEXT @p2 ROWS ONLY"},
 		{"sqlserver insert", sqlserver.Dialect, insert, "INSERT INTO [users] ([age]) OUTPUT INSERTED.[id] VALUES (@p1)"},
 		{"sqlserver delete", sqlserver.Dialect, remove, "DELETE FROM [users] OUTPUT DELETED.[id] WHERE [age] = @p1"},
+		// Two MERGEs at once must not both find no row and both insert it.
+		{"sqlserver merge", sqlserver.Dialect, merge, "MERGE INTO [users] WITH (HOLDLOCK) USING [users] ON [age] = @p1 WHEN NOT MATCHED THEN INSERT ([age]) VALUES (@p2);"},
+		{"postgres merge", postgres.Dialect, merge, `MERGE INTO "users" USING "users" ON "age" = $1 WHEN NOT MATCHED THEN INSERT ("age") VALUES ($2)`},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			got, _, err := tt.d.Render(tt.stmt)

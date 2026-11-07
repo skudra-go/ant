@@ -86,8 +86,8 @@ func TestTrackingOff(t *testing.T) {
 
 		user.Age = 99
 
-		require.False(t, db.HasChanges())
-		require.Empty(t, ant.Tracked[User](db))
+		require.False(t, fixture.HasChanges(t, db))
+		require.Empty(t, fixture.Tracked[User](t, db))
 		require.NoError(t, db.SaveChanges(ctx))
 		require.Equal(t, 30, stored(t, db, alice.ID).Age)
 	})

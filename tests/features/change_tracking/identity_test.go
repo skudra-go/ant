@@ -52,7 +52,12 @@ func TestIdentity(t *testing.T) {
 			require.Equal(t, 30, first.Age, "a bulk update does not touch tracked entities")
 			require.NoError(t, session.Users.Reload(ctx, first))
 			require.Equal(t, 41, first.Age)
-			require.False(t, session.HasChanges(), "the reloaded values are the new baseline")
+
+			require.False(
+				t,
+				fixture.HasChanges(t, session),
+				"the reloaded values are the new baseline",
+			)
 		})
 
 		t.Run("sessions are separate", func(t *testing.T) {
@@ -65,12 +70,12 @@ func TestIdentity(t *testing.T) {
 			fresh := ant.Session(db)
 			owner, err := fresh.Users.Include(&U.Posts).Find(ctx, alice.ID)
 			require.NoError(t, err)
-			require.Len(t, ant.Tracked[Post](fresh), len(owner.Posts))
+			require.Len(t, fixture.Tracked[Post](t, fresh), len(owner.Posts))
 
 			require.Same(
 				t,
 				&owner.Posts[0],
-				ant.Tracked[Post](fresh)[0],
+				fixture.Tracked[Post](t, fresh)[0],
 				"the tracked instance is the slice element",
 			)
 		})

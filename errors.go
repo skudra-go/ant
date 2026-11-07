@@ -61,6 +61,16 @@ var (
 	// ErrConcurrency reports that SaveChanges found a row changed or removed
 	// since it was loaded. Nothing was saved.
 	ErrConcurrency = errors.New("ant: row was changed or removed since it was loaded")
+	// ErrConcurrentUse reports a context with change tracking used by two
+	// operations at once. A tracking context is one unit of work: give each
+	// request its own with Session, and share only a context opened with
+	// WithTracking(false). A hook that queries must pass on the context.Context
+	// it was given, which marks its query as part of the operation that ran it.
+	ErrConcurrentUse = errors.New(
+		"ant: a tracking context was used by two operations at once; give each " +
+			"goroutine its own ant.Session, share only contexts WithTracking(false), " +
+			"and query from hooks with the context.Context they are given",
+	)
 	// ErrKeyChanged reports a tracked entity whose primary key was modified. A
 	// key identifies the row, so use a new entity instead.
 	ErrKeyChanged = errors.New("ant: primary key of a tracked entity was changed")

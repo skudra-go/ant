@@ -106,7 +106,7 @@ func TestFieldRoles(t *testing.T) {
 				account.Created = "changed"
 				account.Slug = "changed"
 
-				require.False(t, db.HasChanges())
+				require.False(t, fixture.HasChanges(t, db))
 				require.NoError(t, db.SaveChanges(ctx))
 				require.Equal(t, "now", stored().Created)
 			},

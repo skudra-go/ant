@@ -90,7 +90,7 @@ func TestCompositeKey(t *testing.T) {
 		})
 
 		t.Run("Remove deletes the right row", func(t *testing.T) {
-			require.NoError(t, ant.Remove(db, read))
+			require.NoError(t, ant.Remove(ctx, db, read))
 			require.NoError(t, db.SaveChanges(ctx))
 			n, err := db.Grants.Count(ctx)
 			require.NoError(t, err)

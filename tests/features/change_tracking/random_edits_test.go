@@ -146,7 +146,7 @@ func TestRandomEdits(t *testing.T) {
 					}
 
 					want.compare(t, db, seed, step)
-					require.False(t, session.HasChanges(), "seed %d step %d", seed, step)
+					require.False(t, fixture.HasChanges(t, session), "seed %d step %d", seed, step)
 
 					// Some of the time, continue from a fresh load.
 					if r.IntN(8) == 0 {

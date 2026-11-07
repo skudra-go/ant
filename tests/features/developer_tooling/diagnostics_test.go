@@ -222,7 +222,7 @@ func TestEvents(t *testing.T) {
 		loaded, err := db.Users.Find(ctx, alice.ID)
 		require.NoError(t, err)
 		require.Empty(t, log, "the same instance was already tracked")
-		require.NoError(t, ant.Remove(db, loaded))
+		require.NoError(t, ant.Remove(ctx, db, loaded))
 		require.Equal(t, []string{"Unchanged to Deleted"}, log)
 		log = nil
 
@@ -234,11 +234,19 @@ func TestEvents(t *testing.T) {
 		t.Run("a failed save says so", func(t *testing.T) {
 			log = nil
 
-			require.NoError(t, ant.Add(db, &fixture.User{Name: "A", Email: "same@example.com"}))
-			require.NoError(t, ant.Add(db, &fixture.User{Name: "B", Email: "same@example.com"}))
+			require.NoError(
+				t,
+				ant.Add(ctx, db, &fixture.User{Name: "A", Email: "same@example.com"}),
+			)
+
+			require.NoError(
+				t,
+				ant.Add(ctx, db, &fixture.User{Name: "B", Email: "same@example.com"}),
+			)
+
 			require.Error(t, db.SaveChanges(ctx))
 			require.Contains(t, log, "failed")
-			db.ClearTracked()
+			require.NoError(t, db.ClearTracked(ctx))
 		})
 	})
 }

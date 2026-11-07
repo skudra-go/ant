@@ -11,6 +11,7 @@ ant runs on five databases. PostgreSQL has everything. The others run queries, w
 | Migrations, `EnsureCreated`, `SchemaOf` | Yes | No | No | No | No |
 | Whole feature suite (`tests/features`) | Yes | No | No | No | No |
 | Conformance suite (`tests/conformance_test.go`) | Yes | Yes | Yes | Yes | Yes |
+| Concurrency suite (`tests/concurrency`) | Yes | Yes | Yes | Yes | Yes |
 | Upsert | Yes | Yes | Yes | Yes | No |
 | `MERGE` | From 15 | No | No | No | Yes |
 | Row locks | Yes | Yes | `ForUpdate` only | No | No |
@@ -55,7 +56,13 @@ Error helpers mean the same everywhere. `ant.IsUniqueViolation` works on all fiv
 
 **`OUTPUT` on SQL Server.** SQL Server refuses it on a table with triggers, so a model that needs a key back cannot be inserted into one.
 
-**Upserts on SQL Server.** There is no `ON CONFLICT`. Use `ant.Merge`.
+**Upserts on SQL Server.** There is no `ON CONFLICT`. Use `ant.Merge`, which ant writes with `WITH (HOLDLOCK)` there: without it, two `MERGE`s at once can both find no row, and both insert it.
+
+**`MERGE` at once on PostgreSQL.** PostgreSQL's own documentation says a `MERGE` that inserts a row another one inserted meanwhile fails with a unique violation, which the application retries. `Upsert` has no such failure there.
+
+**Retries.** `ant.IsRetryable`, and so `ant.Attempts`, take deadlocks and serialization failures on every database: `40001` and `40P01` on PostgreSQL, deadlocks on MySQL and MariaDB, error 1020 on MariaDB, which from 11.6 rolls a transaction back when a row it reads changed since its snapshot, deadlocks on SQL Server, and a busy database on SQLite.
+
+**Writers at once on SQLite.** SQLite has one writer at a time. A second connection that writes fails at once with "database is locked" unless the DSN makes it wait, and a transaction that reads and then writes can fail even then, unless it takes the write lock when it begins: use `_pragma=busy_timeout(5000)&_txlock=immediate`. `PRAGMA journal_mode=WAL` lets readers go on while one writes; it stays with the file, so run it once rather than in the DSN, where every new connection would need the write lock to set it.
 
 **Paging on SQL Server.** `OFFSET ... FETCH` needs an `ORDER BY`, so ant adds a meaningless one if the query has none. SQL Server refuses a `Limit` of zero.
 
@@ -76,7 +83,9 @@ import _ "modernc.org/sqlite"                 // SQLite
 import _ "github.com/microsoft/go-mssqldb"    // SQL Server
 ```
 
-Use `parseTime=true` in a MySQL DSN, or times come back as bytes. Use `_pragma=foreign_keys(1)` in a SQLite DSN, or foreign keys are not enforced.
+Use `parseTime=true` in a MySQL DSN, or times come back as bytes. Use `_pragma=foreign_keys(1)` in a SQLite DSN, or foreign keys are not enforced, and see above for writers at once.
+
+`go-mssqldb`, as of v1.11.2, rolls a transaction back with the context it began with, and if that context has ended, it leaves a goroutine reading the connection after the connection went back to the pool, where the next statement races it. ant begins its own transactions, from `Tx`, `Begin`, `SaveChanges`, and `DryRun`, on a context that does not end, on a connection taken with yours, and rolls them back itself when yours ends, so they never meet this. A transaction you begin yourself and pass to `UseTx` can: on SQL Server, end it before its context does.
 
 ## Adding a dialect
 

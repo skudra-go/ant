@@ -177,7 +177,8 @@ func DryRun[DB any](ctx context.Context, db *DB, fn func(tx *DB) error) ([]State
 	if err != nil {
 		return nil, err
 	}
-	defer rollback(t.tx)
+
+	defer func() { _ = t.rollback() }()
 
 	tx, err := bindState[DB](s.child(t))
 	if err != nil {
@@ -185,12 +186,12 @@ func DryRun[DB any](ctx context.Context, db *DB, fn func(tx *DB) error) ([]State
 	}
 
 	if err := fn(tx); err != nil {
-		t.abort()
+		t.abort(ctx)
 
 		return recorded.statements, err
 	}
 
-	t.abort()
+	t.abort(ctx)
 
 	return recorded.statements, nil
 }

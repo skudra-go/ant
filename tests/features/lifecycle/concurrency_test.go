@@ -112,7 +112,7 @@ func TestOptimisticConcurrency(t *testing.T) {
 			require.NoError(t, session.Pages.Insert(ctx, page))
 			_, err := db.Pages.Where(ant.Eq(&Pg.ID, page.ID)).Update(ctx, ant.Set(&Pg.Title, "x"))
 			require.NoError(t, err)
-			require.NoError(t, ant.Remove(session, page))
+			require.NoError(t, ant.Remove(ctx, session, page))
 			require.ErrorIs(t, session.SaveChanges(ctx), ant.ErrConcurrency)
 		})
 

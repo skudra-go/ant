@@ -201,7 +201,7 @@ func TestConformanceBulkInsertKeys(t *testing.T) {
 		// SaveChanges batches these where it can.
 		more := []*User{{Name: "d", Email: "d@x"}, {Name: "e", Email: "e@x"}}
 		for _, u := range more {
-			require.NoError(t, ant.Add(app, u))
+			require.NoError(t, ant.Add(ctx, app, u))
 		}
 
 		require.NoError(t, app.SaveChanges(ctx))

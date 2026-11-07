@@ -222,7 +222,7 @@ func TestManyToMany(t *testing.T) {
 			n, err := db.Courses.Where(ant.Eq(&Cs.Title, "Art")).Count(ctx)
 			require.NoError(t, err)
 			require.EqualValues(t, 1, n, "removing a link never deletes the course")
-			require.False(t, session.HasChanges())
+			require.False(t, fixture.HasChanges(t, session))
 		})
 
 		t.Run("a new target is inserted and linked", func(t *testing.T) {

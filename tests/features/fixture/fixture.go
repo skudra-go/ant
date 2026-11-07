@@ -2,6 +2,7 @@
 package fixture
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"testing"
@@ -163,6 +164,51 @@ func Names[S ~[]E, E any](users S) []string {
 			out = append(out, u.Name)
 		}
 	}
+
+	return out
+}
+
+// HasChanges reports whether db has anything to save, failing the test on an
+// error.
+func HasChanges(t *testing.T, db ant.Handle) bool {
+	t.Helper()
+
+	changed, err := db.(interface {
+		HasChanges(ctx context.Context) (bool, error)
+	}).HasChanges(t.Context())
+	require.NoError(t, err)
+
+	return changed
+}
+
+// Entry returns an entity's tracking state, failing the test on an error.
+func Entry[T any](t *testing.T, db ant.Handle, entity *T) *ant.EntityEntry[T] {
+	t.Helper()
+
+	entry, err := ant.Entry(t.Context(), db, entity)
+	require.NoError(t, err)
+
+	return entry
+}
+
+// Tracked returns the tracked entities of type T, failing the test on an error.
+func Tracked[T any](t *testing.T, db ant.Handle) []*T {
+	t.Helper()
+
+	out, err := ant.Tracked[T](t.Context(), db)
+	require.NoError(t, err)
+
+	return out
+}
+
+// DebugTracked describes what db tracks, for a failure message.
+func DebugTracked(t *testing.T, db ant.Handle) string {
+	t.Helper()
+
+	out, err := db.(interface {
+		DebugTracked(ctx context.Context) (string, error)
+	}).DebugTracked(t.Context())
+	require.NoError(t, err)
 
 	return out
 }

@@ -357,6 +357,25 @@ func loadPivot[R any](
 	return targets, foreign, nil
 }
 
+// distinct drops repeated parents, as from Load given one entity twice, so that
+// each gets its related rows once.
+func distinct(parents []unsafe.Pointer) []unsafe.Pointer {
+	seen := make(map[unsafe.Pointer]bool, len(parents))
+
+	return slices.DeleteFunc(slices.Clone(parents), func(p unsafe.Pointer) bool {
+		if seen[p] {
+			return true
+		}
+
+		seen[p] = true
+
+		return false
+	})
+}
+
+// loadMany fills a one-to-many relation. Each parent's slice is built apart and
+// then set in one write, so a parent never holds half of its rows, or another
+// load's rows as well.
 func loadMany[R any](
 	ctx context.Context,
 	r *meta.Relation,
@@ -364,11 +383,8 @@ func loadMany[R any](
 	sub *Query[R],
 	parents []unsafe.Pointer,
 ) error {
+	parents = distinct(parents)
 	groups, keys := groupByKey(link.Local, parents)
-
-	for _, p := range parents {
-		*slot[[]R](p, r) = []R{}
-	}
 
 	if r.Pivot != nil {
 		var err error
@@ -385,6 +401,8 @@ func loadMany[R any](
 		return err
 	}
 
+	loaded := make(map[unsafe.Pointer][]R, len(parents))
+
 	for _, child := range children {
 		key, ok := link.Foreign.Key(unsafe.Pointer(child))
 		if !ok {
@@ -392,18 +410,23 @@ func loadMany[R any](
 		}
 
 		for _, p := range groups[key] {
-			field := slot[[]R](p, r)
-			*field = append(*field, *child)
+			loaded[p] = append(loaded[p], *child)
 		}
 	}
 
-	if r.Inverse != nil {
-		for _, p := range parents {
-			elements := *slot[[]R](p, r)
+	for _, p := range parents {
+		elements := loaded[p]
+		if elements == nil {
+			elements = []R{}
+		}
+
+		if r.Inverse != nil {
 			for i := range elements {
 				*(*unsafe.Pointer)(r.Inverse.Slot(unsafe.Pointer(&elements[i]))) = p
 			}
 		}
+
+		*slot[[]R](p, r) = elements
 	}
 
 	if sub.state != nil && sub.tracked() {
@@ -435,11 +458,7 @@ func trackMany[R any](s *state, r *meta.Relation, link meta.Link, parents []unsa
 		}
 
 		if e := s.tracker.Get(p); e != nil {
-			if e.Members == nil {
-				e.Members = map[*meta.Relation]map[any]*track.Entry{}
-			}
-
-			e.Members[r] = members
+			e.SetMembers(r, members)
 		}
 	}
 }
@@ -465,9 +484,7 @@ func loadOne[R any](
 		return err
 	}
 
-	for _, p := range parents {
-		*slot[*R](p, r) = nil
-	}
+	loaded := make(map[unsafe.Pointer]*R, len(parents))
 
 	for _, child := range children {
 		key, ok := link.Foreign.Key(unsafe.Pointer(child))
@@ -476,10 +493,14 @@ func loadOne[R any](
 		}
 
 		for _, p := range groups[key] {
-			if field := slot[*R](p, r); *field == nil {
-				*field = child
+			if _, seen := loaded[p]; !seen {
+				loaded[p] = child
 			}
 		}
+	}
+
+	for _, p := range parents {
+		*slot[*R](p, r) = loaded[p]
 	}
 
 	if sub.state != nil && sub.tracked() {
@@ -489,12 +510,8 @@ func loadOne[R any](
 				continue
 			}
 
-			if e.Parents == nil {
-				e.Parents = map[*meta.Relation]any{}
-			}
-
 			key, _ := link.Target.KeyOf(unsafe.Pointer(*slot[*R](p, r)))
-			e.Parents[r] = key
+			e.SetParent(r, key)
 		}
 	}
 
@@ -537,6 +554,13 @@ func (t *Table[T]) run(ctx context.Context, inc include, entities []*T) error {
 		return err
 	}
 
+	ctx, release, err := t.state.claim(ctx, t.state.touchesTracker())
+	if err != nil {
+		return err
+	}
+
+	defer release()
+
 	return inc.load(ctx, parents, t.state.settings.tracking)
 }
 
@@ -568,6 +592,19 @@ func (t *Table[T]) LoadMissing[R any](ctx context.Context, rel *[]R, entities ..
 	if err != nil {
 		return err
 	}
+
+	if _, err := t.model(); err != nil {
+		return err
+	}
+
+	// The relations are read under the claim, so another operation cannot be
+	// loading them meanwhile.
+	ctx, release, err := t.state.claim(ctx, t.state.touchesTracker())
+	if err != nil {
+		return err
+	}
+
+	defer release()
 
 	var missing []*T
 

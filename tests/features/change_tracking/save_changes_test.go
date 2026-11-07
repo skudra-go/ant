@@ -79,16 +79,16 @@ func TestSaveChanges(t *testing.T) {
 		})
 
 		t.Run("nothing to save is a no-op", func(t *testing.T) {
-			require.False(t, db.HasChanges())
+			require.False(t, fixture.HasChanges(t, db))
 			require.NoError(t, db.SaveChanges(ctx))
 		})
 
 		t.Run("saving twice writes once", func(t *testing.T) {
 			alice.Age = 60
 
-			require.True(t, db.HasChanges())
+			require.True(t, fixture.HasChanges(t, db))
 			require.NoError(t, db.SaveChanges(ctx))
-			require.False(t, db.HasChanges())
+			require.False(t, fixture.HasChanges(t, db))
 		})
 	})
 }
@@ -107,7 +107,7 @@ func TestNoTracking(t *testing.T) {
 
 		require.NoError(t, session.SaveChanges(ctx))
 		require.Equal(t, 17, stored(t, db, user.ID).Age)
-		require.Equal(t, ant.Detached, ant.Entry(session, user).State())
+		require.Equal(t, ant.Detached, fixture.Entry(t, session, user).State())
 	})
 }
 
@@ -130,7 +130,7 @@ func TestNoTrackingCoversIncludes(t *testing.T) {
 				users, err := q(session).Where(ant.Eq(&U.Name, "Alice")).All(ctx)
 				require.NoError(t, err)
 				require.NotEmpty(t, users[0].Posts)
-				require.Empty(t, ant.Tracked[Post](session))
+				require.Empty(t, fixture.Tracked[Post](t, session))
 			})
 		}
 	})
@@ -148,7 +148,7 @@ func TestPartialRowsAreNotTracked(t *testing.T) {
 			Column(&U.Name).
 			Single(ctx)
 		require.NoError(t, err)
-		require.Equal(t, ant.Detached, ant.Entry(session, partial).State())
+		require.Equal(t, ant.Detached, fixture.Entry(t, session, partial).State())
 
 		full, err := session.Users.Find(ctx, partial.ID)
 		require.NoError(t, err)

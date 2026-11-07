@@ -109,6 +109,13 @@ func (t *Table[T]) insert(ctx context.Context, entities []*T, related bool) erro
 		return err
 	}
 
+	ctx, release, err := t.state.claim(ctx, t.state.touchesTracker())
+	if err != nil {
+		return err
+	}
+
+	defer release()
+
 	u := newUnit(t.state)
 
 	for _, e := range entities {
@@ -135,6 +142,13 @@ func (t *Table[T]) Find[K comparable](ctx context.Context, key K) (*T, error) {
 	if err := checkKey[K](field); err != nil {
 		return nil, err
 	}
+
+	ctx, release, err := t.state.claim(ctx, t.state.settings.tracking)
+	if err != nil {
+		return nil, err
+	}
+
+	defer release()
 
 	if t.state.settings.tracking && len(model.Filters) == 0 {
 		if v, ok := meta.KeyValue(key); ok {
@@ -185,6 +199,13 @@ func (t *Table[T]) DeleteByID[K comparable](ctx context.Context, key K) error {
 		return err
 	}
 
+	ctx, release, err := t.state.claim(ctx, t.state.touchesTracker())
+	if err != nil {
+		return err
+	}
+
+	defer release()
+
 	q := t.query()
 	q.where = keyEquals(model, field, key)
 	q.filtered = true
@@ -199,11 +220,7 @@ func (t *Table[T]) DeleteByID[K comparable](ctx context.Context, key K) error {
 	}
 
 	if v, ok := meta.KeyValue(key); ok {
-		undo := t.state.tracker.ForgetRow(model, v)
-
-		if t.state.tx != nil {
-			t.state.tx.undo = append(t.state.tx.undo, undo)
-		}
+		t.state.record(t.state.tracker.ForgetRow(model, v))
 	}
 
 	return nil
@@ -247,6 +264,13 @@ func (t *Table[T]) Reload(ctx context.Context, e *T) error {
 		return ErrNilEntity
 	}
 
+	ctx, release, err := t.state.claim(ctx, t.state.touchesTracker())
+	if err != nil {
+		return err
+	}
+
+	defer release()
+
 	q := t.query().WithDeleted()
 	q.where = keyConditions(model, unsafe.Pointer(e))
 
@@ -255,12 +279,26 @@ func (t *Table[T]) Reload(ctx context.Context, e *T) error {
 		return err
 	}
 
-	if err := readInto(rows, e); err != nil {
+	entry := t.state.tracker.Get(unsafe.Pointer(e))
+
+	// The row is read into a value of its own and copied over, so that a
+	// Scanner that fills the map, slice, or pointee e holds leaves before as it
+	// was.
+	var read T
+	if err := readInto(rows, &read); err != nil {
 		return err
 	}
 
-	if entry := t.state.tracker.Get(unsafe.Pointer(e)); entry != nil {
-		entry.Saved(track.Unchanged)
+	before := *e
+
+	for _, f := range q.columns() {
+		f.Value(unsafe.Pointer(e)).Set(f.Value(unsafe.Pointer(&read)))
+	}
+
+	if entry != nil {
+		// In a transaction, a rollback takes the read back with the rows it
+		// read: the values, and the state and snapshot.
+		t.state.record(t.state.tracker.Reloaded(entry, unsafe.Pointer(&before)))
 	}
 
 	return nil

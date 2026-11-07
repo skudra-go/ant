@@ -105,12 +105,12 @@ func TestTx(t *testing.T) {
 		t.Run("a rollback restores what the tracker thinks is saved", func(t *testing.T) {
 			require.True(
 				t,
-				db.HasChanges(),
+				fixture.HasChanges(t, db),
 				"the change from the rolled back save is pending again",
 			)
 
 			require.NoError(t, db.SaveChanges(ctx))
-			require.False(t, db.HasChanges())
+			require.False(t, fixture.HasChanges(t, db))
 		})
 
 		t.Run("a rolled back insert is not tracked", func(t *testing.T) {
@@ -121,7 +121,59 @@ func TestTx(t *testing.T) {
 				return errStop
 			})
 			require.ErrorIs(t, err, errStop)
-			require.Equal(t, ant.Detached, ant.Entry(db, u).State())
+			require.Equal(t, ant.Detached, fixture.Entry(t, db, u).State())
+		})
+
+		// The rollback takes back what the save wrote into the entity: the key
+		// the database generated and the timestamps. So the entity is new again,
+		// and the next save inserts it, with a key of its own.
+		t.Run("a rolled back save gives back the key it was given", func(t *testing.T) {
+			u := user("again")
+			require.NoError(t, ant.Add(ctx, db, u))
+
+			err := db.Tx(ctx, func(tx *AppDB) error {
+				require.NoError(t, tx.SaveChanges(ctx))
+				require.NotZero(t, u.ID)
+
+				return errStop
+			})
+			require.ErrorIs(t, err, errStop)
+			require.Zero(t, u.ID, "the key went with the row")
+			require.True(t, u.CreatedAt.IsZero())
+			require.Equal(t, ant.Added, fixture.Entry(t, db, u).State())
+
+			require.NoError(t, db.SaveChanges(ctx))
+			require.NotZero(t, u.ID)
+
+			stored, err := db.Users.NoTracking().Find(ctx, u.ID)
+			require.NoError(t, err)
+			require.Equal(t, "again", stored.Name)
+		})
+
+		t.Run("a rolled back save gives back an appended post's key", func(t *testing.T) {
+			u, err := db.Users.Include(&U.Posts).Where(ant.Eq(&U.Name, "again")).Single(ctx)
+			require.NoError(t, err)
+
+			u.Posts = append(u.Posts, fixture.Post{Title: "draft"})
+			before := u.UpdatedAt
+
+			err = db.Tx(ctx, func(tx *AppDB) error {
+				u.Name = "again, renamed"
+
+				require.NoError(t, tx.SaveChanges(ctx))
+
+				return errStop
+			})
+			require.ErrorIs(t, err, errStop)
+			require.Zero(t, u.Posts[0].ID, "the post is new again")
+			require.Equal(t, before, u.UpdatedAt, "and the update's timestamp went back")
+
+			require.NoError(t, db.SaveChanges(ctx))
+
+			again, err := db.Users.NoTracking().Include(&U.Posts).Find(ctx, u.ID)
+			require.NoError(t, err)
+			require.Equal(t, "again, renamed", again.Name)
+			require.Len(t, again.Posts, 1, "the next save inserted it")
 		})
 
 		t.Run("a cancelled context stops it", func(t *testing.T) {
@@ -232,8 +284,8 @@ func TestNestedTx(t *testing.T) {
 		t.Run("SaveChanges in a transaction leaves it usable after a failure", func(t *testing.T) {
 			err := db.Tx(ctx, func(tx *AppDB) error {
 				session := ant.Session(tx)
-				require.NoError(t, ant.Add(session, user("a1")))
-				require.NoError(t, ant.Add(session, user("outer")))
+				require.NoError(t, ant.Add(ctx, session, user("a1")))
+				require.NoError(t, ant.Add(ctx, session, user("outer")))
 				require.Error(t, session.SaveChanges(ctx))
 
 				return tx.Users.Insert(ctx, user("still works"))

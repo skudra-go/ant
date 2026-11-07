@@ -137,10 +137,10 @@ func TestDeleteOrder(t *testing.T) {
 		require.NoError(t, db.Teams.Insert(ctx, team))
 
 		// Removed parent first: the order of these calls must not matter.
-		require.NoError(t, ant.Remove(db, team))
+		require.NoError(t, ant.Remove(ctx, db, team))
 
 		for i := range team.Members {
-			require.NoError(t, ant.Remove(db, &team.Members[i]))
+			require.NoError(t, ant.Remove(ctx, db, &team.Members[i]))
 		}
 
 		team.Members = nil

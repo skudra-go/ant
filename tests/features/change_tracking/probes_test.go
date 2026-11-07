@@ -174,14 +174,14 @@ func (w *wlog) writes() []string {
 }
 
 type saver interface {
-	HasChanges() bool
+	ant.Handle
 	SaveChanges(context.Context) error
 }
 
 // idle asserts that nothing is pending and a further SaveChanges writes nothing.
 func idle(t *testing.T, ses saver, w *wlog) {
 	t.Helper()
-	assert.False(t, ses.HasChanges(), "HasChanges is still true after SaveChanges")
+	assert.False(t, fixture.HasChanges(t, ses), "HasChanges is still true after SaveChanges")
 	w.reset()
 	assert.NoError(t, ses.SaveChanges(t.Context()))
 	assert.Empty(t, w.writes(), "a second SaveChanges wrote again")
@@ -523,7 +523,7 @@ func TestProbeMoveToNewParent(t *testing.T) {
 		a, _ := loadAB(t, ses)
 
 		fresh := &Dept{Name: "Split"}
-		require.NoError(t, ant.Add(ses, fresh))
+		require.NoError(t, ant.Add(ctx, ses, fresh))
 
 		moved := a.Emps[0]
 		a.Emps = a.Emps[1:]
@@ -570,8 +570,6 @@ func TestProbeRemoveFromInsertedParentSlice(t *testing.T) {
 
 // HasChanges documents "whether SaveChanges has anything to write".
 func TestProbeHasChangesCountsRelationEdits(t *testing.T) {
-	knownProbe(t, "#44")
-
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
 		seedAB(t, db)
 		ses := ant.Session(db)
@@ -579,15 +577,42 @@ func TestProbeHasChangesCountsRelationEdits(t *testing.T) {
 
 		a.Emps = a.Emps[1:]
 
-		assert.True(t, ses.HasChanges(), "a removed child is pending")
+		assert.True(t, fixture.HasChanges(t, ses), "a removed child is pending")
 
 		a.Emps = append(a.Emps, Emp{Name: "new"})
 
-		assert.True(t, ses.HasChanges(), "an appended child is pending")
+		assert.True(t, fixture.HasChanges(t, ses), "an appended child is pending")
 
 		w.reset()
 		require.NoError(t, ses.SaveChanges(t.Context()))
 		assert.NotEmpty(t, w.writes(), "SaveChanges wrote, so HasChanges should have said so")
+	})
+}
+
+// HasChanges plans the save without changing an entity: a many-to-one relation
+// emptied on purpose clears its foreign key in SaveChanges, not before.
+func TestProbeHasChangesLeavesTheForeignKey(t *testing.T) {
+	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
+		ctx := t.Context()
+		g := &Grp{Name: "g"}
+		require.NoError(t, db.Grps.InsertOnly(ctx, g))
+		require.NoError(t, db.Items.InsertOnly(ctx, &Item{GrpID: &g.ID, Label: "i"}))
+
+		ses := ant.Session(db)
+		items, err := ses.Items.IncludeOne(&It.Grp).All(ctx)
+		require.NoError(t, err)
+
+		item := items[0]
+		item.Grp = nil
+
+		w.reset()
+		assert.True(t, fixture.HasChanges(t, ses), "the emptied relation is pending")
+		assert.Empty(t, w.writes())
+		require.NotNil(t, item.GrpID, "HasChanges cleared the foreign key")
+
+		require.NoError(t, ses.SaveChanges(ctx))
+		assert.Nil(t, item.GrpID, "SaveChanges clears it")
+		idle(t, ses, w)
 	})
 }
 
@@ -848,7 +873,7 @@ func TestProbeTxRollbackThenSaveAgain(t *testing.T) {
 		require.ErrorIs(t, err, errProbeStop)
 		assert.Equal(t, []string{"a1", "a2", "a3"}, empsOf(t, db, aSeed.ID))
 		assert.Equal(t, []string{"b1"}, empsOf(t, db, bSeed.ID))
-		assert.True(t, ses.HasChanges(), "the rolled back edit is pending again")
+		assert.True(t, fixture.HasChanges(t, ses), "the rolled back edit is pending again")
 
 		require.NoError(t, ses.SaveChanges(ctx))
 		assert.Equal(t, []string{"a2-renamed", "a3"}, empsOf(t, db, aSeed.ID))
@@ -900,7 +925,7 @@ func TestProbeTxRollbackAddThenSaveAgain(t *testing.T) {
 		ctx := t.Context()
 		ses := ant.Session(db)
 		d := &Dept{Name: "T2", Emps: []Emp{{Name: "t1"}}}
-		require.NoError(t, ant.Add(ses, d))
+		require.NoError(t, ant.Add(ctx, ses, d))
 
 		err := ses.Tx(ctx, func(tx *ProbeDB) error {
 			require.NoError(t, tx.SaveChanges(ctx))
@@ -908,7 +933,7 @@ func TestProbeTxRollbackAddThenSaveAgain(t *testing.T) {
 			return errProbeStop
 		})
 		require.ErrorIs(t, err, errProbeStop)
-		assert.Equal(t, ant.Added, ant.Entry(ses, d).State(), "back to pending insert")
+		assert.Equal(t, ant.Added, fixture.Entry(t, ses, d).State(), "back to pending insert")
 
 		require.NoError(t, ses.SaveChanges(ctx))
 		assert.NotZero(t, d.ID)
@@ -983,8 +1008,8 @@ func TestProbeDetachChildThenEditThenAttach(t *testing.T) {
 		child := &a.Emps[0]
 		id := child.ID
 
-		ant.Detach(ses, child)
-		assert.Equal(t, ant.Detached, ant.Entry(ses, child).State())
+		require.NoError(t, ant.Detach(ctx, ses, child))
+		assert.Equal(t, ant.Detached, fixture.Entry(t, ses, child).State())
 
 		child.Name = "ghost"
 
@@ -992,9 +1017,15 @@ func TestProbeDetachChildThenEditThenAttach(t *testing.T) {
 		require.NoError(t, ses.SaveChanges(ctx))
 		assert.Empty(t, w.writes())
 		assert.Equal(t, "a1", storedEmp(t, db, id).Name)
-		assert.Equal(t, ant.Detached, ant.Entry(ses, child).State(), "a save does not re-attach it")
 
-		require.NoError(t, ant.Attach(ses, child))
+		assert.Equal(
+			t,
+			ant.Detached,
+			fixture.Entry(t, ses, child).State(),
+			"a save does not re-attach it",
+		)
+
+		require.NoError(t, ant.Attach(ctx, ses, child))
 		child.Name = "real"
 
 		require.NoError(t, ses.SaveChanges(ctx))
@@ -1014,7 +1045,7 @@ func TestProbeDetachedChildRemovedFromSlice(t *testing.T) {
 		ses := ant.Session(db)
 		a, _ := loadAB(t, ses)
 
-		ant.Detach(ses, &a.Emps[0])
+		require.NoError(t, ant.Detach(ctx, ses, &a.Emps[0]))
 		a.Emps = a.Emps[1:]
 
 		require.NoError(t, ses.SaveChanges(ctx))
@@ -1037,7 +1068,7 @@ func TestProbeDetachedParentChildrenStillSave(t *testing.T) {
 		ses := ant.Session(db)
 		a, _ := loadAB(t, ses)
 
-		ant.Detach(ses, a)
+		require.NoError(t, ant.Detach(ctx, ses, a))
 		a.Emps[0].Name = "a1-edit"
 		a.Emps = a.Emps[:2]
 
@@ -1054,8 +1085,8 @@ func TestProbeReattachParentThenAppend(t *testing.T) {
 		ses := ant.Session(db)
 		a, _ := loadAB(t, ses)
 
-		ant.Detach(ses, a)
-		require.NoError(t, ant.Attach(ses, a))
+		require.NoError(t, ant.Detach(ctx, ses, a))
+		require.NoError(t, ant.Attach(ctx, ses, a))
 
 		a.Emps = append(a.Emps, Emp{Name: "a4"})
 		a.Emps[0].Name = "a1-edit"
@@ -1074,8 +1105,8 @@ func TestProbeRemoveThenAttachCancels(t *testing.T) {
 		ses := ant.Session(db)
 		a, _ := loadAB(t, ses)
 
-		require.NoError(t, ant.Remove(ses, &a.Emps[0]))
-		require.NoError(t, ant.Attach(ses, &a.Emps[0]))
+		require.NoError(t, ant.Remove(ctx, ses, &a.Emps[0]))
+		require.NoError(t, ant.Attach(ctx, ses, &a.Emps[0]))
 
 		w.reset()
 		require.NoError(t, ses.SaveChanges(ctx))
@@ -1095,8 +1126,8 @@ func TestProbeAddThenRemoveNewEntity(t *testing.T) {
 		ses := ant.Session(db)
 
 		fresh := &Dept{Name: "ephemeral"}
-		require.NoError(t, ant.Add(ses, fresh))
-		require.NoError(t, ant.Remove(ses, fresh))
+		require.NoError(t, ant.Add(ctx, ses, fresh))
+		require.NoError(t, ant.Remove(ctx, ses, fresh))
 
 		w.reset()
 		require.NoError(t, ses.SaveChanges(ctx))
@@ -1119,7 +1150,7 @@ func TestProbeAttachParentAdoptsExistingChild(t *testing.T) {
 
 		ses := ant.Session(db)
 		b := &Dept{ID: bSeed.ID, Name: "B"}
-		require.NoError(t, ant.Attach(ses, b))
+		require.NoError(t, ant.Attach(ctx, ses, b))
 
 		b.Emps = []Emp{*a1}
 
@@ -1155,7 +1186,7 @@ func TestProbeTrackGraphMovesChild(t *testing.T) {
 			},
 		}
 
-		require.NoError(t, ant.TrackGraph(ses, incoming, func(n ant.GraphNode) ant.State {
+		require.NoError(t, ant.TrackGraph(ctx, ses, incoming, func(n ant.GraphNode) ant.State {
 			if n.HasKey {
 				return ant.Modified
 			}
@@ -1475,10 +1506,10 @@ func TestProbeM2MAddedAndRemovedParentsFail(t *testing.T) {
 
 		ses := ant.Session(db)
 		fresh := &Dept{Name: "F", Badges: []Badge{*y}}
-		require.NoError(t, ant.Add(ses, fresh))
+		require.NoError(t, ant.Add(ctx, ses, fresh))
 
 		d := loadDeptBadges(t, ses, a.ID)
-		require.NoError(t, ant.Remove(ses, d))
+		require.NoError(t, ant.Remove(ctx, ses, d))
 
 		// A has emps in the database, so deleting it must fail on the FK.
 		require.Error(t, ses.SaveChanges(ctx))
@@ -1629,7 +1660,7 @@ func TestProbeSoftDeleteParentAndChildren(t *testing.T) {
 		ses := ant.Session(db)
 		crate := loadCrate(t, ses, c.ID)
 
-		require.NoError(t, ant.Remove(ses, crate))
+		require.NoError(t, ant.Remove(ctx, ses, crate))
 		crate.Gems = nil
 
 		require.NoError(t, ses.SaveChanges(ctx))
@@ -1644,7 +1675,7 @@ func TestProbeSoftDeleteParentAndChildren(t *testing.T) {
 		n, err := db.Crates.OnlyDeleted().NoTracking().Count(ctx)
 		require.NoError(t, err)
 		assert.EqualValues(t, 1, n)
-		assert.Equal(t, ant.Detached, ant.Entry(ses, crate).State())
+		assert.Equal(t, ant.Detached, fixture.Entry(t, ses, crate).State())
 		idle(t, ses, w)
 	})
 }
@@ -1657,7 +1688,7 @@ func TestProbeSoftDeleteParentOnly(t *testing.T) {
 		ses := ant.Session(db)
 		crate := loadCrate(t, ses, c.ID)
 
-		require.NoError(t, ant.Remove(ses, crate))
+		require.NoError(t, ant.Remove(ctx, ses, crate))
 		require.NoError(t, ses.SaveChanges(ctx))
 
 		live, deleted, _ := gemCounts(t, db)
@@ -1681,10 +1712,10 @@ func TestProbeRemoveParentTrackedChildrenNoCascade(t *testing.T) {
 		ses := ant.Session(db)
 		a, _ := loadAB(t, ses)
 
-		require.NoError(t, ant.Remove(ses, a))
+		require.NoError(t, ant.Remove(ctx, ses, a))
 		require.Error(t, ses.SaveChanges(ctx), "FK violation expected")
 		assert.Equal(t, []string{"a1", "a2", "a3"}, empsOf(t, db, aSeed.ID))
-		assert.True(t, ses.HasChanges())
+		assert.True(t, fixture.HasChanges(t, ses))
 
 		a.Emps = nil
 
@@ -1708,7 +1739,7 @@ func TestProbeRemoveParentTrackedChildrenCascade(t *testing.T) {
 		a, _ := loadAB(t, ses)
 
 		stale := &a.Emps[0]
-		require.NoError(t, ant.Remove(ses, a))
+		require.NoError(t, ant.Remove(ctx, ses, a))
 		require.NoError(t, ses.SaveChanges(ctx))
 		assert.Empty(t, empsOf(t, db, aSeed.ID))
 		assert.EqualValues(t, 1, empCount(t, db))
@@ -1729,10 +1760,10 @@ func TestProbeRemoveParentAndChildrenSeparately(t *testing.T) {
 		ses := ant.Session(db)
 		a, _ := loadAB(t, ses)
 
-		require.NoError(t, ant.Remove(ses, a))
+		require.NoError(t, ant.Remove(ctx, ses, a))
 
 		for i := range a.Emps {
-			require.NoError(t, ant.Remove(ses, &a.Emps[i]))
+			require.NoError(t, ant.Remove(ctx, ses, &a.Emps[i]))
 		}
 
 		require.NoError(t, ses.SaveChanges(ctx))
@@ -1808,7 +1839,7 @@ func TestProbeCatTreeFailureAndRetry(t *testing.T) {
 		assert.Zero(t, root.Children[0].Children[0].ID)
 		assert.Zero(t, root.Children[0].Children[1].ID)
 		assert.Empty(t, catNames(t, db), "nothing saved")
-		assert.False(t, ses.HasChanges())
+		assert.False(t, fixture.HasChanges(t, ses))
 
 		root.Children[0].Children[1].Name = "dup2"
 		require.NoError(t, ses.Cats.Insert(ctx, root))
@@ -2465,7 +2496,7 @@ func TestProbeTxInnerSavepointRollbackOuterCommit(t *testing.T) {
 		})
 		require.NoError(t, err)
 		assert.Equal(t, []string{"a2", "a3", "outer-edit"}, empsOf(t, db, aSeed.ID))
-		assert.True(t, ses.HasChanges(), "the inner edit is pending again")
+		assert.True(t, fixture.HasChanges(t, ses), "the inner edit is pending again")
 
 		require.NoError(t, ses.SaveChanges(ctx))
 		got := empsOf(t, db, aSeed.ID)
@@ -2619,7 +2650,9 @@ func TestProbeParentLoadedAsSliceElement(t *testing.T) {
 
 // ================================================================ concurrency of SaveChanges
 
-// Parallel SaveChanges on one session serialise; no statement is repeated.
+// Parallel SaveChanges on one session do not overlap: one that starts while
+// another runs is refused with ErrConcurrentUse (decision 79), and one that
+// starts after it finds nothing left. The changes are saved once.
 func TestProbeParallelSaveChangesSameSession(t *testing.T) {
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
 		ctx := t.Context()
@@ -2641,10 +2674,18 @@ func TestProbeParallelSaveChangesSameSession(t *testing.T) {
 		wg.Wait()
 		close(errs)
 
+		saved := 0
+
 		for err := range errs {
-			assert.NoError(t, err)
+			if !errors.Is(err, ant.ErrConcurrentUse) {
+				assert.NoError(t, err)
+
+				saved++
+			}
 		}
 
+		assert.Positive(t, saved, "every save was refused")
+		assert.False(t, fixture.HasChanges(t, ses))
 		assert.Equal(t, []string{"a2", "a3", "added", "edited"}, empsOf(t, db, aSeed.ID))
 		assert.EqualValues(t, 2, storedEmp(t, db, a.Emps[0].ID).Version)
 	})

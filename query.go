@@ -388,6 +388,13 @@ func (q *Query[T]) readyToRead() error {
 
 // fetch runs stmt and returns entities with their includes loaded.
 func (q *Query[T]) fetch(ctx context.Context, stmt *qb.Select) ([]*T, error) {
+	ctx, release, err := q.state.claim(ctx, q.tracked())
+	if err != nil {
+		return nil, err
+	}
+
+	defer release()
+
 	q.addJoined(stmt)
 
 	if q.debug {

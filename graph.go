@@ -1,6 +1,7 @@
 package ant
 
 import (
+	"context"
 	"reflect"
 	"unsafe"
 
@@ -22,7 +23,7 @@ type GraphNode struct {
 // the entity and everything below it. It is the way to save a tree whose earlier
 // values are unknown:
 //
-//	ant.TrackGraph(db, order, func(n ant.GraphNode) ant.State {
+//	ant.TrackGraph(ctx, db, order, func(n ant.GraphNode) ant.State {
 //		if n.HasKey {
 //			return ant.Modified
 //		}
@@ -30,8 +31,14 @@ type GraphNode struct {
 //	})
 //	err := db.SaveChanges(ctx)
 //
-// Foreign keys between the entities are filled in by SaveChanges.
-func TrackGraph[T any](h Handle, root *T, decide func(GraphNode) State) error {
+// Foreign keys between the entities are filled in by SaveChanges. It claims the
+// tracker while it walks, as Add does.
+func TrackGraph[T any](
+	ctx context.Context,
+	h Handle,
+	root *T,
+	decide func(GraphNode) State,
+) error {
 	s, model, err := handleModel[T](h)
 	if err != nil {
 		return err
@@ -40,6 +47,13 @@ func TrackGraph[T any](h Handle, root *T, decide func(GraphNode) State) error {
 	if root == nil {
 		return ErrNilEntity
 	}
+
+	release, err := s.hold(ctx)
+	if err != nil {
+		return err
+	}
+
+	defer release()
 
 	seen := map[unsafe.Pointer]bool{}
 	parentType := map[unsafe.Pointer]reflect.Type{}

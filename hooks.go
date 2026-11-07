@@ -346,13 +346,11 @@ func (u *unit) notify(ctx context.Context) {
 
 			entity := n.entity
 
-			if u.s.tx != nil {
-				u.s.tx.pending = append(
-					u.s.tx.pending,
-					func(ctx context.Context) { f(ctx, entity) },
-				)
-			} else {
+			switch t := u.s.tx; {
+			case t == nil:
 				f(ctx, entity)
+			case t.sees():
+				t.pending = append(t.pending, func(ctx context.Context) { f(ctx, entity) })
 			}
 		}
 	}

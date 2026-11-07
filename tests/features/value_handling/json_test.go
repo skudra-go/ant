@@ -58,7 +58,7 @@ func TestJSON(t *testing.T) {
 		t.Run("a change inside the value is tracked", func(t *testing.T) {
 			phone.Prefs.V.Tags[0] = "changed"
 
-			require.True(t, db.HasChanges())
+			require.True(t, fixture.HasChanges(t, db))
 			require.NoError(t, db.SaveChanges(ctx))
 			require.Equal(t, "changed", stored(phone.ID).Prefs.V.Tags[0])
 		})

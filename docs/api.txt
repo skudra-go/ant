@@ -53,15 +53,15 @@ ant: func (c *Conflict) And(ref FieldRef) *Conflict
 ant: func (c *Conflict) DoNothing() *Conflict
 ant: func (c *Conflict) DoUpdate(fields ...FieldRef) *Conflict
 ant: func (c *Conflict) Set(assignments ...Assignment) *Conflict
-ant: func (c *Context) ClearTracked()
+ant: func (c *Context) ClearTracked(ctx context.Context) error
 ant: func (c *Context) Close() error
 ant: func (c *Context) Commit() error
 ant: func (c *Context) DB() *sql.DB
-ant: func (c *Context) DebugTracked() string
+ant: func (c *Context) DebugTracked(ctx context.Context) (string, error)
 ant: func (c *Context) Dialect() dialect.Dialect
 ant: func (c *Context) EnsureCreated(ctx context.Context) error
 ant: func (c *Context) EnsureDeleted(ctx context.Context) error
-ant: func (c *Context) HasChanges() bool
+ant: func (c *Context) HasChanges(ctx context.Context) (bool, error)
 ant: func (c *Context) Release(ctx context.Context, name string) error
 ant: func (c *Context) Rollback() error
 ant: func (c *Context) RollbackTo(ctx context.Context, name string) error
@@ -343,11 +343,11 @@ ant: func (t *Table[T]) WithDeleted() *Query[T]
 ant: func (t *Table[T]) With[V any](field *V, value Expr[V]) *Query[T]
 ant: func (w Window) OrderBy(terms ...Sort) Window
 ant: func (w Window) PartitionBy(exprs ...exprNode) Window
-ant: func Add[T any](h Handle, entity *T) error
+ant: func Add[T any](ctx context.Context, h Handle, entity *T) error
 ant: func AllOf[V comparable](v V, fields ...*V) Cond
 ant: func And(conds ...Cond) Cond
 ant: func AnyOf[V comparable](v V, fields ...*V) Cond
-ant: func Attach[T any](h Handle, entity *T) error
+ant: func Attach[T any](ctx context.Context, h Handle, entity *T) error
 ant: func Attempts(n int) TxOption
 ant: func AvgOf[T any, V Number](ctx context.Context, q *Query[T], field *V) (float64, error)
 ant: func AvgRelated[R any, V Number](rel *[]R, field *V, conds ...Cond) Expr[sql.Null[float64]]
@@ -368,9 +368,9 @@ ant: func CurrentTx(h Handle) *sql.Tx
 ant: func DatePart(field *time.Time, part string) Expr[float64]
 ant: func Dec[V Number](field *V, n V) Assignment
 ant: func DenseRank() Expr[int64]
-ant: func Detach[T any](h Handle, entity *T)
+ant: func Detach[T any](ctx context.Context, h Handle, entity *T) error
 ant: func DryRun[DB any](ctx context.Context, db *DB, fn func(tx *DB) error) ([]Statement, error)
-ant: func Entry[T any](h Handle, entity *T) *EntityEntry[T]
+ant: func Entry[T any](ctx context.Context, h Handle, entity *T) (*EntityEntry[T], error)
 ant: func EqCol[V comparable](a, b *V) Cond
 ant: func Eq[V comparable](field *V, v V) Cond
 ant: func Exists(q Selectable) Cond
@@ -419,7 +419,7 @@ ant: func LogValues() LogOption
 ant: func Lower[V ~string](field *V) Expr[V]
 ant: func Lt[V Ordered](field *V, v V) Cond
 ant: func Lte[V Ordered](field *V, v V) Cond
-ant: func MarkModified[T any](h Handle, entity *T) error
+ant: func MarkModified[T any](ctx context.Context, h Handle, entity *T) error
 ant: func MaxOf[T any, V Ordered](ctx context.Context, q *Query[T], field *V) (V, error)
 ant: func MaxRelated[R any, V Ordered](rel *[]R, field *V, conds ...Cond) Expr[sql.Null[V]]
 ant: func Max[V Ordered](field *V) Expr[V]
@@ -452,7 +452,7 @@ ant: func Raw[T any](h Handle, query string, args ...any) *RawQuery[T]
 ant: func ReadOnly() TxOption
 ant: func RelatedOne[T, R any](h Handle, entity *T, rel **R) *Query[R]
 ant: func Related[T, R any](h Handle, entity *T, rel *[]R) *Query[R]
-ant: func Remove[T any](h Handle, entity *T) error
+ant: func Remove[T any](ctx context.Context, h Handle, entity *T) error
 ant: func RowNumber() Expr[int64]
 ant: func SQLCond(text string, args ...any) Cond
 ant: func SQLState(err error) string
@@ -473,8 +473,8 @@ ant: func TableOf[T any]() (schemaName, table string, err error)
 ant: func Then[V any](g *Grouped, field *V) *Grouped
 ant: func Today(field *time.Time) Cond
 ant: func Toggle[T, R any](ctx context.Context, h Handle, owner *T, rel *[]R, targets ...*R) error
-ant: func TrackGraph[T any](h Handle, root *T, decide func(GraphNode) State) error
-ant: func Tracked[T any](h Handle) []*T
+ant: func TrackGraph[T any](ctx context.Context, h Handle, root *T, decide func(GraphNode) State) error
+ant: func Tracked[T any](ctx context.Context, h Handle) ([]*T, error)
 ant: func Unlink[T, R any](ctx context.Context, h Handle, owner *T, rel *[]R, targets ...*R) error
 ant: func Upper[V ~string](field *V) Expr[V]
 ant: func UseConn[DB any](db *DB, conn *sql.Conn) (*DB, error)
@@ -575,6 +575,7 @@ ant: type Validator
 ant: type Window
 ant: var ErrBadSchema
 ant: var ErrConcurrency
+ant: var ErrConcurrentUse
 ant: var ErrCursor
 ant: var ErrCycle
 ant: var ErrIncludeInEach
