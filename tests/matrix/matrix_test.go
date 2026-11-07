@@ -208,6 +208,31 @@ func build(db *MatrixDB, src source, c condition, o order, p paging) *ant.Query[
 // errRollback ends a write's transaction after the test has looked inside it.
 var errRollback = errors.New("matrix: roll back")
 
+// rolledBack returns what went wrong with a write's transaction other than the
+// roll back the test asked for. Tx joins the error of a rollback that failed to
+// errRollback, and such a failure leaves rows changed for every later check, so
+// it must not pass for the one asked for.
+func rolledBack(err error) error {
+	joined, ok := err.(interface{ Unwrap() []error })
+	if !ok {
+		if errors.Is(err, errRollback) {
+			return nil
+		}
+
+		return err
+	}
+
+	var others []error
+
+	for _, e := range joined.Unwrap() {
+		if !errors.Is(e, errRollback) {
+			others = append(others, e)
+		}
+	}
+
+	return errors.Join(others...)
+}
+
 // TestMatrix runs every combination of source, condition, ordering, and paging
 // through each terminal call, and compares what comes back with the oracle.
 // Writes run in a transaction that rolls back, and the test reads inside it which
@@ -241,6 +266,28 @@ func TestKnownSkipsOnlyItsOwnFailure(t *testing.T) {
 	for i, k := range known {
 		if !k.expects(errors.New(own[i])) {
 			t.Errorf("%s does not take its own failure", k.issue)
+		}
+	}
+}
+
+// A rollback that fails is not the roll back a write check asks for.
+func TestRollbackFailureIsNotMasked(t *testing.T) {
+	failed := errors.New("rollback failed")
+
+	cases := []struct {
+		err  error
+		want error
+	}{
+		{errRollback, nil},
+		{errors.Join(errRollback), nil},
+		{errors.Join(errRollback, nil), nil},
+		{errors.Join(errRollback, failed), failed},
+		{failed, failed},
+	}
+
+	for _, tt := range cases {
+		if got := rolledBack(tt.err); !errors.Is(got, tt.want) || (tt.want == nil) != (got == nil) {
+			t.Errorf("rolledBack(%v) = %v, want %v", tt.err, got, tt.want)
 		}
 	}
 }
@@ -480,7 +527,7 @@ func refused(t *testing.T, db *MatrixDB, write func(tx *MatrixDB) error) error {
 
 		return errRollback
 	})
-	if err != nil && !errors.Is(err, errRollback) {
+	if err := rolledBack(err); err != nil {
 		return err
 	}
 
@@ -544,7 +591,7 @@ func written(
 
 		return errRollback
 	})
-	if err != nil && !errors.Is(err, errRollback) {
+	if err := rolledBack(err); err != nil {
 		return err
 	}
 

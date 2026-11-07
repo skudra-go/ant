@@ -173,6 +173,11 @@ func prNewSandbox(t *testing.T, p string) *prSandbox {
 		t.Fatalf("create scratch schema: %v", err)
 	}
 
+	// Each cleanup is set as soon as there is something to clean, so a failure
+	// below leaves nothing behind. They run newest first: the scratch pool
+	// closes before its schemas go, and admin closes last.
+	t.Cleanup(func() { prDropSchemas(admin, main, p) })
+
 	// The DSN may be a URL, with a query or not, or keyword=value pairs, so
 	// it is parsed rather than added to.
 	config, err := pgx.ParseConfig(dsn)
@@ -185,39 +190,40 @@ func prNewSandbox(t *testing.T, p string) *prSandbox {
 
 	db := stdlib.OpenDB(*config)
 	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { db.Close() })
 
-	sb := &prSandbox{
+	return &prSandbox{
 		d:     ddl(t),
 		admin: admin,
 		db:    db,
 		main:  main,
 	}
+}
 
-	t.Cleanup(func() {
-		db.Close()
-		admin.Exec(`DROP SCHEMA IF EXISTS "` + main + `" CASCADE`)
+// prDropSchemas drops the scratch schema and every schema a probe with prefix p
+// made.
+func prDropSchemas(admin *sql.DB, main, p string) {
+	admin.Exec(`DROP SCHEMA IF EXISTS "` + main + `" CASCADE`)
 
-		rows, err := admin.Query(`SELECT nspname FROM pg_namespace WHERE nspname LIKE $1`, p+"%")
-		if err != nil {
-			return
-		}
+	rows, err := admin.Query(`SELECT nspname FROM pg_namespace WHERE nspname LIKE $1`, p+"%")
+	if err != nil {
+		return
+	}
 
-		var names []string
+	var names []string
 
-		for rows.Next() {
-			var n string
-			rows.Scan(&n)
+	for rows.Next() {
+		var n string
+		if rows.Scan(&n) == nil {
 			names = append(names, n)
 		}
+	}
 
-		rows.Close()
+	rows.Close()
 
-		for _, n := range names {
-			admin.Exec(`DROP SCHEMA IF EXISTS "` + n + `" CASCADE`)
-		}
-	})
-
-	return sb
+	for _, n := range names {
+		admin.Exec(`DROP SCHEMA IF EXISTS "` + n + `" CASCADE`)
+	}
 }
 
 func prUnique(t *testing.T) string {

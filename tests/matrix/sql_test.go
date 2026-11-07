@@ -38,6 +38,8 @@ func TestSQLSnapshots(t *testing.T) {
 				t.Fatal(err)
 			}
 
+			t.Cleanup(func() { pool.Close() })
+
 			db, err := ant.Wrap[MatrixDB](d, pool, ant.WithTracking(false))
 			if err != nil {
 				t.Fatal(err)
