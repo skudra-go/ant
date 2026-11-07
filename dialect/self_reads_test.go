@@ -660,3 +660,122 @@ func TestManySelfReadsRenderInLinearSpace(t *testing.T) {
 		t.Errorf("4 times the subqueries took %.1f times the memory", float64(large)/float64(small))
 	}
 }
+
+// A table read in another schema than the written one's is another table, and
+// a read only one side gives a schema for may be the same one, as may a name in
+// raw SQL. A read the renderer is sure of refuses a star it cannot wrap, while
+// one it is not sure of leaves the subquery as it was, for MySQL to judge.
+func TestSelfReadsAndSchemas(t *testing.T) {
+	written := &qb.TableRef{Schema: "app", Name: "users"}
+	posts := &qb.TableRef{Name: "posts"}
+	userID := qb.Column{Table: posts, Name: "user_id"}
+
+	subOf := func(from *qb.TableRef, where ...qb.Cond) *qb.Select {
+		return &qb.Select{
+			Columns: []qb.Selected{{Value: qb.Column{Table: from, Name: "id"}}},
+			From:    qb.Source{Table: from},
+			Where:   where,
+		}
+	}
+
+	update := func(table *qb.TableRef, sub *qb.Select) *qb.Update {
+		return &qb.Update{
+			Table: table,
+			Set:   []qb.Assignment{{Column: "age", Value: qb.Param{Value: 1}}},
+			Where: []qb.Cond{qb.In{Left: qb.Column{Table: table, Name: "id"}, Sub: sub}},
+		}
+	}
+
+	raw := func(sql string) *qb.Select { return subOf(posts, qb.Fragment{SQL: sql}) }
+
+	cases := []struct {
+		name    string
+		stmt    *qb.Update
+		wrapped bool
+	}{
+		{
+			"the same schema",
+			update(written, subOf(&qb.TableRef{Schema: "APP", Name: "users"})),
+			true,
+		},
+		{
+			"another schema",
+			update(written, subOf(&qb.TableRef{Schema: "other", Name: "users"})),
+			false,
+		},
+		{"no schema read", update(written, subOf(&qb.TableRef{Name: "users"})), true},
+		{
+			"no schema written",
+			update(&qb.TableRef{Name: "users"}, subOf(&qb.TableRef{Schema: "app", Name: "users"})),
+			true,
+		},
+		{
+			"raw SQL in another schema",
+			update(written, raw("user_id IN (SELECT id FROM other.users)")),
+			false,
+		},
+		{
+			"raw SQL in a quoted other schema",
+			update(written, raw("user_id IN (SELECT id FROM `other` . `users`)")),
+			false,
+		},
+		{
+			"raw SQL in the same schema",
+			update(written, raw("user_id IN (SELECT id FROM `app`.users)")),
+			true,
+		},
+		{"raw SQL with no schema", update(written, raw("user_id IN (SELECT id FROM users)")), true},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			got, _, err := mysql.Dialect.Render(tt.stmt)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if wrapped := strings.Contains(got, "AS materialized"); wrapped != tt.wrapped {
+				t.Errorf("wrapped %v, want %v: %s", wrapped, tt.wrapped, got)
+			}
+		})
+	}
+
+	t.Run("a star over a join that may read the table stays as it was", func(t *testing.T) {
+		for name, from := range map[string]*qb.TableRef{
+			"a schema only one side gives": {Name: "users"},
+			"raw SQL":                      posts,
+		} {
+			sub := &qb.Select{
+				Columns: []qb.Selected{{Value: qb.Star{}}},
+				From:    qb.Source{Table: from},
+				Joins: []qb.Join{{
+					Source: qb.Source{Table: &qb.TableRef{Name: "tags"}},
+					On:     []qb.Cond{qb.Fragment{SQL: "1 = 1"}},
+				}},
+				// Ordering and an offset read the star's columns, so it stays.
+				Order:  []qb.Order{{Value: qb.Column{Table: from, Name: "id"}}},
+				Offset: new(1),
+			}
+
+			if name == "raw SQL" {
+				sub.Where = []qb.Cond{qb.Fragment{SQL: "user_id IN (SELECT id FROM users)"}}
+			}
+
+			got, _, err := mysql.Dialect.Render(&qb.Delete{
+				Table: written,
+				Where: []qb.Cond{qb.Exists{Select: sub, Negate: false}, qb.Compare{
+					Left:  userID,
+					Op:    qb.OpGt,
+					Right: qb.Param{Value: 0},
+				}},
+			})
+			if err != nil {
+				t.Errorf("%s: %v, want the write left to MySQL", name, err)
+			}
+
+			if strings.Contains(got, "materialized") {
+				t.Errorf("%s: wrapped a star it cannot: %s", name, got)
+			}
+		}
+	})
+}

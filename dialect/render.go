@@ -59,9 +59,12 @@ type renderer struct {
 
 	// writing is the table an UPDATE or DELETE writes, with WrapSelfReads, while
 	// its values and conditions render. read records that a subquery among them
-	// reads it, and inner that one is already being rendered.
+	// reads it, maybe that it may, as raw SQL, a name a CTE may have, or a name
+	// in a schema only one side gives can, and inner that one is already being
+	// rendered.
 	writing *qb.TableRef
 	read    bool
+	maybe   bool
 	inner   bool
 
 	// lazies records what Lazy conditions built while a subquery was first
@@ -123,8 +126,15 @@ func (r *renderer) bind(v any) {
 }
 
 func (r *renderer) table(t *qb.TableRef) {
-	if r.writing != nil && strings.EqualFold(t.Name, r.writing.Name) {
-		r.read = true
+	if w := r.writing; w != nil && strings.EqualFold(t.Name, w.Name) {
+		switch {
+		case strings.EqualFold(t.Schema, w.Schema):
+			r.read = true
+		case t.Schema == "" || w.Schema == "":
+			// The same table only if the one with no schema is in the other's,
+			// which the renderer cannot tell.
+			r.maybe = true
+		}
 	}
 
 	if t.Schema != "" {
@@ -298,9 +308,9 @@ func (r *renderer) fragment(f qb.Fragment) {
 		r.need(Feature(f.Needs))
 	}
 
-	// Raw SQL cannot be read, so naming the table counts as reading it.
-	if r.writing != nil && namesTable(f.SQL, r.writing.Name) {
-		r.read = true
+	// Raw SQL cannot be read, so naming the table counts as maybe reading it.
+	if r.writing != nil && namesTable(f.SQL, r.writing.Name, r.writing.Schema) {
+		r.maybe = true
 	}
 
 	args := f.Args
@@ -336,10 +346,10 @@ func (r *renderer) fragment(f qb.Fragment) {
 // than a string. So the SQL is read in every mode, and a name found in any of
 // them counts. Wrapping a subquery that did not need it costs a derived table,
 // and missing one fails the write with error 1093.
-func namesTable(q, table string) bool {
+func namesTable(q, table, schema string) bool {
 	for _, backslash := range []bool{true, false} {
 		for _, ansiQuotes := range []bool{true, false} {
-			if namesTableIn(q, table, backslash, ansiQuotes) {
+			if namesTableIn(q, table, schema, backslash, ansiQuotes) {
 				return true
 			}
 		}
@@ -352,7 +362,7 @@ func namesTable(q, table string) bool {
 // -- to the end of the line, where -- needs a space or a control character
 // after it, and /* */, except that /*! */ holds SQL that MySQL runs, so that is
 // read on, past the version it may start with.
-func namesTableIn(q, table string, backslash, ansiQuotes bool) bool {
+func namesTableIn(q, table, schema string, backslash, ansiQuotes bool) bool {
 	word := func(c byte) bool {
 		return isNameByte(c, false) || c == '$' || c >= 0x80
 	}
@@ -365,6 +375,19 @@ func namesTableIn(q, table string, backslash, ansiQuotes bool) bool {
 		return len(q)
 	}
 
+	// ours reports whether the name that starts at q[start] is the table: in
+	// any schema if the table names none, and otherwise in its own, or with no
+	// schema given, which may be the current one.
+	ours := func(start int, name string) bool {
+		if !strings.EqualFold(name, table) {
+			return false
+		}
+
+		qualifier, ok := qualifierBefore(q, start)
+
+		return schema == "" || !ok || strings.EqualFold(qualifier, schema)
+	}
+
 	for i := 0; i < len(q); {
 		c := q[i]
 		rest := q[i:]
@@ -372,7 +395,7 @@ func namesTableIn(q, table string, backslash, ansiQuotes bool) bool {
 		switch {
 		case c == '`' || (c == '"' && ansiQuotes):
 			name, end := mysqlQuoted(q, i, false)
-			if strings.EqualFold(name, table) {
+			if ours(i, name) {
 				return true
 			}
 
@@ -405,7 +428,7 @@ func namesTableIn(q, table string, backslash, ansiQuotes bool) bool {
 					end++
 				}
 
-				if strings.EqualFold(q[j:end], table) {
+				if ours(j, q[j:end]) {
 					return true
 				}
 			}
@@ -426,7 +449,7 @@ func namesTableIn(q, table string, backslash, ansiQuotes bool) bool {
 				j++
 			}
 
-			if strings.EqualFold(q[i:j], table) {
+			if ours(i, q[i:j]) {
 				return true
 			}
 
@@ -437,6 +460,58 @@ func namesTableIn(q, table string, backslash, ansiQuotes bool) bool {
 	}
 
 	return false
+}
+
+// qualifierBefore returns the name before the dot that comes before q[i], as the
+// schema of schema.table, quoted or not, with spaces around the dot or not.
+func qualifierBefore(q string, i int) (string, bool) {
+	space := func(c byte) bool { return c == ' ' || c == '\t' || c == '\n' || c == '\r' }
+
+	j := i - 1
+	for j >= 0 && space(q[j]) {
+		j--
+	}
+
+	if j < 0 || q[j] != '.' {
+		return "", false
+	}
+
+	for j--; j >= 0 && space(q[j]); j-- {
+	}
+
+	if j < 0 {
+		return "", false
+	}
+
+	if quote := q[j]; quote == '`' || quote == '"' {
+		k := j - 1
+
+		for ; k >= 0; k-- {
+			if q[k] == quote {
+				if k > 0 && q[k-1] == quote {
+					k--
+
+					continue
+				}
+
+				break
+			}
+		}
+
+		if k < 0 {
+			return "", false
+		}
+
+		return strings.ReplaceAll(q[k+1:j], string(quote)+string(quote), string(quote)), true
+	}
+
+	end := j + 1
+
+	for j >= 0 && (isNameByte(q[j], false) || q[j] == '$' || q[j] >= 0x80) {
+		j--
+	}
+
+	return q[j+1 : end], j+1 < end
 }
 
 // mysqlQuoted reads the quoted text that starts at q[i], and returns it and the
@@ -479,9 +554,9 @@ func (r *renderer) source(s qb.Source) {
 		r.selectStmt(s.Sub)
 		r.write(")")
 	case s.Name != "":
-		// A name may be the written table itself, or a CTE that reads it.
+		// A name may be the written table itself, or a CTE, which may read it.
 		if r.writing != nil && strings.EqualFold(s.Name, r.writing.Name) {
-			r.read = true
+			r.maybe = true
 		}
 
 		r.quote(s.Name)
@@ -970,15 +1045,37 @@ func (r *renderer) subquery(s *qb.Select, exists bool) {
 	}
 
 	start, args := r.sql.Len(), len(r.args)
-	r.read, r.inner = false, true
+	r.read, r.maybe, r.inner = false, false, true
 	r.recording, r.lazies = true, nil
 
 	r.selectStmt(s)
 
 	r.recording = false
 
-	if !r.read {
-		r.inner = false
+	derived, columns := derivable(s, exists)
+
+	switch {
+	case !r.read && !r.maybe:
+		r.inner, r.lazies = false, nil
+
+		return
+	case derived == nil && r.read:
+		if r.err == nil {
+			r.err = fmt.Errorf(
+				"%w: a SELECT * beside other columns, or over a join or a set, that reads the table being written, on %s",
+				errs.ErrUnsupported,
+				r.d.Name(),
+			)
+		}
+
+		r.inner, r.lazies = false, nil
+
+		return
+	case derived == nil:
+		// A read the renderer is not sure of does not refuse a write that may
+		// not need the wrapper: the subquery stays as it was written, and if it
+		// reads the table, MySQL says so.
+		r.inner, r.lazies = false, nil
 
 		return
 	}
@@ -988,19 +1085,6 @@ func (r *renderer) subquery(s *qb.Select, exists bool) {
 	r.sql.Truncate(start)
 	r.args = r.args[:args]
 	r.replay = r.lazies
-
-	derived, columns := derivable(s, exists)
-	if derived == nil && r.err == nil {
-		r.err = fmt.Errorf(
-			"%w: a SELECT * beside other columns, or over a join or a set, that reads the table being written, on %s",
-			errs.ErrUnsupported,
-			r.d.Name(),
-		)
-	}
-
-	if derived == nil {
-		derived = s
-	}
 
 	r.write("SELECT /*+ NO_MERGE(materialized) */ * FROM (")
 	r.selectStmt(derived)
