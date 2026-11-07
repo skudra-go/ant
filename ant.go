@@ -75,6 +75,46 @@ type sharedState struct {
 	nextReplica atomic.Uint64
 }
 
+// claimed is the context.Context key for an operation's claim on one tracker.
+// Each tracker has its own key, so a hook that moves between two contexts keeps
+// both claims.
+type claimed struct{ tracker *track.Tracker }
+
+// holds reports whether ctx belongs to the operation that holds s's tracker now.
+func (s *state) holds(ctx context.Context) bool { return holding(ctx, s.tracker) }
+
+// holding reports whether ctx belongs to the operation that holds t now.
+func holding(ctx context.Context, t *track.Tracker) bool {
+	c, _ := ctx.Value(claimed{t}).(*track.Claim)
+
+	return t.Owns(c)
+}
+
+// claim reserves s's tracker for one operation, if on, and returns the
+// context.Context to run it with. Another operation on the same tracker gets
+// ErrConcurrentUse rather than sharing entities with this one. A call made
+// through the returned context, such as a hook's query or an include's, belongs
+// to this operation and shares the claim until the operation ends.
+func (s *state) claim(ctx context.Context, on bool) (context.Context, func(), error) {
+	if !on || s.holds(ctx) {
+		return ctx, func() {}, nil
+	}
+
+	c := s.tracker.TryClaim()
+	if c == nil {
+		return ctx, nil, ErrConcurrentUse
+	}
+
+	return context.WithValue(ctx, claimed{s.tracker}, c), func() { s.tracker.Release(c) }, nil
+}
+
+// touchesTracker reports whether a write on s may change tracked entities: with
+// tracking on it tracks what it writes, and with it off, Add and Attach may still
+// have put the entity it writes in the tracker.
+func (s *state) touchesTracker() bool {
+	return s.settings.tracking || !s.tracker.Empty()
+}
+
 func (c *Context) context() *Context { return c }
 
 // Handle is any value that embeds Context, such as a *AppDB.

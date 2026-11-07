@@ -245,6 +245,13 @@ func (t *Table[T]) Upsert(ctx context.Context, e *T, conflict *Conflict) (bool, 
 		return false, err
 	}
 
+	ctx, release, err := t.state.claim(ctx, t.state.touchesTracker())
+	if err != nil {
+		return false, err
+	}
+
+	defer release()
+
 	// A copy that carries a version updates only the row it was loaded from.
 	checked := t.versionCheck(model, unsafe.Pointer(e), clause)
 
@@ -278,12 +285,9 @@ func (t *Table[T]) Upsert(ctx context.Context, e *T, conflict *Conflict) (bool, 
 
 	if t.state.settings.tracking && model.Key() != nil {
 		entry := t.state.tracker.Track(model, unsafe.Pointer(e), track.Unchanged)
-		undo := entry.Saved(track.Unchanged)
+		saved := t.state.tracker.Saved(entry, track.Unchanged)
 		t.state.tracker.Rekey(entry)
-
-		if t.state.tx != nil {
-			t.state.tx.undo = append(t.state.tx.undo, undo)
-		}
+		t.state.record(saved)
 	}
 
 	return true, nil

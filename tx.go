@@ -11,6 +11,7 @@ import (
 
 	"github.com/skudra-go/ant/dialect"
 	"github.com/skudra-go/ant/internal/exec"
+	"github.com/skudra-go/ant/internal/track"
 )
 
 // txState is an open transaction, shared by nested Tx calls.
@@ -18,17 +19,80 @@ type txState struct {
 	tx      *sql.Tx
 	done    bool
 	depth   int                     // nested savepoints so far, for naming
-	undo    []func()                // tracker changes to reverse on rollback
+	undo    []undoStep              // tracker changes to settle when it ends
 	pending []func(context.Context) // observers to run after commit
 }
 
-// committed runs what was waiting for the commit.
+// undoStep is one tracker change the transaction settles: undone if it rolls
+// back, kept if it commits. A session made inside a transaction has a tracker of
+// its own, so each step names the tracker it changes.
+type undoStep struct {
+	tracker *track.Tracker
+	change  track.Change
+}
+
+// record hands tracker changes to the transaction, which settles them when it
+// ends. A change made outside a transaction stands at once, and is kept.
+func (s *state) record(changes ...track.Change) {
+	for _, c := range changes {
+		if s.tx == nil {
+			c.Keep()
+
+			continue
+		}
+
+		s.tx.undo = append(s.tx.undo, undoStep{s.tracker, c})
+	}
+}
+
+// committed keeps the tracker changes the transaction made and runs what was
+// waiting for the commit.
 func (t *txState) committed(ctx context.Context) {
+	steps := t.undo
+	t.undo = nil
+
+	settle(ctx, steps, track.Change.Keep)
+
 	for _, f := range t.pending {
 		f(ctx)
 	}
 
 	t.pending = nil
+}
+
+// settle runs each step's change, by tracker, in the order given. It writes to
+// tracked entries, so each tracker's run while it is claimed: at once if ctx's
+// operation holds it, and otherwise through Tracker.Settle, which never waits.
+func settle(ctx context.Context, steps []undoStep, run func(track.Change)) {
+	var trackers []*track.Tracker
+
+	for _, step := range steps {
+		if !slices.Contains(trackers, step.tracker) {
+			trackers = append(trackers, step.tracker)
+		}
+	}
+
+	for _, tracker := range trackers {
+		var work []track.Change
+
+		for _, step := range steps {
+			if step.tracker == tracker {
+				work = append(work, step.change)
+			}
+		}
+
+		do := func() {
+			for _, c := range work {
+				run(c)
+			}
+		}
+
+		if holding(ctx, tracker) {
+			do()
+		} else {
+			tracker.Settle(do)
+		}
+	}
 }
 
 // txOptions holds what TxOption configures.
@@ -140,7 +204,7 @@ func (s *state) savepoint(ctx context.Context, body func() error) error {
 	mark, waiting := len(root.undo), len(root.pending)
 
 	if err := body(); err != nil {
-		root.rollbackTo(mark)
+		root.rollbackTo(ctx, mark)
 		root.pending = root.pending[:waiting]
 		// The caller's context may be cancelled, and the transaction must still
 		// return to the savepoint.
@@ -158,21 +222,18 @@ func (s *state) savepoint(ctx context.Context, body func() error) error {
 	return err
 }
 
-// rollbackTo reverses tracker changes back to mark.
-func (t *txState) rollbackTo(mark int) {
-	undo := t.undo[mark:]
-	slices.Reverse(undo)
-
-	for _, f := range undo {
-		f()
-	}
-
+// rollbackTo undoes the tracker changes made since mark, newest first.
+func (t *txState) rollbackTo(ctx context.Context, mark int) {
+	steps := slices.Clone(t.undo[mark:])
 	t.undo = t.undo[:mark]
+
+	slices.Reverse(steps)
+	settle(ctx, steps, track.Change.Undo)
 }
 
 // abort forgets everything the transaction did.
-func (t *txState) abort() {
-	t.rollbackTo(0)
+func (t *txState) abort(ctx context.Context) {
+	t.rollbackTo(ctx, 0)
 	t.pending = nil
 	t.done = true
 }
@@ -249,7 +310,7 @@ func runTx[DB any](ctx context.Context, s *state, o txOptions, f func(tx *DB) er
 
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			t.abort()
+			t.abort(ctx)
 			_ = rollback(t.tx)
 
 			panic(recovered)
@@ -257,7 +318,7 @@ func runTx[DB any](ctx context.Context, s *state, o txOptions, f func(tx *DB) er
 	}()
 
 	if err := f(db); err != nil {
-		t.abort()
+		t.abort(ctx)
 
 		return errors.Join(err, rollback(t.tx))
 	}
@@ -265,7 +326,7 @@ func runTx[DB any](ctx context.Context, s *state, o txOptions, f func(tx *DB) er
 	t.done = true
 
 	if err := t.tx.Commit(); err != nil {
-		t.abort()
+		t.abort(ctx)
 
 		return err
 	}
@@ -377,7 +438,7 @@ func (c *Context) Commit() error {
 	t.done = true
 
 	if err := t.tx.Commit(); err != nil {
-		t.abort()
+		t.abort(context.Background())
 
 		return err
 	}
@@ -394,7 +455,7 @@ func (c *Context) Rollback() error {
 		return err
 	}
 
-	t.abort()
+	t.abort(context.Background())
 
 	return rollback(t.tx)
 }

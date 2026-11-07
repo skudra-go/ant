@@ -1321,14 +1321,15 @@ func (u *unit) writeOne(ctx context.Context, to exec.Executor, n *node, stmt qb.
 func (u *unit) commit() {
 	tracker := u.s.tracker
 
-	var undo []func()
+	var undo []track.Change
 
 	for _, n := range u.order {
-		entry := n.entry
-		if entry != nil && (n.remove || n.entity != entry.Entity) {
-			tracker.Forget(entry)
-
-			undo = append(undo, func() { tracker.Restore(entry) })
+		switch entry := n.entry; {
+		case entry == nil:
+		case n.remove:
+			undo = append(undo, tracker.Deleted(entry))
+		case n.entity != entry.Entity:
+			undo = append(undo, tracker.Forget(entry))
 		}
 	}
 
@@ -1340,16 +1341,13 @@ func (u *unit) commit() {
 		switch {
 		case n.remove || entry != nil && n.entity != entry.Entity:
 		case entry != nil && wrote:
-			undo = append(undo, entry.Saved(track.Unchanged))
+			undo = append(undo, tracker.Saved(entry, track.Unchanged))
 
 			if n.insert {
 				tracker.Rekey(entry)
 			}
 		case entry == nil && wrote && u.s.settings.tracking && len(n.model.Keys) > 0:
-			entity := n.entity
-			tracker.Track(n.model, entity, track.Unchanged)
-
-			undo = append(undo, func() { tracker.Remove(entity) })
+			undo = append(undo, tracker.Added(n.model, n.entity))
 		}
 	}
 
@@ -1359,13 +1357,11 @@ func (u *unit) commit() {
 		}
 	}
 
-	if u.s.tx != nil {
-		u.s.tx.undo = append(u.s.tx.undo, undo...)
-	}
+	u.s.record(undo...)
 }
 
 // remember records what a node's loaded relations hold now.
-func (u *unit) remember(n *node) (undo func()) {
+func (u *unit) remember(n *node) track.Change {
 	entry := n.entry
 	oldMembers, oldParents := entry.Members, entry.Parents
 
@@ -1403,9 +1399,7 @@ func (u *unit) remember(n *node) (undo func()) {
 		}
 	}
 
-	entry.Members, entry.Parents = members, parents
-
-	return func() { entry.Members, entry.Parents = oldMembers, oldParents }
+	return entry.SetLinks(members, parents)
 }
 
 // SaveChanges writes every change to tracked entities in one transaction:
@@ -1417,6 +1411,13 @@ func (c *Context) SaveChanges(ctx context.Context) error {
 	if s == nil {
 		return ErrNotOpen
 	}
+
+	ctx, release, err := s.claim(ctx, true)
+	if err != nil {
+		return err
+	}
+
+	defer release()
 
 	s.saving.Lock()
 	defer s.saving.Unlock()

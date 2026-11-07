@@ -199,7 +199,7 @@ These are behaviors worth knowing about:
 
 - **`Select` closures run in Go, not in SQL.** Go has no equivalent of C# expression trees, so ant cannot see inside the closure. It loads the mapped columns of each joined table and calls the function once per row. Column-level `SELECT` lists and SQL expressions will need a separate, explicit API.
 - **`Each` is not tracked.** It yields each row by value, so changing the value has no effect on `SaveChanges`. Use `All`, `First`, or `Find` when you intend to save changes.
-- **Use a session per unit of work.** A context's tracker keeps every entity it loads until cleared, so a context held for the life of the process grows, and it mixes concurrent requests. `ant.Session(db)` is the cheap answer, and `ant.WithTracking(false)` suits contexts that only use explicit updates.
+- **Use a session per unit of work.** A context's tracker keeps every entity it loads until cleared, so a context held for the life of the process grows, and it would mix concurrent requests. Two operations at once on one tracking context return `ErrConcurrentUse`. Share a context opened with `ant.WithTracking(false)`, and give each request `ant.Session(db, ant.WithTracking(true))` where it saves changes.
 - **`Ordered` is a closed list.** It covers `cmp.Ordered` and `time.Time`. Other orderable column types, for example a UUID type or a decimal type, need a future extension.
 
 ## Migrations

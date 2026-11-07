@@ -172,12 +172,8 @@ func (q *Query[T]) rememberJoined(items []*T) {
 
 			*(*unsafe.Pointer)(j.relation.Slot(instance)) = *slot
 
-			if entry.Parents == nil {
-				entry.Parents = map[*meta.Relation]any{}
-			}
-
 			key, _ := j.link.Target.KeyOf(*slot)
-			entry.Parents[j.relation] = key
+			entry.SetParent(j.relation, key)
 		}
 	}
 }

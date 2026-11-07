@@ -575,6 +575,7 @@ ant: type Validator
 ant: type Window
 ant: var ErrBadSchema
 ant: var ErrConcurrency
+ant: var ErrConcurrentUse
 ant: var ErrCursor
 ant: var ErrCycle
 ant: var ErrIncludeInEach
