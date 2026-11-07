@@ -198,13 +198,37 @@ var (
 	valuerType = reflect.TypeFor[driver.Valuer]()
 )
 
-// trail is what one walk of a value has followed: every pointer, shared by all
-// its branches, since a value can hold itself only through a pointer, as
-// sql.Null[any]{V: &itself} does. A walk that comes back to one stops there.
-type trail struct{ pointers []uintptr }
+// maxSteps bounds the parts of a value one walk looks at. Parts that share
+// pointers are each walked, so a value whose parts keep sharing what follows
+// them could take a walk that doubles at every level; no Valuer that gives a
+// time comes near this.
+const maxSteps = 1 << 12
 
-// passed reports whether the walk has followed the pointer v already, and
-// records it if not.
+// trail is what one walk of a value is on: the pointers followed on the way to
+// the part it looks at now, and how many parts it has looked at. A value can
+// hold itself only through a pointer, as sql.Null[any]{V: &itself} does, so a
+// walk that comes back to a pointer on its way stops there. A pointer that two
+// parts share, as two embedded fields may, is on neither's way to the other, and
+// is followed from each.
+type trail struct {
+	pointers []uintptr
+	steps    int
+}
+
+// enter starts on a part of the value, and returns where the way stood, for
+// leave to go back to once the part is done. ok is false once the walk has
+// looked at maxSteps parts.
+func (tr *trail) enter() (at int, ok bool) {
+	tr.steps++
+
+	return len(tr.pointers), tr.steps <= maxSteps
+}
+
+// leave goes back along the way to where it stood at enter.
+func (tr *trail) leave(at int) { tr.pointers = tr.pointers[:at] }
+
+// passed reports whether the pointer v is on the way here already, and puts it
+// on the way if not.
 func (tr *trail) passed(v reflect.Value) bool {
 	if slices.Contains(tr.pointers, v.Pointer()) {
 		return true
@@ -216,7 +240,7 @@ func (tr *trail) passed(v reflect.Value) bool {
 }
 
 // follow takes v past pointers and interfaces, and reports false for nil or a
-// pointer the walk has followed already.
+// pointer on the way here already.
 func (tr *trail) follow(v reflect.Value) (reflect.Value, bool) {
 	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
 		if v.IsNil() || v.Kind() == reflect.Pointer && tr.passed(v) {
@@ -237,7 +261,14 @@ func isNull(t reflect.Type) bool {
 // hidesSecret reports whether the Valuer v gives a qb.Secret's value: it is
 // one, or an sql.Null or a struct built on one holds one.
 func hidesSecret(v reflect.Value, tr *trail) bool {
-	v, ok := tr.follow(v)
+	at, ok := tr.enter()
+	defer tr.leave(at)
+
+	if !ok {
+		return false
+	}
+
+	v, ok = tr.follow(v)
 	if !ok {
 		return false
 	}
@@ -266,7 +297,14 @@ func hidesSecret(v reflect.Value, tr *trail) bool {
 // Valuers, such as JSON or an encrypted value, are left to database/sql, so
 // their Value runs once.
 func givesTime(v reflect.Value, tr *trail) bool {
-	v, ok := tr.follow(v)
+	at, ok := tr.enter()
+	defer tr.leave(at)
+
+	if !ok {
+		return false
+	}
+
+	v, ok = tr.follow(v)
 	if !ok {
 		return false
 	}
@@ -308,6 +346,13 @@ func givesTime(v reflect.Value, tr *trail) bool {
 // holdsTime reports whether v, past pointers and interfaces, is a time or a
 // Valuer that gives one, as database/sql asks the first Valuer it meets.
 func holdsTime(v reflect.Value, tr *trail) bool {
+	at, ok := tr.enter()
+	defer tr.leave(at)
+
+	if !ok {
+		return false
+	}
+
 	for {
 		// Judged by its type, which a value read through an unexported field
 		// can still give.

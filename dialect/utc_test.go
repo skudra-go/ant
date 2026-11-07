@@ -26,6 +26,13 @@ func (s *pointerDeleted) Value() (driver.Value, error) { return s.at, nil }
 // pointedNull is built on sql.Null of a *time.Time.
 type pointedNull struct{ sql.Null[*time.Time] }
 
+// twice reaches one time through two embedded fields, and gives it through the
+// sql.Null, whose Value it gets.
+type twice struct {
+	*time.Time
+	sql.Null[any]
+}
+
 // hiddenNull is built on an sql.Null of an interface under an unexported name,
 // which reflect may read but not hand out.
 type (
@@ -117,6 +124,11 @@ func TestTimesBindInUTC(t *testing.T) {
 			sql.Null[any]{V: other, Valid: true},
 		},
 		{"invalid sql.Null of an interface", sql.Null[any]{V: at}, sql.Null[any]{V: at}},
+		{
+			"a time two embedded fields point to",
+			twice{&at, sql.Null[any]{V: &at, Valid: true}},
+			utc,
+		},
 		{
 			"an sql.Null of an interface holding another",
 			sql.Null[any]{V: sql.Null[any]{V: at, Valid: true}, Valid: true},
@@ -566,6 +578,60 @@ func TestCyclesAndNestedSecrets(t *testing.T) {
 					)
 				}
 			}
+		}
+	}
+}
+
+// fan's two embedded fields both lead to the next fan, so a walk that followed
+// each of them in full would double at every link.
+type (
+	fan struct {
+		*fanLeft
+		*fanRight
+	}
+	fanLeft  struct{ *fan }
+	fanRight struct{ *fan }
+)
+
+func (fan) Value() (driver.Value, error) { return "fan", nil }
+
+// A value whose parts keep sharing what follows them is walked in bounded time,
+// and goes on as it is.
+func TestSharingChainsBindInBoundedTime(t *testing.T) {
+	links := make([]*fan, 64)
+
+	for i := range links {
+		links[i] = &fan{}
+	}
+
+	for i := range len(links) - 1 {
+		links[i].fanLeft, links[i].fanRight = &fanLeft{links[i+1]}, &fanRight{links[i+1]}
+	}
+
+	for _, d := range []dialect.Dialect{sqlite.Dialect, sqlserver.Dialect} {
+		done := make(chan any, 1)
+
+		go func() {
+			_, args, err := dialect.Bind(d, "SELECT ?", []any{links[0]})
+			if err != nil {
+				done <- err
+
+				return
+			}
+
+			done <- args[0]
+		}()
+
+		select {
+		case got := <-done:
+			if v, err := driver.DefaultParameterConverter.ConvertValue(
+				got,
+			); v != "fan" ||
+				err != nil {
+				t.Errorf("%s: went on as %#v, %v", d.Name(), v, err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s: binding a chain of shared parts did not end", d.Name())
 		}
 	}
 }
