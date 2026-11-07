@@ -67,6 +67,9 @@ func TestTimesBindInUTC(t *testing.T) {
 
 	var nilNumber *int
 
+	// A pointer may reach the time through an interface.
+	var heldTime, heldNull, heldNothing any = at, sql.NullTime{Time: at, Valid: true}, nil
+
 	calls := 0
 	other := counted{&calls}
 
@@ -91,6 +94,9 @@ func TestTimesBindInUTC(t *testing.T) {
 		{"a pointer to a nil *time.Time", &nilPointer, &nilPointer},
 		{"**qb.Secret", ptrTo(&qb.Secret{V: at}), &qb.Secret{V: utc}},
 		{"a pointer to a nil *int", &nilNumber, &nilNumber},
+		{"a pointer to an interface holding a time", &heldTime, utc},
+		{"a pointer to an interface holding sql.NullTime", &heldNull, utc},
+		{"a pointer to an empty interface", &heldNothing, &heldNothing},
 		{"nil *int", nilNumber, nilNumber},
 		{"not a time", 42, 42},
 	}
@@ -249,12 +255,14 @@ func (r refused) Value() (driver.Value, error) {
 	return nil, errRefused
 }
 
-// A Valuer built on a time, behind any number of pointers, is asked once on its
-// way to the driver, and what it gives, an error too, goes on.
+// A Valuer built on a time, behind any number of pointers or an interface, is
+// asked once on its way to the driver, and what it gives, an error too, goes on.
 func TestPointedValuersAreAskedOnce(t *testing.T) {
 	calls := 0
 	text := &overridden{calls: &calls}
 	failing := &refused{calls: &calls}
+
+	var textHeld, textPointerHeld, failingHeld any = *text, text, *failing
 
 	cases := []struct {
 		in   any
@@ -265,6 +273,10 @@ func TestPointedValuersAreAskedOnce(t *testing.T) {
 		{ptrTo(&text), "text", nil},
 		{&failing, nil, errRefused},
 		{ptrTo(&failing), nil, errRefused},
+		{&textHeld, "text", nil},
+		{ptrTo(&textHeld), "text", nil},
+		{&textPointerHeld, "text", nil},
+		{&failingHeld, nil, errRefused},
 	}
 
 	for _, d := range []dialect.Dialect{sqlite.Dialect, sqlserver.Dialect} {

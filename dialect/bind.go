@@ -127,8 +127,9 @@ func utc(v any) any {
 		out := utc(elem)
 
 		// A Valuer at the end was asked already, so what it gave goes on, NULL
-		// and errors included, rather than having it asked again.
-		if _, ok := elem.(driver.Valuer); ok && holdsTime(rv.Type(), nil) {
+		// and errors included, rather than having it asked again. The chain may
+		// end in an interface, so the Valuer's own type is the one to judge.
+		if _, ok := elem.(driver.Valuer); ok && holdsTime(reflect.TypeOf(elem), nil) {
 			return out
 		}
 
