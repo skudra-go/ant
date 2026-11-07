@@ -327,42 +327,69 @@ func (r *renderer) fragment(f qb.Fragment) {
 	}
 }
 
-// namesTable reports whether raw SQL names table, in any case: as a whole word,
-// or quoted in backticks or double quotes, which ANSI_QUOTES makes a name. A
-// string literal or a comment that holds it does not count.
+// namesTable reports whether raw SQL names table, in any case, as MySQL reads
+// it: as a whole word, or quoted in backticks. A name inside a string literal or
+// a comment does not count. How MySQL splits SQL into literals depends on the
+// SQL mode, which the renderer does not know: a backslash escapes a quote unless
+// NO_BACKSLASH_ESCAPES is set, and ANSI_QUOTES makes double quotes a name rather
+// than a string. So the SQL is read in every mode, and a name found in any of
+// them counts. Wrapping a subquery that did not need it costs a derived table,
+// and missing one fails the write with error 1093.
 func namesTable(q, table string) bool {
+	for _, backslash := range []bool{true, false} {
+		for _, ansiQuotes := range []bool{true, false} {
+			if namesTableIn(q, table, backslash, ansiQuotes) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// namesTableIn is namesTable in one SQL mode. Its comments are MySQL's: # and
+// -- to the end of the line, where -- needs a space or a control character
+// after it, and /* */, except that /*! */ holds SQL that MySQL runs, so that is
+// read on.
+func namesTableIn(q, table string, backslash, ansiQuotes bool) bool {
 	word := func(c byte) bool {
 		return isNameByte(c, false) || c == '$' || c >= 0x80
 	}
 
+	lineEnd := func(i int) int {
+		if end := strings.IndexByte(q[i:], '\n'); end >= 0 {
+			return i + end
+		}
+
+		return len(q)
+	}
+
 	for i := 0; i < len(q); {
 		c := q[i]
+		rest := q[i:]
 
 		switch {
-		case c == '`' || c == '"':
-			var name strings.Builder
-
-			j := i + 1
-
-			for ; j < len(q); j++ {
-				if q[j] == c {
-					if j+1 == len(q) || q[j+1] != c {
-						break
-					}
-
-					j++
-				}
-
-				name.WriteByte(q[j])
-			}
-
-			if strings.EqualFold(name.String(), table) {
+		case c == '`' || (c == '"' && ansiQuotes):
+			name, end := mysqlQuoted(q, i, false)
+			if strings.EqualFold(name, table) {
 				return true
 			}
 
-			i = j + 1
-		case skipQuoted(q, i) > i:
-			i = skipQuoted(q, i)
+			i = end
+		case c == '\'' || c == '"':
+			_, i = mysqlQuoted(q, i, backslash)
+		case c == '#':
+			i = lineEnd(i)
+		case strings.HasPrefix(rest, "--") && (len(rest) == 2 || rest[2] <= ' '):
+			i = lineEnd(i)
+		case strings.HasPrefix(rest, "/*!"):
+			i += len("/*!")
+		case strings.HasPrefix(rest, "/*"):
+			if end := strings.Index(rest[2:], "*/"); end >= 0 {
+				i += 2 + end + 2
+			} else {
+				i = len(q)
+			}
 		case word(c):
 			j := i + 1
 
@@ -381,6 +408,30 @@ func namesTable(q, table string) bool {
 	}
 
 	return false
+}
+
+// mysqlQuoted reads the quoted text that starts at q[i], and returns it and the
+// index after its closing quote. A doubled quote stands for one, and with
+// backslash, a backslash takes the character after it as it is.
+func mysqlQuoted(q string, i int, backslash bool) (string, int) {
+	quote := q[i]
+
+	var text strings.Builder
+
+	for j := i + 1; j < len(q); j++ {
+		switch {
+		case backslash && q[j] == '\\' && j+1 < len(q):
+			j++
+		case q[j] == quote && j+1 < len(q) && q[j+1] == quote:
+			j++
+		case q[j] == quote:
+			return text.String(), j + 1
+		}
+
+		text.WriteByte(q[j])
+	}
+
+	return text.String(), len(q)
 }
 
 func (r *renderer) selected(s qb.Selected) {

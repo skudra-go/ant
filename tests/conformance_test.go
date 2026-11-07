@@ -1146,6 +1146,24 @@ func TestConformanceWritesReadingTheirTable(t *testing.T) {
 			require.Equal(t, 31, ages(t, app)["alice"])
 		})
 
+		// MySQL reads a backslash before a quote as an escape, so the literal
+		// goes on past it, and the read of users that follows must be found.
+		t.Run("raw SQL with an escaped quote before a read of the table", func(t *testing.T) {
+			if target.Name != "mysql" && target.Name != "mariadb" {
+				t.Skip("only MySQL and MariaDB read a backslash in a literal as an escape")
+			}
+
+			app := fresh(t)
+			byOlder := app.Posts.Where(ant.SQLCond(
+				`posts.title <> 'it\'s' AND posts.user_id IN (SELECT id FROM users WHERE age > 28)`,
+			))
+			n, err := app.Users.Where(ant.InSub(&U.ID, ant.SubOf(byOlder, &P.UserID))).
+				Update(ctx, ant.Inc(&U.Age, 1))
+			require.NoError(t, err)
+			require.EqualValues(t, 1, n, "carol, who is older and has a post")
+			require.Equal(t, 36, ages(t, app)["carol"])
+		})
+
 		t.Run("a correlated read of the same table", func(t *testing.T) {
 			app := fresh(t)
 			younger := ant.SubOf(app.Posts.Where(ant.EqCol(&P.UserID, &U.ID)), &P.UserID)

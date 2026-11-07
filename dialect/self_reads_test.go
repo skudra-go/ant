@@ -341,6 +341,99 @@ func TestSelfReadsAreWrappedOnMySQL(t *testing.T) {
 	}
 }
 
+// Raw SQL is read for the table as MySQL reads it, in any SQL mode, since the
+// renderer cannot know which one the server has: a backslash escapes a quote
+// unless NO_BACKSLASH_ESCAPES is set, ANSI_QUOTES makes double quotes a name, and
+// MySQL's comments differ from standard SQL's. A name that any mode reads as the
+// table wraps the subquery.
+func TestSelfReadInRawSQLAsMySQLReadsIt(t *testing.T) {
+	users := &qb.TableRef{Name: "users"}
+	posts := &qb.TableRef{Name: "posts"}
+
+	cases := []struct {
+		name, sql string
+		wrapped   bool
+	}{
+		{
+			"an escaped quote ends no literal",
+			`posts.kind = 'it\'s' AND user_id IN (SELECT id FROM users)`,
+			true,
+		},
+		{
+			"an escaped quote in double quotes ends no literal",
+			`posts.kind = "it\"s" AND user_id IN (SELECT id FROM users)`,
+			true,
+		},
+		{
+			"a backslash before a quote with NO_BACKSLASH_ESCAPES",
+			`posts.kind = 'C:\' AND user_id IN (SELECT id FROM users) AND posts.note <> '\'`,
+			true,
+		},
+		{
+			"a doubled quote",
+			`posts.kind = 'it''s' AND user_id IN (SELECT id FROM users)`,
+			true,
+		},
+		{
+			"a quote in a # comment",
+			"posts.kind = 'x' # it's\nAND user_id IN (SELECT id FROM users)",
+			true,
+		},
+		{
+			"a quote in a -- comment",
+			"posts.kind = 'x' -- it's\nAND user_id IN (SELECT id FROM users)",
+			true,
+		},
+		{
+			"-- without a space is two minus signs",
+			`posts.id = 1--1 AND user_id IN (SELECT id FROM users)`,
+			true,
+		},
+		{
+			"an executable comment runs",
+			`/*!80000 user_id IN (SELECT id FROM users) AND */ 1 = 1`,
+			true,
+		},
+		{
+			"double quotes name the table with ANSI_QUOTES",
+			`user_id IN (SELECT id FROM "users")`,
+			true,
+		},
+		{
+			"the name only in literals, comments, and a longer name",
+			"posts.kind = 'users' AND posts.note <> 'it''s users' /* users */ # users\n" +
+				"AND -- users\nuser_id IN (SELECT id FROM users_old)",
+			false,
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			stmt := &qb.Update{
+				Table: users,
+				Set:   []qb.Assignment{{Column: "age", Value: qb.Param{Value: 1}}},
+				Where: []qb.Cond{qb.In{
+					Left: qb.Column{Table: users, Name: "id"},
+					Sub: &qb.Select{
+						Columns: []qb.Selected{{Value: qb.Column{Table: posts, Name: "user_id"}}},
+						From:    qb.Source{Table: posts},
+						Where:   []qb.Cond{qb.Fragment{SQL: tt.sql}},
+					},
+				}},
+			}
+
+			got, _, err := mysql.Dialect.Render(stmt)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if wrapped := strings.Contains(got, "AS materialized"); wrapped != tt.wrapped {
+				t.Errorf("wrapped %v, want %v: %s", wrapped, tt.wrapped, got)
+			}
+		})
+	}
+}
+
 // A Lazy condition in a subquery that is wrapped is built once, though the
 // subquery is written twice.
 func TestSelfReadBuildsLazyOnce(t *testing.T) {
