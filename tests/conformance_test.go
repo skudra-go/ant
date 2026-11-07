@@ -1198,6 +1198,10 @@ func TestConformanceTimeShapes(t *testing.T) {
 				"sql.Null[*time.Time]":  sql.Null[*time.Time]{V: &at, Valid: true},
 				"sql.Null[any]":         sql.Null[any]{V: at, Valid: true},
 				"sql.Null[any] pointer": sql.Null[any]{V: &at, Valid: true},
+				"sql.Null[sql.NullTime]": sql.Null[sql.NullTime]{
+					V:     sql.NullTime{Time: at, Valid: true},
+					Valid: true,
+				},
 			}
 
 			storedAt := func(t *testing.T) time.Time {

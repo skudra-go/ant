@@ -187,10 +187,12 @@ func givesTime(v reflect.Value, seen []reflect.Type) bool {
 		return true
 	case t.PkgPath() == "database/sql" && strings.HasPrefix(t.Name(), "Null["):
 		// sql.Null gives what it holds once Valid, as database/sql converts it,
-		// following pointers. What an interface holds is known only now.
+		// following pointers and asking a Valuer it holds. A time, or a pointer
+		// to one, is known by its type. An interface, or a Valuer, is known by
+		// what it holds now, which matters only once Valid.
 		held := v.FieldByName("V")
-		if held.Kind() != reflect.Interface {
-			return pointsToTime(held.Type())
+		if pointsToTime(held.Type()) {
+			return true
 		}
 
 		return v.FieldByName("Valid").Bool() && holdsTime(held, seen)
@@ -210,23 +212,25 @@ func givesTime(v reflect.Value, seen []reflect.Type) bool {
 }
 
 // holdsTime reports whether v, past pointers and interfaces, is a time or a
-// Valuer that gives one.
+// Valuer that gives one, as database/sql asks the first Valuer it meets.
 func holdsTime(v reflect.Value, seen []reflect.Type) bool {
-	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
+	for {
+		// Judged by its type, which a value read through an unexported field
+		// can still give.
+		if v.Kind() != reflect.Interface && v.Type().Implements(valuerType) {
+			return givesTime(v, seen)
+		}
+
+		if v.Kind() != reflect.Pointer && v.Kind() != reflect.Interface {
+			return v.Type() == timeType
+		}
+
 		if v.IsNil() {
 			return false
 		}
 
 		v = v.Elem()
-
-		// Judged by its type, which a value read through an unexported field
-		// can still give.
-		if v.Type().Implements(valuerType) {
-			return givesTime(v, seen)
-		}
 	}
-
-	return v.Type() == timeType
 }
 
 // pointsToTime reports whether t is a time or a pointer, however deep, to one.

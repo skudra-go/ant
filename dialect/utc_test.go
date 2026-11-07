@@ -117,6 +117,26 @@ func TestTimesBindInUTC(t *testing.T) {
 		},
 		{"invalid sql.Null of an interface", sql.Null[any]{V: at}, sql.Null[any]{V: at}},
 		{
+			"sql.Null of sql.NullTime",
+			sql.Null[sql.NullTime]{V: sql.NullTime{Time: at, Valid: true}, Valid: true},
+			utc,
+		},
+		{
+			"sql.Null of a *sql.NullTime",
+			sql.Null[*sql.NullTime]{V: &sql.NullTime{Time: at, Valid: true}, Valid: true},
+			utc,
+		},
+		{
+			"sql.Null of a type built on sql.Null",
+			sql.Null[deleted]{V: deleted{sql.Null[time.Time]{V: at, Valid: true}}, Valid: true},
+			utc,
+		},
+		{
+			"sql.Null of another Valuer",
+			sql.Null[counted]{V: other, Valid: true},
+			sql.Null[counted]{V: other, Valid: true},
+		},
+		{
 			"a type built on sql.Null of a *time.Time",
 			pointedNull{sql.Null[*time.Time]{V: &at, Valid: true}},
 			utc,
