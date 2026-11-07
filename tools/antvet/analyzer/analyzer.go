@@ -1301,11 +1301,24 @@ func (c *checker) runs(stack []ast.Node) bool {
 
 			node, i = call, at
 		case *ast.CallExpr:
+			at := argIndex(parent, node)
+
+			// A method expression of ant takes the query it runs or builds on
+			// first, as a chain's next call does.
+			if at == 0 && methodExpr(c.pass, parent) && isAntFunc(c.pass, parent) {
+				if !builder(c.pass.TypesInfo.TypeOf(parent)) {
+					return true
+				}
+
+				node = parent
+
+				continue
+			}
+
 			// Only a function given the query itself runs it or builds on it: one
 			// given a condition made of it, as ant.Exists makes, uses a subquery.
 			name := calleeName(c.pass, parent)
 
-			at := argIndex(parent, node)
 			if name == "" || at < 0 || !isQuery(c.pass.TypesInfo.TypeOf(parent.Args[at])) ||
 				lateral(name) && at != 0 {
 				return false
@@ -1469,6 +1482,12 @@ walk:
 
 		call, ok := stack[i].(*ast.CallExpr)
 		if !ok || !isArg(call, stack[i+1]) {
+			continue
+		}
+
+		// The receiver of a method expression goes on along its chain, as the
+		// receiver of a call does, and is not a subquery of it.
+		if argIndex(call, stack[i+1]) == 0 && methodExpr(c.pass, call) {
 			continue
 		}
 

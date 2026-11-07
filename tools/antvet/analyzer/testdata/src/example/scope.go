@@ -185,7 +185,12 @@ func entities() {
 
 // A method expression takes its receiver first, and the method's own arguments
 // after it, which are judged as in a call on the receiver.
-func expressions(ctx context.Context, posts *ant.Table[Post], countries *ant.Table[models.Country]) {
+func expressions(
+	ctx context.Context,
+	users *ant.Table[User],
+	posts *ant.Table[Post],
+	countries *ant.Table[models.Country],
+) {
 	q := posts.Where()
 	(*ant.Query[Post]).OrderBy[string](q, &P.ID).All(ctx)
 	(*ant.Query[Post]).Where(q, ant.Gt(&P.UserID, 1)).All(ctx)
@@ -194,6 +199,12 @@ func expressions(ctx context.Context, posts *ant.Table[Post], countries *ant.Tab
 	(*ant.Query[Post]).OrderBy[int](q, &U.Age).All(ctx)     // want `OrderBy on a field of User in a query of Post`
 	(*ant.Query[Post]).Where(q, ant.Gt(&U.Age, 1)).All(ctx) // want `condition on User in a query of Post`
 	(*ant.Table[models.Country]).Find(countries, ctx, 1)    // want `Find key is int, and Country has a key of type string`
+
+	// A query written as a method expression's receiver runs along its chain.
+	(*ant.Query[Post]).All(posts.Where(ant.Gt(&P.UserID, 1)), ctx)
+	users.Where(ant.Exists((*ant.Query[Post]).Where(posts.Where(), ant.Gt(&U.Age, 18)))).All(ctx)
+	(*ant.Query[Post]).All(posts.Where(ant.Gt(&U.Age, 18)), ctx)                             // want `condition on User in a query of Post`
+	(*ant.Query[Post]).All((*ant.Query[Post]).Where(posts.Where(), ant.Gt(&U.Age, 18)), ctx) // want `condition on User in a query of Post`
 
 	user := &User{}
 	(*ant.Query[Post]).OrderBy[int](q, &user.Age).All(ctx) // want `OrderBy needs a field of a probe`
