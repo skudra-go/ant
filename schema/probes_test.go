@@ -23,6 +23,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
+
 	"github.com/skudra-go/ant/internal/testdb"
 	"github.com/skudra-go/ant/schema"
 )
@@ -170,11 +173,17 @@ func prNewSandbox(t *testing.T, p string) *prSandbox {
 		t.Fatalf("create scratch schema: %v", err)
 	}
 
-	db, err := sql.Open("pgx", dsn+"&search_path="+main+"&default_query_exec_mode=exec")
+	// The DSN may be a URL, with a query or not, or keyword=value pairs, so
+	// it is parsed rather than added to.
+	config, err := pgx.ParseConfig(dsn)
 	if err != nil {
-		t.Fatalf("open: %v", err)
+		t.Fatalf("parse the PostgreSQL DSN: %v", err)
 	}
 
+	config.RuntimeParams["search_path"] = main
+	config.DefaultQueryExecMode = pgx.QueryExecModeExec
+
+	db := stdlib.OpenDB(*config)
 	db.SetMaxOpenConns(1)
 
 	sb := &prSandbox{

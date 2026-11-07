@@ -113,6 +113,6 @@ ANT_TEST_DATABASES=postgres,mysql,mariadb,sqlite,sqlserver go test ./tests/matri
 go test ./tests/matrix -run SQLSnapshots -update                    # after a deliberate SQL change
 ```
 
-`TestSQLSnapshots` needs no database: it records the SQL of each combination for every dialect in `tests/matrix/testdata`, so a change to generated SQL shows up as a diff. A combination that fails for a tracked reason is listed in `known` in `matrix_test.go`, with its issue, and skips until the fix lands; an entry whose combinations all pass fails the run, so the list cannot go stale. To cover something new, add a point to a dimension in `dims_test.go`, with what it means in Go beside it.
+`TestSQLSnapshots` needs no database: it records the SQL of each combination for every dialect in `tests/matrix/testdata`, so a change to generated SQL shows up as a diff. A combination that fails for a tracked reason is listed in `known` in `matrix_test.go`, with its issue and the error that issue gives, and skips until the fix lands, while any other failure of it, such as rows the oracle does not expect, fails as usual. An entry none of whose combinations fails as it says fails the run, so the list cannot go stale. To cover something new, add a point to a dimension in `dims_test.go`, with what it means in Go beside it.
 
 `go test ./dialect -fuzz FuzzCommentsStayComments` and `-fuzz FuzzQuotingRoundTrips` search for comments and identifiers that escape their quoting.

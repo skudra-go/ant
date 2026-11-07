@@ -17,33 +17,63 @@ import (
 
 // known lists combinations that fail for a reason an issue tracks, so the
 // matrix stays green while they wait for a fix. A pattern matches the test's
-// full name, as go test prints it. Some matches pass anyway, such as a write
-// the guard refuses before any SQL runs, so an entry is checked as a whole: one
-// that matches combinations but sees none fail is fixed, and fails the test, so
-// that the list only holds what is still broken. The first entry that matches
-// takes the combination, so a narrower pattern goes before a broader one.
+// full name, as go test prints it, and fails matches the error the issue gives:
+// any other failure of a matching combination, such as rows the oracle does not
+// expect, fails the test as usual. Some matches pass anyway, such as a write the
+// guard refuses before any SQL runs, so an entry is checked as a whole: one that
+// matches combinations but sees none fail as it says is fixed, and fails the
+// test, so that the list only holds what is still broken. A combination may
+// match several entries, as a recursive Count on SQL Server does, which fails
+// for one issue or the other by its paging, and its failure goes to the entry
+// whose error it is.
 var known = []*knownFailure{
-	{pattern: `^TestMatrix/(mysql|mariadb)/.*/offset_3/(Update|Delete)$`, issue: "#22"},
-	{pattern: `^TestMatrix/sqlserver/(FromCTE|Recursive)/.*/(Count|Exists)$`, issue: "#23"},
-	{pattern: `^TestMatrix/sqlserver/Recursive/.*/(All|First|Include)$`, issue: "#46"},
+	{
+		pattern: regexp.MustCompile(`^TestMatrix/(mysql|mariadb)/.*/offset_3/(Update|Delete)$`),
+		fails: regexp.MustCompile(
+			`^Error 1235 \(42000\): This version of (MySQL|MariaDB) doesn't yet support 'LIMIT & IN/ALL/ANY/SOME subquery'$`,
+		),
+		issue: "#22",
+	},
+	{
+		pattern: regexp.MustCompile(`^TestMatrix/sqlserver/(FromCTE|Recursive)/.*/(Count|Exists)$`),
+		fails: regexp.MustCompile(
+			`^ant: not supported by this database: WITH inside a subquery on sqlserver$`,
+		),
+		issue: "#23",
+	},
+	{
+		pattern: regexp.MustCompile(
+			`^TestMatrix/sqlserver/Recursive/.*/(All|First|Include|Count|Exists)$`,
+		),
+		fails: regexp.MustCompile(`^mssql: Incorrect syntax near 'ant_tree'\. \(102\)$`),
+		issue: "#46",
+	},
 }
 
 type knownFailure struct {
-	pattern, issue  string
+	pattern, fails  *regexp.Regexp
+	issue           string
 	matched, failed int
 }
 
-// knownFor returns the entry a combination is waiting on, or nil.
-func knownFor(name string) *knownFailure {
+// expects reports whether err is the failure the entry's issue gives.
+func (k *knownFailure) expects(err error) bool {
+	return k.fails.MatchString(err.Error())
+}
+
+// knownFor returns the entries a combination may be waiting on.
+func knownFor(name string) []*knownFailure {
+	var out []*knownFailure
+
 	for _, k := range known {
-		if regexp.MustCompile(k.pattern).MatchString(name) {
+		if k.pattern.MatchString(name) {
 			k.matched++
 
-			return k
+			out = append(out, k)
 		}
 	}
 
-	return nil
+	return out
 }
 
 // checkKnown fails for each entry that matched combinations on this database
@@ -60,7 +90,7 @@ func checkKnown(t *testing.T) {
 	for _, k := range known {
 		if whole && k.matched > 0 && k.failed == 0 {
 			t.Errorf(
-				"%d combinations match %s and all pass: take it out of the known list",
+				"%d combinations match %s and none fails as it says: take it out of the known list",
 				k.matched,
 				k.issue,
 			)
@@ -70,20 +100,25 @@ func checkKnown(t *testing.T) {
 	}
 }
 
-// check runs one combination as a subtest. A failure on a known issue is a
-// skip.
+// check runs one combination as a subtest. A known issue's own failure is a
+// skip, and any other failure fails.
 func check(t *testing.T, name string, fn func(t *testing.T) error) {
 	t.Run(name, func(t *testing.T) {
 		err := fn(t)
-		k := knownFor(t.Name())
+		waiting := knownFor(t.Name())
 
-		switch {
-		case err != nil && k != nil:
-			k.failed++
-			t.Skipf("known, %s: %v", k.issue, err)
-		case err != nil:
-			t.Error(err)
+		if err == nil {
+			return
 		}
+
+		for _, k := range waiting {
+			if k.expects(err) {
+				k.failed++
+				t.Skipf("known, %s: %v", k.issue, err)
+			}
+		}
+
+		t.Error(err)
 	})
 }
 
@@ -177,6 +212,39 @@ var errRollback = errors.New("matrix: roll back")
 // through each terminal call, and compares what comes back with the oracle.
 // Writes run in a transaction that rolls back, and the test reads inside it which
 // rows they changed.
+// A known entry skips only the error its issue gives: a combination that
+// returns the wrong rows, or fails some other way, still fails. This needs no
+// database.
+func TestKnownSkipsOnlyItsOwnFailure(t *testing.T) {
+	others := []error{
+		errors.New("got [1 2], want [2 3]"),
+		errors.New("ant: no condition"),
+		errors.New(
+			"Error 1093 (HY000): You can't specify target table 'mx_authors' for update in FROM clause",
+		),
+	}
+
+	for _, k := range known {
+		for _, err := range others {
+			if k.expects(err) {
+				t.Errorf("%s takes %q for its own failure", k.issue, err)
+			}
+		}
+	}
+
+	own := []string{
+		"Error 1235 (42000): This version of MySQL doesn't yet support 'LIMIT & IN/ALL/ANY/SOME subquery'",
+		"ant: not supported by this database: WITH inside a subquery on sqlserver",
+		"mssql: Incorrect syntax near 'ant_tree'. (102)",
+	}
+
+	for i, k := range known {
+		if !k.expects(errors.New(own[i])) {
+			t.Errorf("%s does not take its own failure", k.issue)
+		}
+	}
+}
+
 func TestMatrix(t *testing.T) {
 	if testing.Short() {
 		t.Skip("the matrix runs every combination, which takes about a minute")
