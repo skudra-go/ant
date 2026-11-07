@@ -28,9 +28,9 @@ import (
 // whose error it is.
 var known = []*knownFailure{
 	{
-		pattern: regexp.MustCompile(`^TestMatrix/(mysql|mariadb)/.*/offset_3/(Update|Delete)$`),
+		pattern: regexp.MustCompile(`^TestMatrix/mariadb/.*/offset_3/(Update|Delete)$`),
 		fails: regexp.MustCompile(
-			`^Error 1235 \(42000\): This version of (MySQL|MariaDB) doesn't yet support 'LIMIT & IN/ALL/ANY/SOME subquery'$`,
+			`^Error 1235 \(42000\): This version of MariaDB doesn't yet support 'LIMIT & IN/ALL/ANY/SOME subquery'$`,
 		),
 		issue: "#22",
 	},
@@ -258,7 +258,7 @@ func TestKnownSkipsOnlyItsOwnFailure(t *testing.T) {
 	}
 
 	own := []string{
-		"Error 1235 (42000): This version of MySQL doesn't yet support 'LIMIT & IN/ALL/ANY/SOME subquery'",
+		"Error 1235 (42000): This version of MariaDB doesn't yet support 'LIMIT & IN/ALL/ANY/SOME subquery'",
 		"ant: not supported by this database: WITH inside a subquery on sqlserver",
 		"mssql: Incorrect syntax near 'ant_tree'. (102)",
 	}
