@@ -96,14 +96,14 @@ func utcAt(v any, depth int) any {
 	case driver.Valuer:
 		// database/sql treats a nil pointer as NULL without calling Value.
 		rv := reflect.ValueOf(t)
-		if rv.Kind() == reflect.Pointer && rv.IsNil() || !givesTime(rv, nil) {
+		if rv.Kind() == reflect.Pointer && rv.IsNil() || !givesTime(rv, &trail{}) {
 			return v
 		}
 
 		// A secret inside stays one: what Value gives goes on in a qb.Secret,
 		// so that logged values still hide it. That is settled first, as Value
 		// may change what the Valuer holds.
-		secret := hidesSecret(rv, nil)
+		secret := hidesSecret(rv, &trail{})
 
 		// Value runs once: its result goes on in place of v, so that a type
 		// that overrides Value is not asked twice.
@@ -168,7 +168,7 @@ func utcAt(v any, depth int) any {
 		// settled first, since Value may change what the Valuer holds, and the
 		// chain may end in an interface, so the Valuer's own type is judged.
 		_, valuer := elem.(driver.Valuer)
-		asked := valuer && givesTime(reflect.ValueOf(elem), nil)
+		asked := valuer && givesTime(reflect.ValueOf(elem), &trail{})
 
 		out := utcAt(elem, depth+1)
 
@@ -198,22 +198,29 @@ var (
 	valuerType = reflect.TypeFor[driver.Valuer]()
 )
 
-// indirect follows v past pointers and interfaces, and reports false for nil
-// or a chain that comes back to itself.
-func indirect(v reflect.Value) (reflect.Value, bool) {
-	var seen []uintptr
+// trail is what one walk of a value has followed: every pointer, shared by all
+// its branches, since a value can hold itself only through a pointer, as
+// sql.Null[any]{V: &itself} does. A walk that comes back to one stops there.
+type trail struct{ pointers []uintptr }
 
+// passed reports whether the walk has followed the pointer v already, and
+// records it if not.
+func (tr *trail) passed(v reflect.Value) bool {
+	if slices.Contains(tr.pointers, v.Pointer()) {
+		return true
+	}
+
+	tr.pointers = append(tr.pointers, v.Pointer())
+
+	return false
+}
+
+// follow takes v past pointers and interfaces, and reports false for nil or a
+// pointer the walk has followed already.
+func (tr *trail) follow(v reflect.Value) (reflect.Value, bool) {
 	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
-		if v.IsNil() {
+		if v.IsNil() || v.Kind() == reflect.Pointer && tr.passed(v) {
 			return v, false
-		}
-
-		if v.Kind() == reflect.Pointer {
-			if slices.Contains(seen, v.Pointer()) {
-				return v, false
-			}
-
-			seen = append(seen, v.Pointer())
 		}
 
 		v = v.Elem()
@@ -229,8 +236,8 @@ func isNull(t reflect.Type) bool {
 
 // hidesSecret reports whether the Valuer v gives a qb.Secret's value: it is
 // one, or an sql.Null or a struct built on one holds one.
-func hidesSecret(v reflect.Value, seen []reflect.Type) bool {
-	v, ok := indirect(v)
+func hidesSecret(v reflect.Value, tr *trail) bool {
+	v, ok := tr.follow(v)
 	if !ok {
 		return false
 	}
@@ -239,15 +246,13 @@ func hidesSecret(v reflect.Value, seen []reflect.Type) bool {
 	case t == secretType:
 		return true
 	case isNull(t):
-		return hidesSecret(v.FieldByName("V"), seen)
-	case t.Kind() != reflect.Struct || slices.Contains(seen, t):
+		return hidesSecret(v.FieldByName("V"), tr)
+	case t.Kind() != reflect.Struct:
 		return false
 	}
 
-	seen = append(seen, v.Type())
-
 	for i := range v.NumField() {
-		if v.Type().Field(i).Anonymous && hidesSecret(v.Field(i), seen) {
+		if v.Type().Field(i).Anonymous && hidesSecret(v.Field(i), tr) {
 			return true
 		}
 	}
@@ -260,8 +265,8 @@ func hidesSecret(v reflect.Value, seen []reflect.Type) bool {
 // time now, or a struct built on one of these, such as ant.DeletedAt. Other
 // Valuers, such as JSON or an encrypted value, are left to database/sql, so
 // their Value runs once.
-func givesTime(v reflect.Value, seen []reflect.Type) bool {
-	v, ok := indirect(v)
+func givesTime(v reflect.Value, tr *trail) bool {
+	v, ok := tr.follow(v)
 	if !ok {
 		return false
 	}
@@ -273,7 +278,7 @@ func givesTime(v reflect.Value, seen []reflect.Type) bool {
 		return true
 	case t == secretType:
 		// A secret gives what it holds, as database/sql converts it.
-		return holdsTime(v.FieldByName("V"), seen)
+		return holdsTime(v.FieldByName("V"), tr)
 	case isNull(t):
 		// sql.Null gives what it holds once Valid, as database/sql converts it,
 		// following pointers and asking a Valuer it holds. A time, or a pointer
@@ -284,15 +289,15 @@ func givesTime(v reflect.Value, seen []reflect.Type) bool {
 			return true
 		}
 
-		return v.FieldByName("Valid").Bool() && holdsTime(held, seen)
-	case t.Kind() != reflect.Struct || slices.Contains(seen, t):
-		return false // a type that embeds itself holds no time either
+		return v.FieldByName("Valid").Bool() && holdsTime(held, tr)
+	case t.Kind() != reflect.Struct:
+		return false
 	}
 
-	seen = append(seen, t)
-
+	// A type that embeds a pointer to itself comes back to a pointer it
+	// followed, or to nil, so this ends.
 	for i := range t.NumField() {
-		if t.Field(i).Anonymous && givesTime(v.Field(i), seen) {
+		if t.Field(i).Anonymous && givesTime(v.Field(i), tr) {
 			return true
 		}
 	}
@@ -302,30 +307,20 @@ func givesTime(v reflect.Value, seen []reflect.Type) bool {
 
 // holdsTime reports whether v, past pointers and interfaces, is a time or a
 // Valuer that gives one, as database/sql asks the first Valuer it meets.
-func holdsTime(v reflect.Value, seen []reflect.Type) bool {
-	var pointers []uintptr
-
+func holdsTime(v reflect.Value, tr *trail) bool {
 	for {
 		// Judged by its type, which a value read through an unexported field
 		// can still give.
 		if v.Kind() != reflect.Interface && v.Type().Implements(valuerType) {
-			return givesTime(v, seen)
+			return givesTime(v, tr)
 		}
 
 		if v.Kind() != reflect.Pointer && v.Kind() != reflect.Interface {
 			return v.Type() == timeType
 		}
 
-		if v.IsNil() {
-			return false
-		}
-
-		if v.Kind() == reflect.Pointer {
-			if slices.Contains(pointers, v.Pointer()) {
-				return false // a chain that comes back to itself holds no time
-			}
-
-			pointers = append(pointers, v.Pointer())
+		if v.IsNil() || v.Kind() == reflect.Pointer && tr.passed(v) {
+			return false // nil, or a chain that comes back to itself, holds no time
 		}
 
 		v = v.Elem()

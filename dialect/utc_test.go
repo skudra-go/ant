@@ -118,6 +118,11 @@ func TestTimesBindInUTC(t *testing.T) {
 		},
 		{"invalid sql.Null of an interface", sql.Null[any]{V: at}, sql.Null[any]{V: at}},
 		{
+			"an sql.Null of an interface holding another",
+			sql.Null[any]{V: sql.Null[any]{V: at, Valid: true}, Valid: true},
+			utc,
+		},
+		{
 			"sql.Null of sql.NullTime",
 			sql.Null[sql.NullTime]{V: sql.NullTime{Time: at, Valid: true}, Valid: true},
 			utc,
@@ -452,6 +457,12 @@ func TestChangingValuerIsAskedOnce(t *testing.T) {
 // loop is a pointer type that points to its own type, and can point to itself.
 type loop *loop
 
+// selfish is built on an sql.Null of an interface that can hold the selfish
+// value itself, and gives a value of its own, so database/sql takes it.
+type selfish struct{ sql.Null[any] }
+
+func (selfish) Value() (driver.Value, error) { return "selfish", nil }
+
 // sealed is built on a qb.Secret, which it hands its value through.
 type sealed struct{ qb.Secret }
 
@@ -469,6 +480,12 @@ func TestCyclesAndNestedSecrets(t *testing.T) {
 	var held any
 
 	held = &held
+
+	nullSelf := &sql.Null[any]{Valid: true}
+	nullSelf.V = nullSelf
+
+	valuerSelf := &selfish{}
+	valuerSelf.V, valuerSelf.Valid = valuerSelf, true
 
 	for _, d := range []dialect.Dialect{sqlite.Dialect, sqlserver.Dialect} {
 		binds := map[string]func(v any) (any, error){
@@ -496,6 +513,8 @@ func TestCyclesAndNestedSecrets(t *testing.T) {
 				"a pointer to itself":                  {self, true},
 				"an interface holding its own address": {&held, true},
 				"an sql.Null of a self pointing type":  {sql.Null[loop]{V: self, Valid: true}, false},
+				"an sql.Null holding itself":           {nullSelf, false},
+				"a Valuer on an sql.Null holding it":   {valuerSelf, false},
 			} {
 				done := make(chan error, 1)
 
