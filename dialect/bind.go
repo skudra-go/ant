@@ -110,7 +110,13 @@ func utc(v any) any {
 			return v
 		}
 
-		for rv.Kind() == reflect.Pointer && !rv.IsNil() {
+		// An interface on the way is followed too, as database/sql does when it
+		// takes the value a pointer points at.
+		indirect := func(rv reflect.Value) bool {
+			return rv.Kind() == reflect.Pointer || rv.Kind() == reflect.Interface
+		}
+
+		for indirect(rv) && !rv.IsNil() {
 			rv = rv.Elem()
 
 			if _, ok := rv.Interface().(driver.Valuer); ok {
@@ -119,7 +125,7 @@ func utc(v any) any {
 		}
 
 		// A nil pointer is NULL to database/sql, Valuer or not.
-		if rv.Kind() == reflect.Pointer && rv.IsNil() {
+		if indirect(rv) && rv.IsNil() {
 			return v
 		}
 

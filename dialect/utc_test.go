@@ -67,8 +67,8 @@ func TestTimesBindInUTC(t *testing.T) {
 
 	var nilNumber *int
 
-	// A pointer may reach the time through an interface.
-	var heldTime, heldNull, heldNothing any = at, sql.NullTime{Time: at, Valid: true}, nil
+	// A pointer may reach the time through an interface, and go on after it.
+	var heldTime, heldNull, heldNothing, heldPointer any = at, sql.NullTime{Time: at, Valid: true}, nil, &pointed
 
 	calls := 0
 	other := counted{&calls}
@@ -97,6 +97,7 @@ func TestTimesBindInUTC(t *testing.T) {
 		{"a pointer to an interface holding a time", &heldTime, utc},
 		{"a pointer to an interface holding sql.NullTime", &heldNull, utc},
 		{"a pointer to an empty interface", &heldNothing, &heldNothing},
+		{"a pointer to an interface holding a **time.Time", &heldPointer, utc},
 		{"nil *int", nilNumber, nilNumber},
 		{"not a time", 42, 42},
 	}
@@ -264,6 +265,9 @@ func TestPointedValuersAreAskedOnce(t *testing.T) {
 
 	var textHeld, textPointerHeld, failingHeld any = *text, text, *failing
 
+	// The interface may hold more pointers on the way to the Valuer.
+	var textChain, failingChain any = &text, &failing
+
 	cases := []struct {
 		in   any
 		want any
@@ -277,6 +281,9 @@ func TestPointedValuersAreAskedOnce(t *testing.T) {
 		{ptrTo(&textHeld), "text", nil},
 		{&textPointerHeld, "text", nil},
 		{&failingHeld, nil, errRefused},
+		{&textChain, "text", nil},
+		{ptrTo(&textChain), "text", nil},
+		{&failingChain, nil, errRefused},
 	}
 
 	for _, d := range []dialect.Dialect{sqlite.Dialect, sqlserver.Dialect} {
