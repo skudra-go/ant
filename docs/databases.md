@@ -51,7 +51,7 @@ Error helpers mean the same everywhere. `ant.IsUniqueViolation` works on all fiv
 
 **`ON DUPLICATE KEY` on MySQL and MariaDB.** It has no target: any unique key triggers it, not only the columns you name. If a different key is the one that collides, `Upsert` cannot find the row by your columns, and reports that it wrote nothing. Name the only unique key that can collide. It also takes no `WHERE`, so `Conflict.Where` is an error, and an `Upsert` of a copy that carries a version cannot check that version: the version moves on, but the copy's update goes ahead.
 
-**Writes that read their own table on MySQL.** MySQL refuses an `UPDATE` or `DELETE` whose subquery reads the table being written (error 1093), so ant wraps such a subquery in a derived table there, which MySQL reads first. That takes MySQL 8.0.19 or later, for the derived table's column list. An upsert's `Set` cannot read its own table on MySQL at all.
+**Writes that read their own table on MySQL.** MySQL refuses an `UPDATE` or `DELETE` whose subquery reads the table being written (error 1093), so ant wraps such a subquery in a derived table there, which MySQL reads first. A subquery with several columns that share a name, or that are expressions, takes MySQL 8.0.19 or later, for the derived table's column list, and a correlated one 8.0.14. An upsert's `Set` cannot read its own table on MySQL at all.
 
 **`OUTPUT` on SQL Server.** SQL Server refuses it on a table with triggers, so a model that needs a key back cannot be inserted into one.
 

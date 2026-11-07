@@ -50,7 +50,7 @@ func TestSelfReadsAreWrappedOnMySQL(t *testing.T) {
 			"IN the same table",
 			update(qb.In{Left: id, Sub: ofUsers}),
 			"UPDATE `users` SET `age` = ? WHERE `users`.`id` IN (" + wrap +
-				"SELECT `users`.`id` FROM `users`) AS materialized(`ant_c1`))",
+				"SELECT `users`.`id` FROM `users`) AS materialized)",
 		},
 		{
 			"IN another table",
@@ -62,13 +62,13 @@ func TestSelfReadsAreWrappedOnMySQL(t *testing.T) {
 			update(qb.In{Left: id, Sub: sel(userID, posts, qb.In{Left: userID, Sub: ofUsers})}),
 			"UPDATE `users` SET `age` = ? WHERE `users`.`id` IN (" + wrap +
 				"SELECT `posts`.`user_id` FROM `posts` WHERE `posts`.`user_id` IN " +
-				"(SELECT `users`.`id` FROM `users`)) AS materialized(`ant_c1`))",
+				"(SELECT `users`.`id` FROM `users`)) AS materialized)",
 		},
 		{
 			"EXISTS",
 			&qb.Delete{Table: users, Where: []qb.Cond{qb.Exists{Select: ofUsers, Negate: true}}},
 			"DELETE FROM `users` WHERE NOT EXISTS (" + wrap +
-				"SELECT `users`.`id` FROM `users`) AS materialized(`ant_c1`))",
+				"SELECT `users`.`id` FROM `users`) AS materialized)",
 		},
 		{
 			"a value in SET",
@@ -76,13 +76,13 @@ func TestSelfReadsAreWrappedOnMySQL(t *testing.T) {
 				Table: users,
 				Set:   []qb.Assignment{{Column: "age", Value: qb.Subquery{Select: ofUsers}}},
 			},
-			"UPDATE `users` SET `age` = (" + wrap + "SELECT `users`.`id` FROM `users`) AS materialized(`ant_c1`))",
+			"UPDATE `users` SET `age` = (" + wrap + "SELECT `users`.`id` FROM `users`) AS materialized)",
 		},
 		{
 			"a read the table's other spelling names",
 			update(qb.In{Left: id, Sub: sel(id, &qb.TableRef{Schema: "app", Name: "Users"})}),
 			"UPDATE `users` SET `age` = ? WHERE `users`.`id` IN (" + wrap +
-				"SELECT `users`.`id` FROM `app`.`Users`) AS materialized(`ant_c1`))",
+				"SELECT `users`.`id` FROM `app`.`Users`) AS materialized)",
 		},
 		{
 			"raw SQL that names the table",
@@ -93,7 +93,7 @@ func TestSelfReadsAreWrappedOnMySQL(t *testing.T) {
 				},
 			),
 			"UPDATE `users` SET `age` = ? WHERE `users`.`id` IN (" + wrap +
-				"SELECT `posts`.`user_id` FROM `posts` WHERE (user_id IN (SELECT id FROM USERS))) AS materialized(`ant_c1`))",
+				"SELECT `posts`.`user_id` FROM `posts` WHERE (user_id IN (SELECT id FROM USERS))) AS materialized)",
 		},
 		{
 			"raw SQL that quotes the table",
@@ -109,7 +109,7 @@ func TestSelfReadsAreWrappedOnMySQL(t *testing.T) {
 			),
 			"UPDATE `users` SET `age` = ? WHERE `users`.`id` IN (" + wrap +
 				"SELECT `posts`.`user_id` FROM `posts` WHERE (user_id IN (SELECT id FROM `Users`))) " +
-				"AS materialized(`ant_c1`))",
+				"AS materialized)",
 		},
 		{
 			"raw SQL that names the table outside ASCII",
@@ -129,7 +129,7 @@ func TestSelfReadsAreWrappedOnMySQL(t *testing.T) {
 			},
 			"UPDATE `Øl` SET `age` = ? WHERE `users`.`id` IN (" + wrap +
 				"SELECT `posts`.`user_id` FROM `posts` WHERE (user_id IN (SELECT id FROM øl))) " +
-				"AS materialized(`ant_c1`))",
+				"AS materialized)",
 		},
 		{
 			"raw SQL that only holds the name in a literal, a comment, or a longer name",
@@ -156,7 +156,7 @@ func TestSelfReadsAreWrappedOnMySQL(t *testing.T) {
 			}),
 			"UPDATE `users` SET `age` = ? WHERE `users`.`id` IN (" + wrap +
 				"SELECT `posts`.`user_id` FROM `posts` WHERE `posts`.`user_id` IN " +
-				"(SELECT `users`.`id` FROM `users`)) AS materialized(`ant_c1`))",
+				"(SELECT `users`.`id` FROM `users`)) AS materialized)",
 		},
 		{
 			"a limited subquery is a derived table already",
@@ -209,7 +209,7 @@ func TestSelfReadsAreWrappedOnMySQL(t *testing.T) {
 				},
 			}),
 			"UPDATE `users` SET `age` = ? WHERE `users`.`id` IN (" + wrap +
-				"SELECT `id` FROM `users`) AS materialized(`ant_c1`))",
+				"SELECT `id` FROM `users`) AS materialized)",
 		},
 		{
 			"a column's own name stays, for HAVING to use",
@@ -238,7 +238,7 @@ func TestSelfReadsAreWrappedOnMySQL(t *testing.T) {
 				}},
 			},
 			"UPDATE `users` SET `age` = (" + wrap + "SELECT MAX(`users`.`age`) AS `oldest` FROM `users` " +
-				"HAVING `oldest` > ?) AS materialized(`ant_c1`))",
+				"HAVING `oldest` > ?) AS materialized)",
 		},
 		{
 			"a star in EXISTS becomes 1, which names nothing twice",
@@ -258,7 +258,7 @@ func TestSelfReadsAreWrappedOnMySQL(t *testing.T) {
 				}},
 			},
 			"DELETE FROM `users` WHERE EXISTS (" + wrap + "SELECT 1 FROM `users` JOIN `posts` ON " +
-				"`posts`.`user_id` = `users`.`id`) AS materialized(`ant_c1`))",
+				"`posts`.`user_id` = `users`.`id`) AS materialized)",
 		},
 		{
 			"DISTINCT does not change whether a row exists",
@@ -272,7 +272,7 @@ func TestSelfReadsAreWrappedOnMySQL(t *testing.T) {
 					},
 				}},
 			},
-			"DELETE FROM `users` WHERE EXISTS (" + wrap + "SELECT DISTINCT 1 FROM `users`) AS materialized(`ant_c1`))",
+			"DELETE FROM `users` WHERE EXISTS (" + wrap + "SELECT DISTINCT 1 FROM `users`) AS materialized)",
 		},
 		{
 			"a star that ordering reads stays, on one table",
@@ -351,7 +351,7 @@ func TestSelfReadsAreWrappedOnMySQL(t *testing.T) {
 				}},
 			},
 			"UPDATE `users` SET `age` = (" + wrap + "SELECT ABS(`users`.`age`) FROM `users` " +
-				"ORDER BY `ant_c1`, ant_c2) AS materialized(`ant_c1`))",
+				"ORDER BY `ant_c1`, ant_c2) AS materialized)",
 		},
 		{
 			"raw expressions in the select list, alike, stay as they are",

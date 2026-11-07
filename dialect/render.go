@@ -996,11 +996,16 @@ func (r *renderer) subquery(s *qb.Select, exists bool) {
 	r.inner, r.replay, r.lazies = false, nil, nil
 }
 
-// derivable returns s as a derived table takes it, and how many columns it has,
-// for the derived table to name them itself. So the subquery keeps its own
-// names, two columns of one name and raw SQL included, and what refers to a
-// column by name, as ORDER BY and HAVING can, still finds the same one. A star
-// cannot be counted. In EXISTS its columns matter only to what reads them, so
+// derivable returns s as a derived table takes it, and how many columns the
+// derived table must name itself, or 0 if their own names do. A derived table
+// needs unique names, which MySQL makes up for a column with none, from its SQL.
+// One column is unique however it is named. Of several, two may share a name,
+// or have none the renderer can tell, as an expression or raw SQL has not, and
+// then the derived table's own column list, which MySQL takes from 8.0.19,
+// names them.
+// The subquery keeps its select list either way, so what refers to a column by
+// name, as ORDER BY and HAVING can, still finds the same one. A star cannot be
+// counted. In EXISTS its columns matter only to what reads them, so
 // SELECT * there becomes SELECT 1 unless grouping, ordering, an offset, or a set
 // reads the columns. A star over one table is left as it is, with the table's
 // names, which are unique. One beside other columns, or over a join or a set,
@@ -1013,7 +1018,27 @@ func derivable(s *qb.Select, exists bool) (*qb.Select, int) {
 	}
 
 	if !slices.ContainsFunc(s.Columns, star) {
-		return s, len(s.Columns)
+		if len(s.Columns) < 2 {
+			return s, 0
+		}
+
+		seen := map[string]bool{}
+
+		for _, c := range s.Columns {
+			name := strings.ToLower(c.Alias)
+
+			if column, ok := c.Value.(qb.Column); ok && name == "" {
+				name = strings.ToLower(column.Name)
+			}
+
+			if name == "" || seen[name] {
+				return s, len(s.Columns)
+			}
+
+			seen[name] = true
+		}
+
+		return s, 0
 	}
 
 	simple := exists && len(s.GroupBy) == 0 && len(s.Having) == 0 && len(s.Order) == 0 &&
@@ -1026,7 +1051,7 @@ func derivable(s *qb.Select, exists bool) (*qb.Select, int) {
 		out := *s
 		out.Columns = []qb.Selected{{Value: qb.Fragment{SQL: "1"}}}
 
-		return &out, 1
+		return &out, 0
 	case len(s.Columns) > 1 || len(s.Joins) > 0 || len(s.Sets) > 0:
 		return nil, 0
 	}
