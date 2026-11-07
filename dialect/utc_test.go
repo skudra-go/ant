@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -443,6 +444,108 @@ func TestChangingValuerIsAskedOnce(t *testing.T) {
 					err,
 					calls,
 				)
+			}
+		}
+	}
+}
+
+// loop is a pointer type that points to its own type, and can point to itself.
+type loop *loop
+
+// sealed is built on a qb.Secret, which it hands its value through.
+type sealed struct{ qb.Secret }
+
+// A pointer that points back at itself, directly or through an interface, binds
+// an error rather than leaving binding to follow it for ever, and a time held in
+// a secret inside a Valuer is put in UTC and stays secret.
+func TestCyclesAndNestedSecrets(t *testing.T) {
+	east := time.FixedZone("UTC+3", 3*60*60)
+	at := time.Date(2026, 1, 2, 15, 4, 5, 0, east)
+
+	var self loop
+
+	self = &self
+
+	var held any
+
+	held = &held
+
+	for _, d := range []dialect.Dialect{sqlite.Dialect, sqlserver.Dialect} {
+		binds := map[string]func(v any) (any, error){
+			"rendered": func(v any) (any, error) {
+				_, args, err := d.Render(
+					&qb.Select{Columns: []qb.Selected{{Value: qb.Param{Value: v}}}},
+				)
+
+				return args[0], err
+			},
+			"bound": func(v any) (any, error) {
+				_, args, err := dialect.Bind(d, "SELECT ?", []any{v})
+
+				return args[0], err
+			},
+		}
+
+		for how, bind := range binds {
+			// The chains ant follows bind an error. An sql.Null holding one is
+			// left to database/sql, as ant does not follow it into the Null.
+			for name, cyclic := range map[string]struct {
+				in    any
+				fails bool
+			}{
+				"a pointer to itself":                  {self, true},
+				"an interface holding its own address": {&held, true},
+				"an sql.Null of a self pointing type":  {sql.Null[loop]{V: self, Valid: true}, false},
+			} {
+				done := make(chan error, 1)
+
+				go func() {
+					arg, err := bind(cyclic.in)
+					if err == nil && cyclic.fails {
+						_, err = driver.DefaultParameterConverter.ConvertValue(arg)
+						if err == nil {
+							err = errors.New("no error")
+						}
+					}
+
+					done <- err
+				}()
+
+				select {
+				case err := <-done:
+					if cyclic.fails &&
+						(err == nil || !strings.Contains(err.Error(), "points back at itself")) {
+						t.Errorf(
+							"%s, %s: %s gave %v, want that it points back at itself",
+							d.Name(),
+							how,
+							name,
+							err,
+						)
+					}
+				case <-time.After(5 * time.Second):
+					t.Fatalf("%s, %s: binding %s did not end", d.Name(), how, name)
+				}
+			}
+
+			for name, in := range map[string]any{
+				"an sql.Null holding a secret": sql.Null[any]{V: qb.Secret{V: at}, Valid: true},
+				"a type built on a secret":     sealed{qb.Secret{V: at}},
+			} {
+				arg, err := bind(in)
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				if !same(arg, qb.Secret{V: at.UTC()}) {
+					t.Errorf(
+						"%s, %s: %s went on as %#v, want a secret in UTC",
+						d.Name(),
+						how,
+						name,
+						arg,
+					)
+				}
 			}
 		}
 	}

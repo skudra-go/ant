@@ -69,7 +69,17 @@ func bind(d Dialect, query string, args []any) (string, []any, error) {
 // or an sql.Null that holds one, or a type built on either, such as
 // ant.DeletedAt, or in a qb.Secret, which stays one. Anything else, and NULL,
 // comes back as it was.
-func utc(v any) any {
+func utc(v any) any { return utcAt(v, 0) }
+
+// maxDepth bounds how deep utc follows secrets in secrets, which could hold
+// themselves.
+const maxDepth = 64
+
+func utcAt(v any, depth int) any {
+	if depth > maxDepth {
+		return failed{fmt.Errorf("ant: %T holds itself", v)}
+	}
+
 	switch t := v.(type) {
 	case time.Time:
 		return t.UTC()
@@ -78,10 +88,10 @@ func utc(v any) any {
 			return t.UTC()
 		}
 	case qb.Secret:
-		return qb.Secret{V: utc(t.V)}
+		return qb.Secret{V: utcAt(t.V, depth+1)}
 	case *qb.Secret:
 		if t != nil {
-			return &qb.Secret{V: utc(t.V)}
+			return &qb.Secret{V: utcAt(t.V, depth+1)}
 		}
 	case driver.Valuer:
 		// database/sql treats a nil pointer as NULL without calling Value.
@@ -89,6 +99,11 @@ func utc(v any) any {
 		if rv.Kind() == reflect.Pointer && rv.IsNil() || !givesTime(rv, nil) {
 			return v
 		}
+
+		// A secret inside stays one: what Value gives goes on in a qb.Secret,
+		// so that logged values still hide it. That is settled first, as Value
+		// may change what the Valuer holds.
+		secret := hidesSecret(rv, nil)
 
 		// Value runs once: its result goes on in place of v, so that a type
 		// that overrides Value is not asked twice.
@@ -98,7 +113,11 @@ func utc(v any) any {
 		case err != nil:
 			return failed{err}
 		case ok:
-			return at.UTC()
+			value = at.UTC()
+		}
+
+		if secret {
+			return qb.Secret{V: value}
 		}
 
 		return value
@@ -113,11 +132,23 @@ func utc(v any) any {
 
 		// An interface on the way is followed too, as database/sql does when it
 		// takes the value a pointer points at.
-		indirect := func(rv reflect.Value) bool {
+		onward := func(rv reflect.Value) bool {
 			return rv.Kind() == reflect.Pointer || rv.Kind() == reflect.Interface
 		}
 
-		for indirect(rv) && !rv.IsNil() {
+		var seen []uintptr
+
+		for onward(rv) && !rv.IsNil() {
+			// A chain that comes back to a pointer on it never ends, and
+			// database/sql would follow it until its stack ran out.
+			if rv.Kind() == reflect.Pointer {
+				if slices.Contains(seen, rv.Pointer()) {
+					return failed{fmt.Errorf("ant: %T points back at itself", v)}
+				}
+
+				seen = append(seen, rv.Pointer())
+			}
+
 			rv = rv.Elem()
 
 			if _, ok := rv.Interface().(driver.Valuer); ok {
@@ -126,7 +157,7 @@ func utc(v any) any {
 		}
 
 		// A nil pointer is NULL to database/sql, Valuer or not.
-		if indirect(rv) && rv.IsNil() {
+		if onward(rv) && rv.IsNil() {
 			return v
 		}
 
@@ -139,7 +170,7 @@ func utc(v any) any {
 		_, valuer := elem.(driver.Valuer)
 		asked := valuer && givesTime(reflect.ValueOf(elem), nil)
 
-		out := utc(elem)
+		out := utcAt(elem, depth+1)
 
 		if asked {
 			return out
@@ -163,8 +194,66 @@ func (f failed) Value() (driver.Value, error) { return nil, f.err }
 var (
 	timeType   = reflect.TypeFor[time.Time]()
 	nullTime   = reflect.TypeFor[sql.NullTime]()
+	secretType = reflect.TypeFor[qb.Secret]()
 	valuerType = reflect.TypeFor[driver.Valuer]()
 )
+
+// indirect follows v past pointers and interfaces, and reports false for nil
+// or a chain that comes back to itself.
+func indirect(v reflect.Value) (reflect.Value, bool) {
+	var seen []uintptr
+
+	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
+		if v.IsNil() {
+			return v, false
+		}
+
+		if v.Kind() == reflect.Pointer {
+			if slices.Contains(seen, v.Pointer()) {
+				return v, false
+			}
+
+			seen = append(seen, v.Pointer())
+		}
+
+		v = v.Elem()
+	}
+
+	return v, true
+}
+
+// isNull reports whether t is an instantiation of sql.Null.
+func isNull(t reflect.Type) bool {
+	return t.PkgPath() == "database/sql" && strings.HasPrefix(t.Name(), "Null[")
+}
+
+// hidesSecret reports whether the Valuer v gives a qb.Secret's value: it is
+// one, or an sql.Null or a struct built on one holds one.
+func hidesSecret(v reflect.Value, seen []reflect.Type) bool {
+	v, ok := indirect(v)
+	if !ok {
+		return false
+	}
+
+	switch t := v.Type(); {
+	case t == secretType:
+		return true
+	case isNull(t):
+		return hidesSecret(v.FieldByName("V"), seen)
+	case t.Kind() != reflect.Struct || slices.Contains(seen, t):
+		return false
+	}
+
+	seen = append(seen, v.Type())
+
+	for i := range v.NumField() {
+		if v.Type().Field(i).Anonymous && hidesSecret(v.Field(i), seen) {
+			return true
+		}
+	}
+
+	return false
+}
 
 // givesTime reports whether the Valuer v gives a time: sql.NullTime, an sql.Null
 // of a time or of a pointer to one, an sql.Null of an interface that holds a
@@ -172,12 +261,9 @@ var (
 // Valuers, such as JSON or an encrypted value, are left to database/sql, so
 // their Value runs once.
 func givesTime(v reflect.Value, seen []reflect.Type) bool {
-	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
-		if v.IsNil() {
-			return false
-		}
-
-		v = v.Elem()
+	v, ok := indirect(v)
+	if !ok {
+		return false
 	}
 
 	t := v.Type()
@@ -185,7 +271,10 @@ func givesTime(v reflect.Value, seen []reflect.Type) bool {
 	switch {
 	case t == nullTime:
 		return true
-	case t.PkgPath() == "database/sql" && strings.HasPrefix(t.Name(), "Null["):
+	case t == secretType:
+		// A secret gives what it holds, as database/sql converts it.
+		return holdsTime(v.FieldByName("V"), seen)
+	case isNull(t):
 		// sql.Null gives what it holds once Valid, as database/sql converts it,
 		// following pointers and asking a Valuer it holds. A time, or a pointer
 		// to one, is known by its type. An interface, or a Valuer, is known by
@@ -214,6 +303,8 @@ func givesTime(v reflect.Value, seen []reflect.Type) bool {
 // holdsTime reports whether v, past pointers and interfaces, is a time or a
 // Valuer that gives one, as database/sql asks the first Valuer it meets.
 func holdsTime(v reflect.Value, seen []reflect.Type) bool {
+	var pointers []uintptr
+
 	for {
 		// Judged by its type, which a value read through an unexported field
 		// can still give.
@@ -229,13 +320,25 @@ func holdsTime(v reflect.Value, seen []reflect.Type) bool {
 			return false
 		}
 
+		if v.Kind() == reflect.Pointer {
+			if slices.Contains(pointers, v.Pointer()) {
+				return false // a chain that comes back to itself holds no time
+			}
+
+			pointers = append(pointers, v.Pointer())
+		}
+
 		v = v.Elem()
 	}
 }
 
 // pointsToTime reports whether t is a time or a pointer, however deep, to one.
+// A pointer type may point to itself, as type loop *loop does.
 func pointsToTime(t reflect.Type) bool {
-	for t.Kind() == reflect.Pointer {
+	var seen []reflect.Type
+
+	for t.Kind() == reflect.Pointer && !slices.Contains(seen, t) {
+		seen = append(seen, t)
 		t = t.Elem()
 	}
 
