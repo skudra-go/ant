@@ -43,6 +43,7 @@ type Entry struct {
 	keyed    bool
 	seq      uint64
 	saves    uint64 // counts writes saved, so an undo can tell it came too late
+	links    uint64 // counts saves of the relations, for the same
 	// Members holds the entries of a loaded one-to-many relation by key, and
 	// Parents the key of a loaded many-to-one relation, to detect changes.
 	Members map[*meta.Relation]map[any]*Entry
@@ -138,7 +139,17 @@ func (e *Entry) SetParent(r *meta.Relation, key any) {
 	e.Parents = next
 }
 
-// SetLinks replaces what the loaded relations hold, and returns how to undo that.
+// SetLinks records what the loaded relations hold once a save wrote them, and
+// returns how to undo that.
+//
+// A load made since, inside the same transaction or outside it, does not stop
+// the undo: one inside read rows the rollback takes back, and one outside read
+// the committed rows, which are what the undo restores. A save made since does,
+// as Entry.undoSave says of the entry's columns, unless it was inside the same
+// transaction, whose undo ran first. The newer save wrote what it saw, so then
+// the undo takes back only what this save changed and the newer one left as it
+// was: a member this save added goes, one it dropped comes back, and a member
+// the newer save added stays, so that removing it later deletes its row.
 func (e *Entry) SetLinks(
 	members map[*meta.Relation]map[any]*Entry,
 	parents map[*meta.Relation]any,
@@ -146,10 +157,72 @@ func (e *Entry) SetLinks(
 	oldMembers, oldParents := e.Members, e.Parents
 	e.Members, e.Parents = members, parents
 
-	// This undo always applies. A load made inside the same transaction read
-	// rows the rollback takes back, and one made outside it read the committed
-	// rows, which are what this restores.
-	return func() { e.Members, e.Parents = oldMembers, oldParents }
+	e.links++
+	links := e.links
+
+	return func() {
+		if e.links == links {
+			e.Members, e.Parents = oldMembers, oldParents
+			e.links = links - 1
+
+			return
+		}
+
+		e.Members = revertMembers(e.Members, members, oldMembers)
+		e.Parents = revert(e.Parents, parents, oldParents)
+	}
+}
+
+// revertMembers takes the change a save made to each relation's members, from
+// before to saved, out of what they are now, where nothing changed it since.
+func revertMembers(
+	now, saved, before map[*meta.Relation]map[any]*Entry,
+) map[*meta.Relation]map[any]*Entry {
+	out := maps.Clone(now)
+
+	for r, members := range saved {
+		if current, ok := now[r]; ok {
+			out[r] = revert(current, members, before[r])
+		}
+	}
+
+	return out
+}
+
+// revert takes the change from before to saved out of now: each key the change
+// set, if it still holds what the change set, goes back to what it was before,
+// and each key the change took out comes back, unless something set it since.
+// Maps are replaced, never changed, so a new one is returned.
+func revert[K, V comparable](now, saved, before map[K]V) map[K]V {
+	out := maps.Clone(now)
+
+	for k, v := range saved {
+		old, had := before[k]
+
+		switch current, ok := now[k]; {
+		case had && old == v, !ok || current != v:
+		case had:
+			out[k] = old
+		default:
+			delete(out, k)
+		}
+	}
+
+	for k, old := range before {
+		if _, kept := saved[k]; kept {
+			continue
+		}
+
+		if _, set := now[k]; !set {
+			if out == nil {
+				out = map[K]V{}
+			}
+
+			out[k] = old
+		}
+	}
+
+	return out
 }
 
 // Reloaded records an entry as read back from the database over before, a copy
@@ -216,6 +289,10 @@ type Tracker struct {
 	seq     uint64
 	entries map[unsafe.Pointer]*Entry
 	first   map[identity]*Entry
+	// deletions counts the deletions of each row whose entries were forgotten,
+	// so that an undo that comes late can tell a newer deletion of the row
+	// happened. It holds a row only once its entries were tracked.
+	deletions map[identity]uint64
 	// OnTrack and OnState report entities starting to be tracked and changing
 	// state. They run with the tracker locked, so they must not call back into it.
 	OnTrack func(*Entry)
@@ -334,9 +411,10 @@ func (t *Tracker) Empty() bool {
 // New returns an empty tracker.
 func New() *Tracker {
 	return &Tracker{
-		held:    make(chan struct{}, 1),
-		entries: map[unsafe.Pointer]*Entry{},
-		first:   map[identity]*Entry{},
+		held:      make(chan struct{}, 1),
+		entries:   map[unsafe.Pointer]*Entry{},
+		first:     map[identity]*Entry{},
+		deletions: map[identity]uint64{},
 	}
 }
 
@@ -539,7 +617,8 @@ func (t *Tracker) Forget(e *Entry) (undo func()) {
 	return func() { t.Restore(e) }
 }
 
-// ForgetRow stops tracking every instance of a row, and returns how to undo that.
+// ForgetRow stops tracking every instance of a row that a write deleted, and
+// returns how to undo that, as Deleted does.
 func (t *Tracker) ForgetRow(m *meta.Model, key any) (undo func()) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -558,7 +637,60 @@ func (t *Tracker) ForgetRow(m *meta.Model, key any) (undo func()) {
 		t.forget(e)
 	}
 
+	return t.undoDeletion(id, gone)
+}
+
+// Deleted stops tracking an entry whose row a write deleted, and returns how to
+// undo that: track it again, unless the row was deleted again since.
+func (t *Tracker) Deleted(e *Entry) (undo func()) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	t.forget(e)
+
+	if !e.keyed {
+		return func() { t.Restore(e) }
+	}
+
+	return t.undoDeletion(e.id, []*Entry{e})
+}
+
+// undoDeletion counts a deletion of row id, whose entries gone the tracker
+// forgot, and returns how to undo it: track them again. A rollback can be
+// reversed late, once another operation has let go of the tracker, and that
+// operation may have deleted the row again, which finds no entries to mark, as
+// they are forgotten already. So the deletions of such a row are counted, and
+// an undo that a newer one came after leaves the row untracked, to be read
+// afresh. Undos run newest first, and each puts the count back, so the one
+// before it in the same transaction still applies.
+func (t *Tracker) undoDeletion(id identity, gone []*Entry) func() {
+	n, counted := t.deletions[id]
+	if len(gone) == 0 && !counted {
+		return func() {}
+	}
+
+	n++
+	t.deletions[id] = n
+
 	return func() {
+		t.mu.Lock()
+
+		late := t.deletions[id] != n
+
+		switch {
+		case late:
+		case n == 1:
+			delete(t.deletions, id) // no older undo can count on it
+		default:
+			t.deletions[id] = n - 1
+		}
+
+		t.mu.Unlock()
+
+		if late {
+			return
+		}
+
 		for _, e := range gone {
 			t.Restore(e)
 		}

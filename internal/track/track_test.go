@@ -518,3 +518,153 @@ func TestPanickingUndoLetsGo(t *testing.T) {
 		tr.Release(c)
 	}
 }
+
+// A deletion's undo tracks the row again, unless the row was deleted again
+// since, as a late rollback finds when another operation deleted it after the
+// transaction did. Undos of one transaction run newest first, and each applies.
+func TestDeletionUndoLeavesANewerDeletionAlone(t *testing.T) {
+	m := meta.Of[row]()
+
+	t.Run("on time", func(t *testing.T) {
+		tr := New()
+		a := fresh()
+		tr.Track(m, unsafe.Pointer(a), Unchanged)
+
+		undo := tr.ForgetRow(m, int64(1))
+		undo()
+
+		if tr.Find(m, int64(1)) == nil {
+			t.Error("the row was not tracked again")
+		}
+
+		if len(tr.deletions) != 0 {
+			t.Error("a row whose deletion was taken back is still counted")
+		}
+	})
+
+	t.Run("after a newer deletion", func(t *testing.T) {
+		tr := New()
+		a := fresh()
+
+		for _, older := range []func(e *Entry) func(){
+			func(*Entry) func() { return tr.ForgetRow(m, int64(1)) },
+			tr.Deleted,
+		} {
+			undo := older(tr.Track(m, unsafe.Pointer(a), Unchanged))
+
+			tr.ForgetRow(m, int64(1)) // deleted again, by an operation with no undo
+			undo()
+
+			if tr.Find(m, int64(1)) != nil || tr.Get(unsafe.Pointer(a)) != nil {
+				t.Error("a late undo tracked a row that was deleted since")
+			}
+		}
+	})
+
+	t.Run("newest first, in one transaction", func(t *testing.T) {
+		tr := New()
+		a, b := fresh(), fresh()
+		tr.Track(m, unsafe.Pointer(a), Unchanged)
+		first := tr.ForgetRow(m, int64(1))
+
+		tr.Track(m, unsafe.Pointer(b), Unchanged)
+		second := tr.ForgetRow(m, int64(1))
+
+		second()
+
+		if got := tr.Find(m, int64(1)); got == nil || got.Entity != unsafe.Pointer(b) {
+			t.Fatal("the newer deletion was not taken back")
+		}
+
+		tr.Remove(unsafe.Pointer(b))
+		first()
+
+		if got := tr.Find(m, int64(1)); got == nil || got.Entity != unsafe.Pointer(a) {
+			t.Error("the older deletion was not taken back after it")
+		}
+	})
+
+	t.Run("a row never tracked is not counted", func(t *testing.T) {
+		tr := New()
+		tr.ForgetRow(m, int64(7))
+
+		if len(tr.deletions) != 0 {
+			t.Errorf("counted %d rows", len(tr.deletions))
+		}
+	})
+}
+
+// A relation save's undo restores what the relations held, unless a newer save
+// recorded them since: then it takes back only its own change, where the newer
+// save left it.
+func TestLinksUndoKeepsANewerSave(t *testing.T) {
+	m := meta.Of[row]()
+	tr := New()
+	owner := tr.Track(m, unsafe.Pointer(fresh()), Unchanged)
+
+	var r meta.Relation
+
+	a, b, c := &Entry{}, &Entry{}, &Entry{}
+
+	links := func(members map[any]*Entry, parent any) (
+		map[*meta.Relation]map[any]*Entry,
+		map[*meta.Relation]any,
+	) {
+		parents := map[*meta.Relation]any{}
+
+		if parent != nil {
+			parents[&r] = parent
+		}
+
+		return map[*meta.Relation]map[any]*Entry{&r: members}, parents
+	}
+
+	t.Run("on time", func(t *testing.T) {
+		owner.SetLinks(links(map[any]*Entry{1: a}, 10))
+
+		undo := owner.SetLinks(links(map[any]*Entry{2: b}, 20))
+		owner.SetMembers(&r, map[any]*Entry{2: b, 3: c}) // a load does not count
+
+		undo()
+
+		if !reflect.DeepEqual(owner.Members[&r], map[any]*Entry{1: a}) || owner.Parents[&r] != 10 {
+			t.Errorf("got %v and %v", owner.Members[&r], owner.Parents)
+		}
+	})
+
+	t.Run("after a newer save", func(t *testing.T) {
+		owner.SetLinks(links(map[any]*Entry{1: a}, 10))
+
+		// The older save drops 1, adds 2, and moves the parent; the newer one
+		// adds 3 and leaves the rest.
+		undo := owner.SetLinks(links(map[any]*Entry{2: b}, 20))
+		owner.SetLinks(links(map[any]*Entry{2: b, 3: c}, 20))
+
+		undo()
+
+		if want := map[any]*Entry{1: a, 3: c}; !reflect.DeepEqual(owner.Members[&r], want) {
+			t.Errorf("members %v, want %v", owner.Members[&r], want)
+		}
+
+		if owner.Parents[&r] != 10 {
+			t.Errorf("parent %v, want 10", owner.Parents[&r])
+		}
+	})
+
+	t.Run("after a newer save that changed the same member", func(t *testing.T) {
+		owner.SetLinks(links(map[any]*Entry{1: a}, 10))
+
+		undo := owner.SetLinks(links(map[any]*Entry{1: a, 2: b}, 20))
+		owner.SetLinks(links(map[any]*Entry{1: a, 2: c}, 30))
+
+		undo()
+
+		if want := map[any]*Entry{1: a, 2: c}; !reflect.DeepEqual(owner.Members[&r], want) {
+			t.Errorf("members %v, want %v", owner.Members[&r], want)
+		}
+
+		if owner.Parents[&r] != 30 {
+			t.Errorf("parent %v, want the newer save's 30", owner.Parents[&r])
+		}
+	})
+}

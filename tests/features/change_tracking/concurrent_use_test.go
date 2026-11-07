@@ -3,6 +3,8 @@ package change_tracking
 import (
 	"context"
 	"errors"
+	"fmt"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -389,6 +391,169 @@ func TestConcurrentUse(t *testing.T) {
 			n, err := db.Users.Where(ant.Eq(&U.Email, dan.Email)).Count(ctx)
 			require.NoError(t, err)
 			require.EqualValues(t, 1, n)
+		})
+
+		// A rollback reversed late, after another operation deleted the row
+		// again, leaves the row untracked: it is gone, so Find reads it afresh
+		// rather than returning the entity the transaction deleted.
+		t.Run("a late rollback leaves a newer deletion alone", func(t *testing.T) {
+			deletions := []struct {
+				name   string
+				delete func(tx *AppDB, u *User) error
+			}{
+				{"DeleteByID", func(tx *AppDB, u *User) error {
+					return tx.Users.DeleteByID(ctx, u.ID)
+				}},
+				{"Remove and SaveChanges", func(tx *AppDB, u *User) error {
+					if err := ant.Remove(tx, u); err != nil {
+						return err
+					}
+
+					return tx.SaveChanges(ctx)
+				}},
+			}
+
+			for i, deletion := range deletions {
+				t.Run(deletion.name, func(t *testing.T) {
+					ola := &User{Name: "Ola", Email: fmt.Sprintf("ola%d.late@example.com", i)}
+					require.NoError(t, db.Users.Insert(ctx, ola))
+
+					deleted, abort := make(chan struct{}), make(chan struct{})
+					finished := make(chan error, 1)
+
+					go func() {
+						finished <- db.Tx(ctx, func(tx *AppDB) error {
+							if err := deletion.delete(tx, ola); err != nil {
+								return err
+							}
+
+							close(deleted)
+							<-abort
+
+							return errors.New("roll back")
+						})
+					}()
+
+					select {
+					case <-deleted:
+					case err := <-finished:
+						t.Fatalf("the transaction ended before it deleted: %v", err)
+					}
+
+					require.Equal(t, ant.Detached, ant.Entry(db, ola).State())
+
+					err := h.while(
+						t,
+						func(ctx context.Context) error { return db.Users.DeleteByID(ctx, ola.ID) },
+						func() {
+							close(abort)
+							require.ErrorContains(t, <-finished, "roll back")
+						},
+					)
+					require.NoError(
+						t,
+						err,
+						"the rollback brought the row back, and this deleted it",
+					)
+
+					require.Equal(
+						t,
+						ant.Detached,
+						ant.Entry(db, ola).State(),
+						"so it stays untracked",
+					)
+
+					_, err = db.Users.Find(ctx, ola.ID)
+					require.ErrorIs(t, err, ant.ErrNotFound)
+				})
+			}
+		})
+
+		// A rollback reversed late, after a newer save of a relation, keeps what
+		// that save recorded: the post it added stays a member, so taking it out
+		// of the slice later deletes it.
+		t.Run("a late rollback keeps a newer save's members", func(t *testing.T) {
+			uma := &User{Name: "Uma", Email: "uma.late@example.com"}
+			require.NoError(t, db.Users.Insert(ctx, uma))
+			require.NoError(t, db.Users.Load(ctx, &U.Posts, uma))
+
+			saved, abort := make(chan struct{}), make(chan struct{})
+			finished := make(chan error, 1)
+
+			go func() {
+				finished <- db.Tx(ctx, func(tx *AppDB) error {
+					uma.Age = 5
+
+					if err := tx.SaveChanges(ctx); err != nil {
+						return err
+					}
+
+					close(saved)
+					<-abort
+
+					return errors.New("roll back")
+				})
+			}()
+
+			select {
+			case <-saved:
+			case err := <-finished:
+				t.Fatalf("the transaction ended before it saved: %v", err)
+			}
+
+			uma.Posts = append(uma.Posts, Post{Title: "U1"})
+
+			err := h.while(t, db.SaveChanges, func() {
+				close(abort)
+				require.ErrorContains(t, <-finished, "roll back")
+			})
+			require.NoError(t, err)
+			require.Equal(t, []string{"U1"}, storedTitles(t, db, uma.ID))
+
+			uma.Posts = nil
+
+			require.NoError(t, db.SaveChanges(ctx))
+
+			require.Empty(
+				t,
+				storedTitles(t, db, uma.ID),
+				"the newer save's post was still a member",
+			)
+		})
+
+		// A reload's rollback puts the values back where the entity lives now,
+		// though a save moved it when its slice grew.
+		t.Run("a reload's rollback follows an entity its slice moved", func(t *testing.T) {
+			vic := &User{Name: "Vic", Email: "vic.reload@example.com"}
+			require.NoError(t, db.Users.Insert(ctx, vic))
+			require.NoError(t, db.Posts.Insert(ctx, &Post{UserID: vic.ID, Title: "V1"}))
+			require.NoError(t, db.Users.Load(ctx, &U.Posts, vic))
+			require.Len(t, vic.Posts, 1)
+
+			err := db.Tx(ctx, func(tx *AppDB) error {
+				_, err := tx.Posts.Where(ant.Eq(&P.UserID, vic.ID)).
+					Update(ctx, ant.Set(&P.Title, "V1 changed"))
+				require.NoError(t, err)
+				require.NoError(t, tx.Posts.Reload(ctx, &vic.Posts[0]))
+
+				moved := &vic.Posts[0]
+				vic.Posts = append(slices.Clip(vic.Posts), Post{Title: "V2"})
+				require.NotSame(t, moved, &vic.Posts[0], "the slice moved")
+
+				require.NoError(t, tx.SaveChanges(ctx))
+
+				return errors.New("roll back")
+			})
+			require.ErrorContains(t, err, "roll back")
+
+			require.Equal(
+				t,
+				"V1",
+				vic.Posts[0].Title,
+				"the value the reload read went with the rows",
+			)
+
+			require.Equal(t, ant.Unchanged, ant.Entry(db, &vic.Posts[0]).State())
 		})
 
 		// Loading a relation reads, and writes nothing, so a rollback after it

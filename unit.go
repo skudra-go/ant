@@ -1324,8 +1324,11 @@ func (u *unit) commit() {
 	var undo []func()
 
 	for _, n := range u.order {
-		entry := n.entry
-		if entry != nil && (n.remove || n.entity != entry.Entity) {
+		switch entry := n.entry; {
+		case entry == nil:
+		case n.remove:
+			undo = append(undo, tracker.Deleted(entry))
+		case n.entity != entry.Entity:
 			undo = append(undo, tracker.Forget(entry))
 		}
 	}
