@@ -14,6 +14,7 @@ import (
 	"github.com/skudra-go/ant"
 	"github.com/skudra-go/ant/dialect"
 	"github.com/skudra-go/ant/internal/testdb"
+	"github.com/skudra-go/ant/qb"
 )
 
 // These run on every database, and each covers something the dialects write
@@ -1174,6 +1175,88 @@ func TestConformanceWritesReadingTheirTable(t *testing.T) {
 			require.NoError(t, err)
 			require.EqualValues(t, 1, n, "carol, who is older and has a post")
 			require.Equal(t, 36, ages(t, app)["carol"])
+		})
+
+		// MySQL takes a derived table only with unique column names, so a
+		// subquery of several columns that share a name, or are expressions, is
+		// wrapped with a column list. Each runs, and changes the rows it says.
+		t.Run("subqueries of several columns", func(t *testing.T) {
+			if target.Name == "sqlserver" {
+				t.Skip("SQL Server has no row values to compare a subquery of several columns with")
+			}
+
+			users, posts := &qb.TableRef{Name: "users"}, &qb.TableRef{Name: "posts"}
+			id, age := qb.Column{Table: users, Name: "id"}, qb.Column{Table: users, Name: "age"}
+			older := qb.Compare{Left: age, Op: qb.OpGt, Right: qb.Param{Value: 28}}
+
+			cases := []struct {
+				name string
+				left []qb.Expr
+				sub  *qb.Select
+				want map[string]int
+			}{
+				{
+					"two columns given one name",
+					[]qb.Expr{id, id},
+					&qb.Select{
+						Columns: []qb.Selected{{Value: id, Alias: "x"}, {Value: id, Alias: "x"}},
+						From:    qb.Source{Table: users},
+						Where:   []qb.Cond{older},
+					},
+					map[string]int{"alice": 31, "bob": 25, "carol": 36},
+				},
+				{
+					"expressions",
+					[]qb.Expr{id, age},
+					&qb.Select{
+						Columns: []qb.Selected{
+							{Value: qb.Fragment{SQL: "users.id + 0"}},
+							{Value: qb.Fragment{SQL: "users.age + 0"}},
+						},
+						From:  qb.Source{Table: users},
+						Where: []qb.Cond{older},
+					},
+					map[string]int{"alice": 31, "bob": 25, "carol": 36},
+				},
+				{
+					"columns of one name from a join",
+					[]qb.Expr{id, id},
+					&qb.Select{
+						Columns: []qb.Selected{
+							{Value: id},
+							{Value: qb.Column{Table: posts, Name: "user_id"}, Alias: "id"},
+						},
+						From: qb.Source{Table: users},
+						Joins: []qb.Join{{
+							Source: qb.Source{Table: posts},
+							On: []qb.Cond{qb.Compare{
+								Left:  qb.Column{Table: posts, Name: "user_id"},
+								Op:    qb.OpEq,
+								Right: id,
+							}},
+						}},
+						Where: []qb.Cond{older},
+					},
+					map[string]int{"alice": 30, "bob": 25, "carol": 36},
+				},
+			}
+
+			for _, tt := range cases {
+				t.Run(tt.name, func(t *testing.T) {
+					app := fresh(t)
+
+					query, args, err := target.Dialect.Render(&qb.Update{
+						Table: users,
+						Set:   []qb.Assignment{{Column: "age", Value: qb.Fragment{SQL: "age + 1"}}},
+						Where: []qb.Cond{qb.In{Left: qb.Row{Values: tt.left}, Sub: tt.sub}},
+					})
+					require.NoError(t, err)
+
+					_, err = target.DB.ExecContext(ctx, query, args...)
+					require.NoError(t, err, query)
+					require.Equal(t, tt.want, ages(t, app), query)
+				})
+			}
 		})
 
 		t.Run("a correlated read of the same table", func(t *testing.T) {
