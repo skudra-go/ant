@@ -139,6 +139,10 @@ func (c *Conflict) clause(model *meta.Model) (*qb.Conflict, error) {
 
 	out.Set = append(out.Set, c.set...)
 
+	if err := assignedTwice(model, "assignments", assignedColumns(out.Set)); err != nil {
+		return nil, err
+	}
+
 	if v := model.Version; v != nil {
 		out.Set = append(out.Set, nextVersion(model))
 	}
@@ -261,7 +265,7 @@ func (t *Table[T]) Upsert(ctx context.Context, e *T, conflict *Conflict) (bool, 
 	stmt := insertStatement(model, unsafe.Pointer(e))
 	stmt.Conflict = clause
 
-	rows, err := t.upsertRows(ctx, model, stmt, unsafe.Pointer(e))
+	rows, err := t.upsertRows(ctx, model, stmt, unsafe.Pointer(e), checked)
 	if err == nil {
 		err = readInto(rows, e)
 	}
@@ -295,22 +299,37 @@ func (t *Table[T]) Upsert(ctx context.Context, e *T, conflict *Conflict) (bool, 
 
 // versionCheck limits the conflict's update to the version e carries, if any, and
 // reports whether it did. A zero version is a new entity, which has none to
-// check. ON DUPLICATE KEY takes no condition, so there the update goes ahead.
+// check. ON DUPLICATE KEY takes no condition, so there each assignment keeps the
+// stored value unless the version matches. MySQL and MariaDB run them in order,
+// each seeing what those before it set, and the version's comes last, so every
+// one reads the version the row had. A copy that is out of date then changes
+// nothing, which the row count tells.
 func (t *Table[T]) versionCheck(model *meta.Model, e unsafe.Pointer, c *qb.Conflict) bool {
 	v := model.Version
 
 	switch {
 	case v == nil, len(c.Set) == 0, v.Value(e).IsZero():
 		return false
-	case !dialect.Supports(t.state.dialect, dialect.ConflictWhere):
-		return false
 	}
 
-	c.Where = append(c.Where, qb.Compare{
+	same := qb.Compare{
 		Left:  qb.Column{Table: model.Table, Name: v.Column},
 		Op:    qb.OpEq,
 		Right: qb.Param{Value: v.Value(e).Interface()},
-	})
+	}
+
+	if dialect.Supports(t.state.dialect, dialect.ConflictWhere) {
+		c.Where = append(c.Where, same)
+
+		return true
+	}
+
+	for i, a := range c.Set {
+		c.Set[i].Value = qb.Case{
+			Whens: []qb.When{{If: same, Then: a.Value}},
+			Else:  qb.Column{Table: model.Table, Name: a.Column},
+		}
+	}
 
 	return true
 }
@@ -318,12 +337,14 @@ func (t *Table[T]) versionCheck(model *meta.Model, e unsafe.Pointer, c *qb.Confl
 // upsertRows runs an upsert and returns the stored row, or ErrNotFound if it did
 // nothing. ON DUPLICATE KEY returns the old row even when it changed nothing, so
 // there, as with no RETURNING at all, the row count decides, and the row is read
-// back by the conflict's columns.
+// back by the conflict's columns. Checked says the update checks a version,
+// which moves on whenever it goes ahead, so no change means it was turned down.
 func (t *Table[T]) upsertRows(
 	ctx context.Context,
 	model *meta.Model,
 	stmt *qb.Insert,
 	e unsafe.Pointer,
+	checked bool,
 ) (*sql.Rows, error) {
 	if t.state.dialect.SupportsReturning() && !dialect.SyntaxOf(t.state.dialect).DuplicateKey {
 		stmt.Returning = storedColumns(model)
@@ -346,7 +367,7 @@ func (t *Table[T]) upsertRows(
 		return nil, err
 	// No row changed: the conflict did nothing, or its condition, such as a
 	// copy's version, turned the update down.
-	case changed == 0 && (len(stmt.Conflict.Set) == 0 || len(stmt.Conflict.Where) > 0):
+	case changed == 0 && (len(stmt.Conflict.Set) == 0 || checked):
 		return nil, ErrNotFound
 	}
 
@@ -637,6 +658,10 @@ func (t *Table[T]) InsertFrom(ctx context.Context, rows *Projection[T]) (int64, 
 		stmt.Columns = append(stmt.Columns, c.Alias)
 	}
 
+	if err := assignedTwice(model, "mappings", stmt.Columns); err != nil {
+		return 0, err
+	}
+
 	return t.state.run(ctx, stmt)
 }
 
@@ -732,6 +757,8 @@ func (t *Table[T]) UpdateMany(
 		return 0, ErrNoAssignment
 	}
 
+	columns := make([]string, 0, len(fields))
+
 	for _, ref := range fields {
 		switch {
 		case ref.err != nil:
@@ -739,6 +766,12 @@ func (t *Table[T]) UpdateMany(
 		case ref.model != model:
 			return 0, ErrWrongModel
 		}
+
+		columns = append(columns, ref.field.Column)
+	}
+
+	if err := assignedTwice(model, "assignments", columns); err != nil {
+		return 0, err
 	}
 
 	if slices.Contains(entities, nil) {

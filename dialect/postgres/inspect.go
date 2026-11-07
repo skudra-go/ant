@@ -469,7 +469,9 @@ func (d impl) indexes(ctx context.Context, q schema.Querier, t *liveTable) error
 			ctx,
 			`
 			SELECT ord, pg_get_indexdef(x.indexrelid, ord, true), x.indkey[ord - 1] = 0,
-			       COALESCE(x.indoption[ord - 1] & 1 = 1, false) -- included columns have no order
+			       -- included columns have no order
+			       COALESCE(x.indoption[ord - 1] & 1 = 1, false),
+			       COALESCE(x.indoption[ord - 1] & 2 = 2, false)
 			FROM pg_index x, generate_series(1, x.indnatts) ord
 			WHERE x.indexrelid = $1::bigint::oid
 			ORDER BY ord`,
@@ -481,24 +483,29 @@ func (d impl) indexes(ctx context.Context, q schema.Querier, t *liveTable) error
 
 		err = each(rows, func() error {
 			var (
-				ord              int
-				text             string
-				expression, desc bool
+				ord                     int
+				text                    string
+				expression, desc, first bool
 			)
 
-			if err := rows.Scan(&ord, &text, &expression, &desc); err != nil {
+			if err := rows.Scan(&ord, &text, &expression, &desc, &first); err != nil {
 				return err
 			}
 
+			nulls := schema.NullsOrder(desc, first)
+
 			switch {
 			case ord > f.keys:
-				f.into.Include = append(f.into.Include, strings.Trim(text, `"`))
+				f.into.Include = append(f.into.Include, unquoted(text))
 			case expression:
-				f.into.Parts = append(f.into.Parts, schema.IndexPart{Expr: text, Desc: desc})
+				f.into.Parts = append(
+					f.into.Parts,
+					schema.IndexPart{Expr: text, Desc: desc, Nulls: nulls},
+				)
 			default:
 				f.into.Parts = append(
 					f.into.Parts,
-					schema.IndexPart{Column: strings.Trim(text, `"`), Desc: desc},
+					schema.IndexPart{Column: unquoted(text), Desc: desc, Nulls: nulls},
 				)
 			}
 
@@ -512,6 +519,16 @@ func (d impl) indexes(ctx context.Context, q schema.Querier, t *liveTable) error
 	}
 
 	return nil
+}
+
+// unquoted reads a name as pg_get_indexdef writes it: in double quotes, with a
+// quote in it doubled, if it needs them.
+func unquoted(name string) string {
+	if len(name) < 2 || name[0] != '"' || name[len(name)-1] != '"' {
+		return name
+	}
+
+	return strings.ReplaceAll(name[1:len(name)-1], `""`, `"`)
 }
 
 // Canonical returns target as PostgreSQL itself stores it. The server rewrites

@@ -87,17 +87,37 @@ func nullCheck[V any](field *V, negate bool) Cond {
 	return on(field, func(c qb.Column) qb.Cond { return qb.IsNull{Left: c, Negate: negate} })
 }
 
+// membership is In or NotIn. A value stored as NULL means what it means to Eq
+// and Ne, IS NULL or IS NOT NULL, which SQL's IN cannot say: NULL IN (NULL) is
+// unknown.
 func membership[V any](field *V, values []V, negate bool) Cond {
-	nodes := make([]qb.Expr, len(values))
+	nodes := make([]qb.Expr, 0, len(values))
+	null := false
 
-	for i, v := range values {
-		nodes[i] = qb.Param{Value: v}
+	for _, v := range values {
+		if isNull(v) {
+			null = true
+
+			continue
+		}
+
+		nodes = append(nodes, qb.Param{Value: v})
 	}
 
-	return on(
-		field,
-		func(c qb.Column) qb.Cond { return qb.In{Left: c, Values: nodes, Negate: negate} },
-	)
+	return on(field, func(c qb.Column) qb.Cond {
+		in := qb.In{Left: c, Values: nodes, Negate: negate}
+
+		switch {
+		case !null:
+			return in
+		case len(nodes) == 0:
+			return qb.IsNull{Left: c, Negate: negate}
+		case negate:
+			return qb.And{Children: []qb.Cond{in, qb.IsNull{Left: c, Negate: true}}}
+		}
+
+		return qb.Or{Children: []qb.Cond{in, qb.IsNull{Left: c}}}
+	})
 }
 
 // isNull reports whether v is stored as NULL: a nil pointer, or a value such
@@ -149,12 +169,13 @@ func Lt[V Ordered](field *V, v V) Cond { return compare(field, qb.OpLt, v) }
 // Lte matches rows where field is less than or equal to v.
 func Lte[V Ordered](field *V, v V) Cond { return compare(field, qb.OpLte, v) }
 
-// In matches rows where field equals one of values. With no values, it
-// matches nothing.
+// In matches rows where field equals one of values, as Eq would. With no
+// values, it matches nothing. A nil value matches NULL, as with Eq.
 func In[V comparable](field *V, values ...V) Cond { return membership(field, values, false) }
 
-// NotIn matches rows where field equals none of values. With no values, it
-// matches everything, including NULL.
+// NotIn matches rows where field equals none of values, as Ne would. With no
+// values, it matches everything, including NULL. A nil value leaves NULL out,
+// as with Ne, and otherwise, as in SQL, a NULL column matches no other value.
 func NotIn[V comparable](field *V, values ...V) Cond { return membership(field, values, true) }
 
 // Between matches rows where field is within low and high, inclusive.

@@ -54,10 +54,13 @@ func (q *Query[T]) Count(ctx context.Context) (int64, error) {
 
 	const alias = "ant_counted"
 
-	rows, err := q.state.query(ctx, &qb.Select{
-		Columns: []qb.Selected{{Value: Count().node}},
-		From:    qb.Source{Sub: inner, Alias: alias},
-	})
+	rows, err := q.state.query(ctx, lift(
+		&qb.Select{
+			Columns: []qb.Selected{{Value: Count().node}},
+			From:    qb.Source{Sub: inner, Alias: alias},
+		},
+		inner,
+	))
 	if err != nil {
 		return 0, err
 	}
@@ -81,7 +84,7 @@ func (q *Query[T]) Exists(ctx context.Context) (bool, error) {
 
 	rows, err := q.state.query(
 		ctx,
-		&qb.Select{Columns: []qb.Selected{{Value: qb.Exists{Select: inner}}}},
+		lift(&qb.Select{Columns: []qb.Selected{{Value: qb.Exists{Select: inner}}}}, inner),
 	)
 	if err != nil {
 		return false, err
@@ -93,6 +96,16 @@ func (q *Query[T]) Exists(ctx context.Context) (bool, error) {
 	}
 
 	return *found, nil
+}
+
+// lift moves the WITH of inner, a subquery of outer, to the start of outer, and
+// returns outer. SQL Server takes WITH only there, and outer reads nothing but
+// inner, so no name it reads can be one of inner's CTEs.
+func lift(outer, inner *qb.Select) *qb.Select {
+	outer.With, outer.Recursive = inner.With, inner.Recursive
+	inner.With, inner.Recursive = nil, false
+
+	return outer
 }
 
 // DoesNotExist reports whether no row matches.

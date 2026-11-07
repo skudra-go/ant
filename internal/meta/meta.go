@@ -149,6 +149,13 @@ func keyOf(v reflect.Value) (any, bool) {
 		return v.String(), true
 	case v.Kind() == reflect.Slice && v.Type().Elem().Kind() == reflect.Uint8:
 		return string(v.Bytes()), true
+	case v.Kind() == reflect.Struct && v.Type().ConvertibleTo(timeType):
+		// One instant is one key, whatever its zone or monotonic reading, to the
+		// microsecond, which is what PostgreSQL and MySQL keep and what ant's
+		// own timestamps hold: a key read back is the one that was written.
+		t, _ := reflect.TypeAssert[time.Time](v.Convert(timeType))
+
+		return t.UTC().Truncate(time.Microsecond), true
 	}
 
 	return v.Interface(), true
@@ -514,6 +521,9 @@ type IndexPart struct {
 	Field *Field
 	Expr  string
 	Desc  bool
+	// NullsFirst, when set, says whether NULLs come first, over the direction's
+	// default.
+	NullsFirst *bool
 }
 
 // Check is a check constraint declared in Configure.
@@ -538,7 +548,9 @@ type DeletedAt struct {
 }
 
 // UnixTime is a time stored as whole seconds since 1970, for a schema that keeps
-// integers. On CreatedAt and UpdatedAt, it is maintained like a time.Time.
+// integers. On CreatedAt and UpdatedAt, it is maintained like a time.Time. The
+// zero time is stored as 0, so 0, and the Unix epoch with it, reads back as the
+// zero time.
 type UnixTime struct {
 	time.Time
 }
@@ -970,6 +982,12 @@ var (
 // relation reports whether t is a relation field: a slice of structs or a
 // pointer to a struct. Value types such as time.Time are columns.
 func relation(t reflect.Type) (reflect.Type, RelationKind, bool) {
+	// A type that converts itself is one column's value, though it is a slice
+	// of structs or a pointer to one.
+	if t.Implements(valuerType) || reflect.PointerTo(t).Implements(scannerType) {
+		return nil, 0, false
+	}
+
 	switch t.Kind() {
 	case reflect.Slice:
 		if isModel(t.Elem()) {

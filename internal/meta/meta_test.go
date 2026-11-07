@@ -2,6 +2,7 @@ package meta
 
 import (
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"reflect"
 	"runtime"
@@ -356,5 +357,58 @@ func TestEmbeddedFieldMustBeStructValue(t *testing.T) {
 				t.Fatal("configuration replaced invalid embedded-field error")
 			}
 		})
+	}
+}
+
+// A time key is one instant, to the microsecond, whatever its zone or monotonic
+// reading, alone or in a composite key.
+func TestTimeKeyIsAnInstant(t *testing.T) {
+	type reading struct {
+		Device int64
+		At     time.Time
+	}
+
+	m := Of[reading]()
+	m.SetKey(m.Fields[0], m.Fields[1])
+
+	now := time.Now()
+	a := reading{Device: 1, At: now}
+
+	b := reading{
+		Device: 1,
+		At:     now.Round(0).In(time.FixedZone("x", 3600)).Truncate(time.Microsecond),
+	}
+
+	ka, _ := m.KeyOf(unsafe.Pointer(&a))
+	kb, _ := m.KeyOf(unsafe.Pointer(&b))
+
+	if ka != kb {
+		t.Errorf("composite keys differ: %v and %v", ka, kb)
+	}
+
+	single, _ := m.Fields[1].Key(unsafe.Pointer(&a))
+	if single != now.UTC().Truncate(time.Microsecond) {
+		t.Errorf("time key = %#v", single)
+	}
+}
+
+type lines []line
+
+type line struct{ Qty int }
+
+func (lines) Value() (driver.Value, error) { return "[]", nil }
+
+func (*lines) Scan(any) error { return nil }
+
+// A slice of structs that converts itself is one column, not a relation.
+func TestValuerSliceIsAColumn(t *testing.T) {
+	type order struct {
+		ID    int64
+		Lines lines
+	}
+
+	m := Of[order]()
+	if len(m.Relations) != 0 || m.Column("lines") == nil {
+		t.Errorf("relations %v, columns %v", m.Relations, m.Fields)
 	}
 }

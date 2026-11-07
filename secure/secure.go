@@ -28,6 +28,8 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+
+	"github.com/skudra-go/ant/internal/jsontext"
 )
 
 // Errors from reading and writing values.
@@ -98,12 +100,19 @@ func (Value[V]) String() string { return "[encrypted]" }
 func (Value[V]) MarshalJSON() ([]byte, error) { return []byte(`"[encrypted]"`), nil }
 
 // Value implements driver.Valuer. The output is key:base64(nonce+ciphertext).
+// Text that is not valid UTF-8 is refused, since the JSON that is sealed would
+// hold U+FFFD in its place.
 func (s Value[V]) Value() (driver.Value, error) {
 	keyring.RLock()
 	defer keyring.RUnlock()
 
 	if keyring.aeads == nil {
 		return nil, ErrNoKeys
+	}
+
+	// JSON would seal U+FFFD in place of text that is not valid UTF-8.
+	if err := jsontext.Valid(s.V); err != nil {
+		return nil, err
 	}
 
 	plain, err := json.Marshal(s.V)

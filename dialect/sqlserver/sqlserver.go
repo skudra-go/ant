@@ -35,9 +35,11 @@ var syntax = dialect.Syntax{
 	MergeSemicolon:     true,
 	MergeHoldLock:      true,
 	TransactSavepoints: true,
+	RecursiveUnionAll:  true,
 	UTCTimes:           true,
 	Functions:          map[string]string{"LENGTH": "LEN", "RANDOM": "NEWID"},
 	MaxParameters:      2000, // 2100, less what the driver's sp_executesql call uses
+	NoArrayParams:      true,
 }
 
 func (impl) Name() string       { return "sqlserver" }

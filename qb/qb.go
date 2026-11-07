@@ -365,10 +365,13 @@ type Lock struct {
 	SkipLocked bool
 }
 
-// CTE is one WITH entry.
+// CTE is one WITH entry. Key names the columns that tell its rows apart, for a
+// database whose recursive WITH must stop a cycle itself, as SQL Server's does:
+// it has no UNION that drops the rows already reached.
 type CTE struct {
 	Name   string
 	Select *Select
+	Key    []string
 }
 
 // SetOp is a UNION, INTERSECT, or EXCEPT arm.

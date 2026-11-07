@@ -2,6 +2,7 @@ package dialect_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/skudra-go/ant/dialect"
@@ -31,6 +32,16 @@ func TestSyntax(t *testing.T) {
 	}
 
 	onlyOffset := &qb.Select{Columns: ages, From: qb.Source{Table: users}, Offset: &offset}
+
+	// IN refuses a LIMIT on MySQL and MariaDB, and an offset alone is written
+	// with one.
+	inPage := func(sub *qb.Select) *qb.Select {
+		return &qb.Select{
+			Columns: ages,
+			From:    qb.Source{Table: users},
+			Where:   []qb.Cond{qb.In{Left: age, Sub: sub}},
+		}
+	}
 
 	insert := &qb.Insert{
 		Table:     users,
@@ -118,6 +129,10 @@ func TestSyntax(t *testing.T) {
 		{"mysql empty insert", mysql.Dialect, empty, "INSERT INTO `users` VALUES ()"},
 
 		{"mariadb returning", mysql.MariaDB, insert, "INSERT INTO `users` (`age`) VALUES (?) RETURNING `id`"},
+		{"mariadb in paged", mysql.MariaDB, inPage(page), "SELECT `age` FROM `users` WHERE `age` IN (SELECT * FROM (SELECT `age` FROM `users` LIMIT ? OFFSET ?) AS limited)"},
+		{"mariadb in offset alone", mysql.MariaDB, inPage(onlyOffset), "SELECT `age` FROM `users` WHERE `age` IN (SELECT * FROM (SELECT `age` FROM `users` LIMIT 18446744073709551615 OFFSET ?) AS limited)"},
+		{"mysql in offset alone", mysql.Dialect, inPage(onlyOffset), "SELECT `age` FROM `users` WHERE `age` IN (SELECT * FROM (SELECT `age` FROM `users` LIMIT 18446744073709551615 OFFSET ?) AS limited)"},
+		{"postgres in offset alone", postgres.Dialect, inPage(onlyOffset), `SELECT "age" FROM "users" WHERE "age" IN (SELECT "age" FROM "users" OFFSET $1)`},
 
 		{"sqlserver paging", sqlserver.Dialect, page, "SELECT [age] FROM [users] ORDER BY (SELECT NULL) OFFSET @p1 ROWS FETCH NEXT @p2 ROWS ONLY"},
 		{"sqlserver insert", sqlserver.Dialect, insert, "INSERT INTO [users] ([age]) OUTPUT INSERTED.[id] VALUES (@p1)"},
@@ -204,5 +219,181 @@ func TestSupports(t *testing.T) {
 
 	if !dialect.Supports(mysql.MariaDB, dialect.ReturningInsert) {
 		t.Error("MariaDB returns from INSERT")
+	}
+}
+
+// SQL Server has no RECURSIVE and joins a recursive WITH only with UNION ALL, so
+// a CTE with a key carries the path of keys to each row, which ends a cycle, and
+// is read once per key. Other databases write it as it is.
+func TestRecursiveWith(t *testing.T) {
+	nodes := &qb.TableRef{Name: "nodes"}
+	col := func(name string) qb.Column { return qb.Column{Table: nodes, Name: name} }
+	columns := []qb.Selected{{Value: col("a")}, {Value: col("b")}, {Value: col("up")}}
+
+	step := &qb.Select{
+		Columns: columns,
+		From:    qb.Source{Table: nodes},
+		Joins: []qb.Join{
+			{
+				Source: qb.Source{Name: "tree"},
+				On: []qb.Cond{
+					qb.Compare{
+						Left:  col("up"),
+						Op:    qb.OpEq,
+						Right: qb.Column{Alias: "tree", Name: "a"},
+					},
+				},
+			},
+		},
+	}
+
+	other := &qb.Select{Columns: columns, From: qb.Source{Table: nodes, Alias: "n"}}
+
+	stmt := &qb.Select{
+		With: []qb.CTE{{
+			Name: "tree",
+			Key:  []string{"a", "b"},
+			Select: &qb.Select{
+				Columns: columns,
+				From:    qb.Source{Table: nodes},
+				Where:   []qb.Cond{qb.IsNull{Left: col("up")}},
+				Sets: []qb.SetOp{
+					{Kind: "UNION", Select: step},
+					{Kind: "UNION", Select: other},
+				},
+			},
+		}},
+		Recursive: true,
+		Columns:   []qb.Selected{{Value: qb.Column{Alias: "nodes", Name: "a"}}},
+		From:      qb.Source{Name: "tree", Alias: "nodes"},
+	}
+
+	got, _, err := sqlserver.Dialect.Render(stmt)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	key := func(alias string) string {
+		return "CONVERT(varchar(max), CAST([" + alias + "].[a] AS varbinary(max)), 2), ':', " +
+			"CONVERT(varchar(max), CAST([" + alias + "].[b] AS varbinary(max)), 2)"
+	}
+
+	want := "WITH [tree] AS (SELECT [nodes].[a], [nodes].[b], [nodes].[up], " +
+		"CAST(CONCAT('/', " + key("nodes") + ", '/') AS varchar(max)) AS [ant_path] " +
+		"FROM [nodes] WHERE [nodes].[up] IS NULL " +
+		"UNION ALL (SELECT [nodes].[a], [nodes].[b], [nodes].[up], " +
+		"CAST(CONCAT([tree].[ant_path], " + key("nodes") + ", '/') AS varchar(max)) " +
+		"FROM [nodes] JOIN [tree] ON [nodes].[up] = [tree].[a] " +
+		"WHERE (CHARINDEX(CONCAT('/', " + key("nodes") + ", '/'), [tree].[ant_path]) = 0)) " +
+		"UNION ALL (SELECT [nodes].[a], [nodes].[b], [nodes].[up], " +
+		"CAST(CONCAT('/', " + key("n") + ", '/') AS varchar(max)) FROM [nodes] AS [n])) " +
+		"SELECT [nodes].[a] FROM (SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY [a], [b] " +
+		"ORDER BY (SELECT NULL)) AS [ant_n] FROM [tree]) AS [tree] WHERE [ant_n] = 1) AS [nodes] " +
+		"OPTION (MAXRECURSION 0)"
+
+	if got != want {
+		t.Errorf("got  %s\nwant %s", got, want)
+	}
+
+	got, _, err = postgres.Dialect.Render(stmt)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.HasPrefix(
+		got,
+		`WITH RECURSIVE "tree" AS (SELECT "nodes"."a", "nodes"."b", "nodes"."up" FROM`,
+	) ||
+		strings.Contains(got, "ant_path") ||
+		!strings.HasSuffix(got, `FROM "tree" AS "nodes"`) {
+		t.Errorf("postgres: %s", got)
+	}
+
+	// Without a key there is no path, and the CTE is written as it is.
+	stmt.With[0].Key = nil
+
+	got, _, err = sqlserver.Dialect.Render(stmt)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.HasPrefix(got, "WITH [tree] AS (") || strings.Contains(got, "ant_path") ||
+		strings.Contains(got, "MAXRECURSION") {
+		t.Errorf("no key: %s", got)
+	}
+}
+
+// An IN list longer than the parameters a statement takes goes as one array
+// where the database takes arrays, and stays a list elsewhere, or when its
+// values are not plain values of one type.
+func TestLongInLists(t *testing.T) {
+	list := func(n int, value func(i int) any) *qb.Select {
+		values := make([]qb.Expr, n)
+		for i := range values {
+			values[i] = qb.Param{Value: value(i)}
+		}
+
+		return &qb.Select{
+			Columns: ages,
+			From:    qb.Source{Table: users},
+			Where: []qb.Cond{
+				qb.In{Left: age, Values: values},
+				qb.In{Left: age, Values: values, Negate: true},
+			},
+		}
+	}
+
+	long := 65536
+
+	got, args, err := postgres.Dialect.Render(list(long, func(i int) any { return int64(i) }))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if want := `SELECT "age" FROM "users" WHERE "age" = ANY($1) AND "age" <> ALL($2)`; got != want {
+		t.Errorf("got  %s\nwant %s", got, want)
+	}
+
+	if array, ok := args[0].([]int64); !ok || len(array) != long || array[long-1] != int64(long-1) {
+		t.Errorf("args[0] is %T", args[0])
+	}
+
+	// A short list stays a list.
+	got, _, err = postgres.Dialect.Render(list(2, func(i int) any { return int64(i) }))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(got, `"age" IN ($1, $2)`) {
+		t.Errorf("short: %s", got)
+	}
+
+	for name, value := range map[string]func(int) any{
+		"mixed types": func(i int) any {
+			if i%2 == 0 {
+				return int64(i)
+			}
+
+			return "x"
+		},
+		"secrets": func(i int) any { return qb.Secret{V: i} },
+	} {
+		_, args, err := postgres.Dialect.Render(list(long, value))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(args) != 2*long {
+			t.Errorf("%s: %d args", name, len(args))
+		}
+	}
+
+	_, args, err = sqlite.Dialect.Render(list(40000, func(i int) any { return int64(i) }))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(args) != 80000 {
+		t.Errorf("sqlite: %d args", len(args))
 	}
 }

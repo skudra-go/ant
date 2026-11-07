@@ -79,6 +79,26 @@ func TestUpsert(t *testing.T) {
 			require.Error(t, err)
 		})
 
+		t.Run("a column set twice is refused", func(t *testing.T) {
+			for _, conflict := range []*ant.Conflict{
+				onEmail.DoUpdate(ant.F(&U.Name)).Set(ant.Set(&U.Name, "x")),
+				onEmail.DoUpdate(ant.F(&U.Name), ant.F(&U.Name)),
+				onEmail.Set(ant.Set(&U.Age, 1), ant.Inc(&U.Age, 1)),
+			} {
+				_, err := db.Users.Upsert(ctx, &fixture.User{Name: "y", Email: "ann@x"}, conflict)
+				require.ErrorContains(t, err, "has two assignments")
+
+				_, err = db.Users.InsertMany(
+					ctx,
+					[]*fixture.User{{Name: "y", Email: "ann@x"}},
+					ant.WithConflict(conflict),
+				)
+				require.ErrorContains(t, err, "has two assignments")
+			}
+
+			require.NotEqual(t, "y", stored("ann@x").Name, "nothing ran")
+		})
+
 		t.Run("mistakes", func(t *testing.T) {
 			x := 1
 			//antvet:ignore not a probe, on purpose: the test checks the error

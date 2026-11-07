@@ -340,7 +340,7 @@ func (t *tool) adopt(ctx context.Context, file, name string) error {
 
 	text := fmt.Sprintf(
 		"-- The schema as it was when this project adopted ant, from %s.\n\n%s",
-		filepath.Base(file),
+		schema.Comment(filepath.Base(file)),
 		withoutMetaCommands(string(data)),
 	)
 

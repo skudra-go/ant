@@ -17,7 +17,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"os"
 	"regexp"
 	"slices"
 	"strings"
@@ -496,6 +495,8 @@ type probe struct {
 	// refuse is a regexp for the error Diff must refuse the forward plan with,
 	// for a plan ant should not make. The probe then checks nothing else.
 	refuse string
+	// refuseScript is the same for Script, which knows the database's limits.
+	refuseScript string
 }
 
 func prFill(p string, in []string) []string {
@@ -710,62 +711,6 @@ func prMigrate(
 	}
 }
 
-// knownScenarios maps the start of a scenario's name, and /back for its way
-// back, to the issue it fails for.
-var knownScenarios = map[string]string{
-	"01_":      "#29",
-	"04_":      "#29",
-	"06_":      "#29",
-	"07_":      "#29",
-	"29_":      "#29",
-	"29_/back": "#29",
-	"63_":      "#29",
-	"02_/back": "#29",
-	"13_":      "#30",
-	"14_":      "#30",
-	"16_":      "#30",
-	"50_":      "#30",
-	"61_":      "#30",
-	"26_":      "#31",
-	"27_":      "#31",
-	"28_":      "#31",
-	"09_":      "#32",
-	"12b_":     "#32",
-	"20_":      "#32",
-	"21_":      "#32",
-	"43_":      "#32",
-	"56_":      "#32",
-	"48_":      "#33",
-	"48_/back": "#33",
-	"54_":      "#34",
-	"25_":      "#35",
-	"33_":      "#36",
-	"45_":      "#36",
-	"40_":      "#36",
-}
-
-// knownScenario skips a scenario that fails for a tracked issue.
-func knownScenario(t *testing.T, name string, back bool) {
-	t.Helper()
-
-	for prefix, issue := range knownScenarios {
-		key, onBack := strings.CutSuffix(prefix, "/back")
-		if onBack == back && strings.HasPrefix(name, key) {
-			knownProbe(t, issue)
-		}
-	}
-}
-
-// knownProbe skips a probe that fails for a tracked issue, unless
-// ANT_RUN_KNOWN is set, as it is when working on that issue.
-func knownProbe(t *testing.T, issue string) {
-	t.Helper()
-
-	if os.Getenv("ANT_RUN_KNOWN") == "" {
-		t.Skipf("known failure, %s; ANT_RUN_KNOWN=1 runs it", issue)
-	}
-}
-
 // prRefused checks that Diff refuses to plan with the renames, with an error
 // that matches want.
 func prRefused(t *testing.T, from, to *schema.Schema, renames []string, want string) {
@@ -783,23 +728,43 @@ func prRefused(t *testing.T, from, to *schema.Schema, renames []string, want str
 	}
 }
 
+// prScriptRefused checks that Script refuses the plan, with an error that
+// matches want.
+func prScriptRefused(t *testing.T, from, to *schema.Schema, renames []string, want string) {
+	t.Helper()
+
+	plan, err := schema.Diff(from, to, renames...)
+	if err != nil {
+		t.Fatalf("Diff: %v", err)
+	}
+
+	_, err = schema.Script(ddl(t), plan)
+	if err == nil || !regexp.MustCompile(want).MatchString(err.Error()) {
+		t.Errorf("Script returned %v, want a refusal matching %q", err, want)
+	}
+}
+
 func runProbe(t *testing.T, c probe) {
 	p := prUnique(t)
 	old, next := c.build(p)
 
 	var sb *prSandbox
 
-	if !c.noDB && c.refuse == "" {
+	if !c.noDB && c.refuse == "" && c.refuseScript == "" {
 		sb = prNewSandbox(t, p)
 	}
 
-	// Each direction is its own subtest, so a known failure skips only its own
-	// direction: prMigrate builds the old schema afresh every time.
+	// Each direction is its own subtest: prMigrate builds the old schema afresh
+	// every time.
 	t.Run("forward", func(t *testing.T) {
-		knownScenario(t, c.name, false)
-
 		if c.refuse != "" {
 			prRefused(t, old, next, prFill(p, c.renames), c.refuse)
+
+			return
+		}
+
+		if c.refuseScript != "" {
+			prScriptRefused(t, old, next, prFill(p, c.renames), c.refuseScript)
 
 			return
 		}
@@ -809,7 +774,6 @@ func runProbe(t *testing.T, c probe) {
 
 	if c.back {
 		t.Run("back", func(t *testing.T) {
-			knownScenario(t, c.name, true)
 			prMigrate(t, sb, p, next, old, prFill(p, c.backRenames), nil, nil, nil)
 		})
 	}
@@ -1557,16 +1521,21 @@ var probes = []probe{
 		back: true,
 	},
 	{
-		// NULLS FIRST has no field: the only way is an expression part
+		// NULLS FIRST on a column going up, and NULLS LAST on one going down,
+		// each other than the direction's default
 		name: "25_index_nulls_first_expression_part",
+		back: true,
 		build: func(p string) (*schema.Schema, *schema.Schema) {
 			old := prWorld(prPK(prTab("t", prReq("id", "bigint"), prOpt("a", "integer")), "id"))
 
 			next := prWorld(prIndex(
 				prPK(prTab("t", prReq("id", "bigint"), prOpt("a", "integer")), "id"),
 				&schema.Index{
-					Name:    "t_a_idx",
-					Parts:   []schema.IndexPart{{Expr: "a NULLS FIRST"}},
+					Name: "t_a_idx",
+					Parts: []schema.IndexPart{
+						{Column: "a", Nulls: "first"},
+						{Expr: "a + 1", Desc: true, Nulls: "last"},
+					},
 					Include: []string{"id"},
 				},
 			))
@@ -1955,8 +1924,9 @@ var probes = []probe{
 		back: true,
 	},
 	{
-		// a column name over 63 bytes
-		name: "39_long_column_name_over_63_bytes",
+		// a column name over 63 bytes, which PostgreSQL would cut
+		name:         "39_long_column_name_over_63_bytes",
+		refuseScript: `column name "c{70}" is 70 bytes, and postgres keeps only 63`,
 		build: func(p string) (*schema.Schema, *schema.Schema) {
 			long := strings.Repeat("c", 70)
 			old := prWorld(prPK(prTab("t", prReq("id", "bigint")), "id"))
@@ -1968,7 +1938,8 @@ var probes = []probe{
 	},
 	{
 		// two index names that PostgreSQL would cut to the same 63 bytes
-		name: "40_two_index_names_with_same_63_byte_prefix",
+		name:         "40_two_index_names_with_same_63_byte_prefix",
+		refuseScript: `index name "i{63}_one" is 67 bytes, and postgres keeps only 63`,
 		build: func(p string) (*schema.Schema, *schema.Schema) {
 			prefix := strings.Repeat("i", 63)
 			old := prWorld(prPK(prTab("t", prReq("id", "bigint"), prReq("a", "integer")), "id"))
@@ -2687,17 +2658,6 @@ var probes = []probe{
 
 // TestProbeAddNotNullColumnOfEachType adds a NOT NULL column to a populated table
 // and expects the zero-value backfill to work for every type.
-// noZero lists the types that get no backfill value yet, #36.
-var noZero = map[string]bool{
-	"time":                true,
-	"time with time zone": true,
-	"interval":            true,
-	"inet":                true,
-	"money":               true,
-	"mood":                true,
-	"bit(3)":              true,
-}
-
 func TestProbeAddNotNullColumnOfEachType(t *testing.T) {
 	types := []string{
 		"smallint",
@@ -2731,10 +2691,6 @@ func TestProbeAddNotNullColumnOfEachType(t *testing.T) {
 
 	for _, typ := range types {
 		t.Run(strings.ReplaceAll(typ, " ", "_"), func(t *testing.T) {
-			if noZero[typ] {
-				knownProbe(t, "#36")
-			}
-
 			runProbe(t, probe{
 				name: typ,
 				seed: []string{"INSERT INTO t (id) VALUES (1), (2)"},
@@ -2788,8 +2744,6 @@ func TestProbeEnumValueRemoved(t *testing.T) {
 // TestProbeNullsOrderingInvisible: an index with DESC NULLS LAST and a plain DESC
 // index read back the same, so the difference cannot be seen or planned.
 func TestProbeNullsOrderingInvisible(t *testing.T) {
-	knownProbe(t, "#35")
-
 	p := prUnique(t)
 
 	sb := prNewSandbox(t, p)
@@ -2857,13 +2811,19 @@ func TestProbeDeterministic(t *testing.T) {
 				schema.Backfill(d, plan)
 
 				script, err := schema.Script(d, plan)
-				if err != nil {
-					t.Errorf("%s: %v", c.name, err)
 
-					break
+				switch {
+				case err != nil && c.refuseScript != "":
+					got = "Script refused: " + err.Error()
+				case err != nil:
+					t.Errorf("%s: %v", c.name, err)
+				default:
+					got = script
 				}
 
-				got = script
+				if err != nil && c.refuseScript == "" {
+					break
+				}
 			}
 
 			if i == 0 {
@@ -2880,8 +2840,6 @@ func TestProbeDeterministic(t *testing.T) {
 // TestProbeHintForTableMovedBetweenSchemas: the hint for a table that moved
 // to another schema must lead to a plan that keeps the data.
 func TestProbeHintForTableMovedBetweenSchemas(t *testing.T) {
-	knownProbe(t, "#36")
-
 	d := ddl(t)
 
 	old := prWorld(prPK(prIn("s1", prTab("t", prReq("id", "bigint"), prReq("x", "text"))), "id"))
@@ -2895,7 +2853,7 @@ func TestProbeHintForTableMovedBetweenSchemas(t *testing.T) {
 	script, _ := schema.Script(d, plan)
 
 	if len(plan.Hints) == 0 {
-		t.Skip("no hint for a table that moved schema")
+		t.Fatal("no hint for a table that moved schema")
 	}
 
 	for _, h := range plan.Hints {
@@ -2953,8 +2911,6 @@ func TestProbeInspectIndexWithInclude(t *testing.T) {
 // TestProbeInspectQuotedIndexColumn: a column name with a double quote, as an
 // indexed column, must read back as it was written.
 func TestProbeInspectQuotedIndexColumn(t *testing.T) {
-	knownProbe(t, "#35")
-
 	sb := prNewSandbox(t, prUnique(t))
 	if sb == nil {
 		t.Skip("no database")
@@ -2983,8 +2939,6 @@ func TestProbeInspectQuotedIndexColumn(t *testing.T) {
 // TestProbeSequenceChangeIgnored: a changed sequence start or increment is a
 // change in the models, and Diff should not drop it silently.
 func TestProbeSequenceChangeIgnored(t *testing.T) {
-	knownProbe(t, "#36")
-
 	old := &schema.Schema{Sequences: []*schema.Sequence{{Name: "s", Start: 1, Increment: 1}}}
 	next := &schema.Schema{Sequences: []*schema.Sequence{{Name: "s", Start: 100, Increment: 5}}}
 

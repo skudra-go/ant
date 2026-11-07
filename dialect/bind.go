@@ -30,17 +30,40 @@ import (
 // in UTC, after lists are expanded, so each element is.
 func Bind(d Dialect, query string, args []any) (string, []any, error) {
 	text, bound, err := bind(d, query, args)
-	if err != nil || !SyntaxOf(d).UTCTimes {
+	if err != nil || len(bound) == 0 {
 		return text, bound, err
 	}
 
 	out := make([]any, len(bound))
 
 	for i, a := range bound {
-		out[i] = utc(a)
+		out[i] = addressed(a)
+
+		if SyntaxOf(d).UTCTimes {
+			out[i] = utc(out[i])
+		}
 	}
 
 	return text, out, nil
+}
+
+// addressed passes v by pointer when only its pointer converts itself, as a
+// type does whose Value method has a pointer receiver: database/sql takes v as it
+// is, and would not find the method. A secret's value is passed the same way.
+func addressed(v any) any {
+	if secret, ok := v.(qb.Secret); ok {
+		return qb.Secret{V: addressed(secret.V)}
+	}
+
+	t := reflect.TypeOf(v)
+	if t == nil || t.Implements(valuerType) || !reflect.PointerTo(t).Implements(valuerType) {
+		return v
+	}
+
+	p := reflect.New(t)
+	p.Elem().Set(reflect.ValueOf(v))
+
+	return p.Interface()
 }
 
 func bind(d Dialect, query string, args []any) (string, []any, error) {

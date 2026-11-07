@@ -30,6 +30,8 @@ func (Item) Configure(b *ant.ModelBuilder[Item]) {
 	b.Check("items_weight_check", "weight BETWEEN 0 AND 100")
 	b.Index(&I.Kind).And(&I.Weight).Desc().Where("kind <> 'plain'").Include(&I.Price)
 	b.IndexExpr("lower(label)").Name("items_label_lower_idx").Unique()
+	// NULLS FIRST going up and NULLS LAST going down are not the defaults.
+	b.Index(&I.Weight).NullsFirst().And(&I.Price).Desc().NullsLast().Name("items_weight_nulls_idx")
 }
 
 // ItemDB holds Item.
@@ -49,6 +51,21 @@ func TestDrift(t *testing.T) {
 		must[ItemDB](p, "up")
 
 		t.Run("expressions the server rewrites are not drift", func(t *testing.T) {
+			require.Contains(t, must[ItemDB](p, "drift"), "No drift")
+		})
+
+		t.Run("so is an index that puts NULLs elsewhere", func(t *testing.T) {
+			p.sql("DROP INDEX items_weight_nulls_idx")
+			p.sql("CREATE INDEX items_weight_nulls_idx ON items (weight, price DESC)")
+			out, err := run[ItemDB](p, "drift", "--sql")
+			require.ErrorIs(t, err, migrate.ErrDrift)
+			require.Contains(t, out, `("weight" NULLS FIRST, "price" DESC NULLS LAST)`)
+			p.sql("DROP INDEX items_weight_nulls_idx")
+
+			p.sql(
+				"CREATE INDEX items_weight_nulls_idx ON items (weight NULLS FIRST, price DESC NULLS LAST)",
+			)
+
 			require.Contains(t, must[ItemDB](p, "drift"), "No drift")
 		})
 

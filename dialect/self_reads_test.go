@@ -862,3 +862,116 @@ func TestSelfReadsThatAreNotSureAreNotRefused(t *testing.T) {
 		}
 	})
 }
+
+// MySQL refuses an upsert whose update reads the table it writes, even through a
+// derived table, but takes it when the rows come from a SELECT. MariaDB takes
+// the VALUES form, and an update that reads another table keeps it everywhere.
+func TestUpsertSelfReadsSelectTheirRows(t *testing.T) {
+	users := &qb.TableRef{Name: "users"}
+	posts := &qb.TableRef{Name: "posts"}
+	age := qb.Column{Table: users, Name: "age"}
+	builds := 0
+
+	maxOf := func(table *qb.TableRef) qb.Expr {
+		return qb.Subquery{
+			Select: &qb.Select{
+				Columns: []qb.Selected{{Value: qb.Func{Name: "MAX", Args: []qb.Expr{age}}}},
+				From:    qb.Source{Table: table},
+				Where: []qb.Cond{qb.Lazy{
+					Build: func(context.Context) (qb.Cond, error) {
+						builds++
+
+						return qb.Compare{
+							Left:  age,
+							Op:    qb.OpGt,
+							Right: qb.Param{Value: builds},
+						}, nil
+					},
+				}},
+			},
+		}
+	}
+
+	upsert := func(read qb.Expr, rows ...[]qb.Expr) *qb.Insert {
+		return &qb.Insert{
+			Table:   users,
+			Columns: []string{"id", "age"},
+			Rows:    rows,
+			Conflict: &qb.Conflict{
+				Columns: []string{"id"},
+				Set:     []qb.Assignment{{Column: "age", Value: read}},
+			},
+		}
+	}
+
+	row := func(id int) []qb.Expr { return []qb.Expr{qb.Param{Value: id}, qb.Param{Value: 2}} }
+
+	for _, tt := range []struct {
+		name string
+		d    dialect.Dialect
+		stmt *qb.Insert
+		want string
+	}{
+		{
+			"mysql, its own table",
+			mysql.Dialect,
+			upsert(maxOf(users), row(1)),
+			"INSERT INTO `users` (`id`, `age`) SELECT * FROM (SELECT ? AS `ant_c1`, ? AS `ant_c2`) AS ant_rows " +
+				"ON DUPLICATE KEY UPDATE `age` = (SELECT MAX(`users`.`age`) FROM `users` WHERE `users`.`age` > ?)",
+		},
+		{
+			"mysql, several rows",
+			mysql.Dialect,
+			upsert(maxOf(users), row(1), row(2)),
+			"INSERT INTO `users` (`id`, `age`) SELECT * FROM (SELECT ? AS `ant_c1`, ? AS `ant_c2` UNION ALL SELECT ?, ?) AS ant_rows " +
+				"ON DUPLICATE KEY UPDATE `age` = (SELECT MAX(`users`.`age`) FROM `users` WHERE `users`.`age` > ?)",
+		},
+		{
+			"mysql, another table",
+			mysql.Dialect,
+			upsert(maxOf(posts), row(1)),
+			"INSERT INTO `users` (`id`, `age`) VALUES (?, ?) " +
+				"ON DUPLICATE KEY UPDATE `age` = (SELECT MAX(`users`.`age`) FROM `posts` WHERE `users`.`age` > ?)",
+		},
+		{
+			"mariadb, its own table",
+			mysql.MariaDB,
+			upsert(maxOf(users), row(1)),
+			"INSERT INTO `users` (`id`, `age`) VALUES (?, ?) " +
+				"ON DUPLICATE KEY UPDATE `age` = (SELECT MAX(`users`.`age`) FROM `users` WHERE `users`.`age` > ?)",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			builds = 0
+
+			got, args, err := tt.d.Render(tt.stmt)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if got != tt.want {
+				t.Errorf("got  %s\nwant %s", got, tt.want)
+			}
+
+			if builds != 1 || args[len(args)-1] != 1 {
+				t.Errorf("built %d times, args %v", builds, args)
+			}
+		})
+	}
+
+	t.Run("a SELECT has no DEFAULT", func(t *testing.T) {
+		_, _, err := mysql.Dialect.Render(
+			upsert(maxOf(users), []qb.Expr{qb.Param{Value: 1}, qb.Default{}}),
+		)
+		if !errors.Is(err, ant.ErrUnsupported) {
+			t.Errorf("got %v", err)
+		}
+
+		_, _, err = mysql.MariaDB.Render(
+			upsert(maxOf(users), []qb.Expr{qb.Param{Value: 1}, qb.Default{}}),
+		)
+		if err != nil {
+			t.Errorf("mariadb: %v", err)
+		}
+	})
+}

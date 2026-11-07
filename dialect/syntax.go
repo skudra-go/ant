@@ -62,8 +62,8 @@ type Syntax struct {
 	// ValuesUnion writes a VALUES source as SELECTs joined by UNION ALL, for a
 	// database that cannot name its columns.
 	ValuesUnion bool
-	// WrapLimitedIn puts a derived table around a subquery with a LIMIT inside
-	// IN, for a database that refuses it directly.
+	// WrapLimitedIn puts a derived table around a subquery with a LIMIT or an
+	// OFFSET inside IN, for a database that refuses it directly.
 	WrapLimitedIn bool
 	// WrapSelfReads puts a derived table around a subquery of an UPDATE or DELETE
 	// that reads the table being written, for a database that refuses such a read
@@ -79,6 +79,12 @@ type Syntax struct {
 	MergeHoldLock bool
 	// TransactSavepoints uses SAVE TRANSACTION, which has no release.
 	TransactSavepoints bool
+	// RecursiveUnionAll writes a recursive WITH without RECURSIVE and joins its
+	// members with UNION ALL, for a database that demands both. A CTE with a Key
+	// then carries the path of keys that reached each row, which stops a cycle,
+	// is read once per key, as UNION would leave it, and lifts the database's
+	// limit on how deep the recursion goes.
+	RecursiveUnionAll bool
 
 	// UTCTimes binds times in UTC, for a database whose columns drop the zone, so
 	// that every stored time is on one clock.
@@ -89,6 +95,10 @@ type Syntax struct {
 	// MaxParameters is the most bound values in one statement. The default is
 	// PostgreSQL's 65535.
 	MaxParameters int
+	// NoArrayParams leaves an IN list that would pass MaxParameters as it is,
+	// for a database that takes no array as a parameter. Otherwise such a list
+	// of plain values of one type is bound as one array, = ANY(?).
+	NoArrayParams bool
 }
 
 // Lacks reports whether the database is missing f.

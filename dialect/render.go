@@ -3,7 +3,10 @@ package dialect
 import (
 	"bytes"
 	"context"
+	"database/sql/driver"
 	"fmt"
+	"maps"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -55,6 +58,12 @@ type renderer struct {
 
 	top          *qb.Select // the statement itself, when it is a SELECT
 	duplicateKey bool       // inside ON DUPLICATE KEY UPDATE
+
+	// keyed holds, with RecursiveUnionAll, the key of each recursive CTE in
+	// scope that is read once per key, by its lowered name, and unbounded that
+	// one was written, so the recursion needs no depth limit.
+	keyed     map[string][]string
+	unbounded bool
 
 	// writing is the table an UPDATE or DELETE writes, with WrapSelfReads, while
 	// its values and conditions render. read records that a subquery among them
@@ -116,6 +125,8 @@ func (r *renderer) write(s string) { r.sql.WriteString(s) }
 func (r *renderer) quote(ident string) { r.write(r.d.Quote(ident)) }
 
 func (r *renderer) bind(v any) {
+	v = addressed(v)
+
 	if r.s.UTCTimes {
 		v = utc(v)
 	}
@@ -510,7 +521,19 @@ func (r *renderer) source(s qb.Source) {
 			r.maybe = true
 		}
 
-		r.quote(s.Name)
+		key, keyed := r.keyed[strings.ToLower(s.Name)]
+		if !keyed {
+			r.quote(s.Name)
+
+			break
+		}
+
+		r.keyedSource(s.Name, key)
+
+		if s.Alias == "" {
+			r.write(" AS ")
+			r.quote(s.Name)
+		}
 	case s.Raw != nil:
 		r.write("(")
 		r.fragment(*s.Raw)
@@ -644,15 +667,36 @@ func (r *renderer) selectStmt(s *qb.Select) {
 
 		r.write("WITH ")
 
-		if s.Recursive {
+		if s.Recursive && !r.s.RecursiveUnionAll {
 			r.write("RECURSIVE ")
 		}
+
+		keyed := r.keyed
+
+		defer func() { r.keyed = keyed }()
 
 		list(r, s.With, func(c qb.CTE) {
 			r.quote(c.Name)
 			r.write(" AS (")
-			r.selectStmt(c.Select)
+
+			if !s.Recursive || !r.s.RecursiveUnionAll || len(c.Key) == 0 {
+				r.selectStmt(c.Select)
+				r.write(")")
+
+				return
+			}
+
+			r.paths(c)
 			r.write(")")
+
+			// Only after its own members, which must read every row they reach.
+			r.keyed = maps.Clone(r.keyed)
+
+			if r.keyed == nil {
+				r.keyed = map[string][]string{}
+			}
+
+			r.keyed[strings.ToLower(c.Name)] = c.Key
 		})
 
 		r.write(" ")
@@ -733,6 +777,144 @@ func (r *renderer) selectStmt(s *qb.Select) {
 			r.write(" SKIP LOCKED")
 		}
 	}
+
+	// The paths end every cycle, so the recursion needs no limit but the depth
+	// of the data, which SQL Server caps at 100 unless told otherwise.
+	if s == r.top && r.unbounded {
+		r.write(" OPTION (MAXRECURSION 0)")
+	}
+}
+
+// pathColumn carries a row's path in a CTE written by paths, and onceColumn
+// numbers the rows of one key where it is read.
+const (
+	pathColumn = "ant_path"
+	onceColumn = "ant_n"
+)
+
+// paths writes a recursive CTE for a database that joins the members of one only
+// with UNION ALL, as SQL Server does, so that it gives what UNION would. Each
+// member also selects the path of keys that reached its row, and a member that
+// reads the CTE skips a row whose key is on the path already, which ends a
+// cycle. A row reached by two paths, as from two starting rows, is read once,
+// by keyedSource.
+func (r *renderer) paths(c qb.CTE) {
+	r.unbounded = true
+
+	anchor := *c.Select
+	anchor.Sets = nil
+
+	anchor.Columns = append(slices.Clip(anchor.Columns), qb.Selected{
+		Value: startPath(&anchor, c.Key),
+		Alias: pathColumn,
+	})
+
+	r.selectStmt(&anchor)
+
+	for _, set := range c.Select.Sets {
+		member := *set.Select
+		member.Columns = slices.Clip(member.Columns)
+
+		if !reads(&member, c.Name) {
+			member.Columns = append(member.Columns, qb.Selected{Value: startPath(&member, c.Key)})
+		} else {
+			key := keyText(&member, c.Key)
+			path := qb.Column{Alias: c.Name, Name: pathColumn}
+
+			member.Columns = append(member.Columns, qb.Selected{
+				Value: qb.Fragment{
+					SQL:  "CAST(CONCAT(?, ?, '/') AS varchar(max))",
+					Args: []qb.Expr{path, key},
+				},
+			})
+
+			member.Where = append(slices.Clip(member.Where), qb.Fragment{
+				SQL:  "CHARINDEX(CONCAT('/', ?, '/'), ?) = 0",
+				Args: []qb.Expr{key, path},
+			})
+		}
+
+		r.write(" " + set.Kind + " ")
+
+		if set.All || set.Kind == "UNION" {
+			r.write("ALL ")
+		}
+
+		if r.s.BareSets {
+			r.selectStmt(&member)
+
+			continue
+		}
+
+		r.write("(")
+		r.selectStmt(&member)
+		r.write(")")
+	}
+}
+
+// startPath is the path of a row that starts a recursive CTE written by paths.
+func startPath(s *qb.Select, key []string) qb.Expr {
+	return qb.Fragment{
+		SQL:  "CAST(CONCAT('/', ?, '/') AS varchar(max))",
+		Args: []qb.Expr{keyText(s, key)},
+	}
+}
+
+// keyText is the text of the key of s's row on a path: the bytes of each column
+// in hex, in which neither separator can occur.
+func keyText(s *qb.Select, key []string) qb.Expr {
+	from := s.From.Alias
+
+	switch {
+	case from != "":
+	case s.From.Table != nil:
+		from = s.From.Table.Name
+	default:
+		from = s.From.Name
+	}
+
+	var sql strings.Builder
+
+	args := make([]qb.Expr, len(key))
+
+	for i, column := range key {
+		if i > 0 {
+			sql.WriteString(", ':', ")
+		}
+
+		sql.WriteString("CONVERT(varchar(max), CAST(? AS varbinary(max)), 2)")
+
+		args[i] = qb.Column{Alias: from, Name: column}
+	}
+
+	return qb.Fragment{SQL: sql.String(), Args: args}
+}
+
+// reads reports whether s reads the CTE named name, as a recursive member does.
+func reads(s *qb.Select, name string) bool {
+	if strings.EqualFold(s.From.Name, name) {
+		return true
+	}
+
+	return slices.ContainsFunc(s.Joins, func(j qb.Join) bool {
+		return strings.EqualFold(j.Source.Name, name)
+	})
+}
+
+// keyedSource writes a read of a CTE written by paths, which may hold a row once
+// for each path that reached it, keeping one row per key.
+func (r *renderer) keyedSource(name string, key []string) {
+	r.write("(SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY ")
+	list(r, key, r.quote)
+	r.write(" ORDER BY (SELECT NULL)) AS ")
+	r.quote(onceColumn)
+	r.write(" FROM ")
+	r.quote(name)
+	r.write(") AS ")
+	r.quote(name)
+	r.write(" WHERE ")
+	r.quote(onceColumn)
+	r.write(" = 1)")
 }
 
 func (r *renderer) paging(s *qb.Select) {
@@ -865,6 +1047,8 @@ func (r *renderer) insert(s *qb.Insert) {
 	case s.From != nil:
 		r.write(" ")
 		r.selectStmt(s.From)
+	case len(s.Rows) > 0 && r.updateReadsTable(s):
+		r.rowsSelect(s.Rows)
 	case len(s.Rows) == 0 && r.s.EmptyValues:
 		r.write(" VALUES ()")
 	case len(s.Rows) == 0:
@@ -912,6 +1096,85 @@ func (r *renderer) conflict(s *qb.Insert) {
 		r.assignments(c.Set)
 		r.where(c.Where)
 	}
+}
+
+// updateReadsTable reports whether the conflict update of s may read the table
+// it writes, on a database that refuses that unless the rows come from a SELECT,
+// as MySQL does even through a derived table, error 1093. It writes the update
+// once to see, and takes the SQL back, keeping what its Lazy conditions built
+// for when it is written for real.
+func (r *renderer) updateReadsTable(s *qb.Insert) bool {
+	if !r.s.WrapSelfReads || !r.s.DuplicateKey || s.Conflict == nil || len(s.Conflict.Set) == 0 {
+		return false
+	}
+
+	start, args := r.sql.Len(), len(r.args)
+
+	// Inner keeps subqueries from wrapping themselves, which would not help.
+	r.writing, r.inner, r.read, r.maybe = s.Table, true, false, false
+	r.recording, r.lazies = true, nil
+
+	r.duplicateKey = true
+	r.assignments(s.Conflict.Set)
+	r.duplicateKey = false
+
+	sure, reads := r.read, r.read || r.maybe
+
+	r.sql.Truncate(start)
+	r.args = r.args[:args]
+	r.writing, r.inner, r.read, r.maybe = nil, false, false, false
+	r.recording, r.replay, r.lazies = false, r.lazies, nil
+
+	if !reads {
+		return false
+	}
+
+	// A SELECT has no DEFAULT. A read that may not be one is left to MySQL.
+	for _, row := range s.Rows {
+		if slices.ContainsFunc(row, func(e qb.Expr) bool { return e == qb.Default{} }) {
+			if sure && r.err == nil {
+				r.err = fmt.Errorf(
+					"%w: an upsert that reads its own table and leaves a column to its default, on %s",
+					errs.ErrUnsupported,
+					r.d.Name(),
+				)
+			}
+
+			return false
+		}
+	}
+
+	return true
+}
+
+// rowsSelect writes the rows of an INSERT as a SELECT from a derived table,
+// whose columns have names of their own, so the conflict update reads no column
+// of it by mistake.
+func (r *renderer) rowsSelect(rows [][]qb.Expr) {
+	r.write(" SELECT * FROM (")
+
+	for i, row := range rows {
+		if i > 0 {
+			r.write(" UNION ALL ")
+		}
+
+		r.write("SELECT ")
+
+		for j, value := range row {
+			if j > 0 {
+				r.write(", ")
+			}
+
+			r.expr(value)
+
+			if i == 0 {
+				r.write(" AS ")
+				r.quote(fmt.Sprintf("ant_c%d", j+1))
+			}
+		}
+	}
+
+	r.write(") AS ant_rows")
 }
 
 // duplicate writes an upsert for a database that has no DO NOTHING and no target:
@@ -1283,7 +1546,8 @@ func (r *renderer) group(conds []qb.Cond, sep, empty string) {
 }
 
 // in renders membership. SQL has no empty list, so an empty list renders as a
-// constant: nothing is a member of it.
+// constant: nothing is a member of it. A paged subquery goes inside a derived
+// table where the database refuses LIMIT in IN, as MySQL and MariaDB do.
 func (r *renderer) in(c qb.In) {
 	if c.Sub == nil && len(c.Values) == 0 {
 		if c.Negate {
@@ -1301,6 +1565,24 @@ func (r *renderer) in(c qb.In) {
 		return
 	}
 
+	// A list too long for the statement's parameters goes as one array.
+	if c.Sub == nil && !r.s.NoArrayParams && len(r.args)+len(c.Values) > r.s.ParameterLimit() {
+		if array, ok := arrayOf(c.Values); ok {
+			r.expr(c.Left)
+
+			if c.Negate {
+				r.write(" <> ALL(")
+			} else {
+				r.write(" = ANY(")
+			}
+
+			r.bind(array)
+			r.write(")")
+
+			return
+		}
+	}
+
 	r.expr(c.Left)
 
 	if c.Negate {
@@ -1312,7 +1594,8 @@ func (r *renderer) in(c qb.In) {
 	switch {
 	case c.Sub == nil:
 		list(r, c.Values, r.expr)
-	case c.Sub.Limit != nil && r.s.WrapLimitedIn:
+	case (c.Sub.Limit != nil || c.Sub.Offset != nil) && r.s.WrapLimitedIn:
+		// An offset alone is still written with a LIMIT, which IN refuses too.
 		inner, read := r.inner, r.read
 		r.inner = true
 
@@ -1327,6 +1610,48 @@ func (r *renderer) in(c qb.In) {
 	}
 
 	r.write(")")
+}
+
+// arrayOf returns values as a slice of the type each converts to, for a driver
+// to bind as one array, or false if one is not a plain value, as a secret, a
+// NULL, or a column is not, or if they differ in type.
+func arrayOf(values []qb.Expr) (any, bool) {
+	var out reflect.Value
+
+	for i, e := range values {
+		p, ok := e.(qb.Param)
+		if !ok {
+			return nil, false
+		}
+
+		v := addressed(p.Value)
+
+		if _, secret := v.(qb.Secret); secret {
+			return nil, false
+		}
+
+		if valuer, ok := v.(driver.Valuer); ok {
+			var err error
+			if v, err = valuer.Value(); err != nil {
+				return nil, false
+			}
+		}
+
+		rv := reflect.ValueOf(v)
+
+		switch {
+		case !rv.IsValid():
+			return nil, false
+		case i == 0:
+			out = reflect.MakeSlice(reflect.SliceOf(rv.Type()), 0, len(values))
+		case rv.Type() != out.Type().Elem():
+			return nil, false
+		}
+
+		out = reflect.Append(out, rv)
+	}
+
+	return out.Interface(), true
 }
 
 // rowIn spells out (a, b) IN ((1, 2), (3, 4)) as a list of ORs.

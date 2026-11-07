@@ -92,6 +92,50 @@ func TestTimestamps(t *testing.T) {
 			require.False(t, stored(a.ID).CreatedAt.IsZero())
 		})
 
+		// Merge keeps them as Insert and Update do, and a value it is given wins.
+		t.Run("Merge sets them", func(t *testing.T) {
+			tick()
+
+			owner := &Author{Name: "owner"}
+			require.NoError(t, db.Authors.Insert(ctx, owner))
+			require.NoError(t, db.Notes.Insert(ctx, &Note{AuthorID: owner.ID, Text: "Ann"}))
+			require.NoError(t, db.Notes.Insert(ctx, &Note{AuthorID: owner.ID, Text: "Bo"}))
+
+			tick()
+
+			n, err := ant.Merge(&db.Authors, db.Notes.Query(), ant.EqCol(&A.Name, &N.Text)).
+				WhenMatched(ant.SetExpr(&A.Name, ant.Col(&N.Text))).
+				WhenNotMatched(ant.Into(&A.Name, &N.Text)).
+				Exec(ctx)
+			require.NoError(t, err)
+			require.EqualValues(t, 2, n)
+
+			at := now.Truncate(time.Microsecond)
+			require.True(t, stored(ann.ID).UpdatedAt.Equal(at), "an update moves UpdatedAt")
+
+			bo, err := db.Authors.NoTracking().Where(ant.Eq(&A.Name, "Bo")).Single(ctx)
+			require.NoError(t, err)
+			require.True(t, bo.CreatedAt.Equal(at), "an insert sets CreatedAt")
+			require.True(t, bo.UpdatedAt.Equal(at), "and UpdatedAt")
+
+			given := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+			_, err = ant.Merge(&db.Authors, db.Notes.Query(), ant.EqCol(&A.Name, &N.Text)).
+				WhenMatched(ant.Set(&A.UpdatedAt, given)).
+				Exec(ctx)
+			require.NoError(t, err)
+			require.True(t, stored(ann.ID).UpdatedAt.Equal(given))
+
+			_, err = ant.Merge(&db.Authors, db.Notes.Query(), ant.EqCol(&A.Name, &N.Text)).
+				WhenMatched(ant.Set(&A.Name, "x"), ant.Set(&A.Name, "y")).
+				Exec(ctx)
+			require.ErrorContains(t, err, "Author.Name has two assignments")
+
+			_, err = ant.Merge(&db.Authors, db.Notes.Query(), ant.EqCol(&A.Name, &N.Text)).
+				WhenNotMatched(ant.Into(&A.Name, &N.Text), ant.Into(&A.Name, &N.Text)).
+				Exec(ctx)
+			require.ErrorContains(t, err, "Author.Name has two mappings")
+		})
+
 		t.Run("a failed save restores UpdatedAt", func(t *testing.T) {
 			session := ant.Session(db)
 			got, err := session.Authors.Find(ctx, ann.ID)

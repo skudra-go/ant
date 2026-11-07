@@ -13,7 +13,9 @@ const NoTransaction = "-- ant:no-transaction"
 
 // Backfill fills AddColumn.Backfill on changes that need it, with the dialect's
 // zero value. Go gives every field a zero value, so this is the value a new
-// column has in a struct that was loaded before the column existed.
+// column has in a struct that was loaded before the column existed. An enum,
+// whose zero value Go would not store, gets its first value that the plan can
+// use.
 func Backfill(d Dialect, p *Plan) {
 	for i, c := range p.Changes {
 		add, ok := c.(AddColumn)
@@ -23,15 +25,32 @@ func Backfill(d Dialect, p *Plan) {
 		}
 
 		add.Backfill = d.Zero(add.Column.Type)
+
+		if values := p.values[add.Column.Type]; add.Backfill == "" && len(values) > 0 {
+			add.Backfill = "'" + strings.ReplaceAll(values[0], "'", "''") + "'"
+		}
+
 		p.Changes[i] = add
 	}
 }
+
+// lineBreaks are what end a -- comment, written out instead.
+var lineBreaks = strings.NewReplacer("\r", `\r`, "\n", `\n`)
+
+// Comment returns text for a -- comment: a line break in it, as a name may
+// hold, would end the comment early and make the rest of it SQL, so each is
+// written as \n or \r.
+func Comment(text string) string { return lineBreaks.Replace(text) }
 
 // Statements returns the SQL of a plan, without comments.
 func Statements(d Dialect, p *Plan) ([]string, error) {
 	var out []string
 
 	for _, c := range p.Changes {
+		if err := CheckNames(d, c); err != nil {
+			return nil, err
+		}
+
 		statements, err := d.Statements(c)
 		if err != nil {
 			return nil, err
@@ -67,15 +86,24 @@ func Script(d Dialect, p *Plan) (string, error) {
 			return "", err
 		}
 
-		fmt.Fprintf(&b, "\n-- WARNING: %s. If this is a rename, keep the data by\n", hint)
+		fmt.Fprintf(
+			&b,
+			"\n-- WARNING: %s. If this is a rename, keep the data by\n",
+			Comment(hint.String()),
+		)
+
 		b.WriteString("-- replacing the drop and add below with:\n")
 
 		for _, statement := range rename {
-			fmt.Fprintf(&b, "--   %s;\n", statement)
+			fmt.Fprintf(&b, "--   %s;\n", Comment(statement))
 		}
 	}
 
 	for _, c := range p.Changes {
+		if err := CheckNames(d, c); err != nil {
+			return "", err
+		}
+
 		statements, err := d.Statements(c)
 		if err != nil {
 			return "", err
@@ -84,7 +112,7 @@ func Script(d Dialect, p *Plan) (string, error) {
 		b.WriteByte('\n')
 
 		if w := c.Warning(); w != "" {
-			fmt.Fprintf(&b, "-- WARNING: %s\n", w)
+			fmt.Fprintf(&b, "-- WARNING: %s\n", Comment(w))
 		}
 
 		for _, statement := range statements {
@@ -93,4 +121,93 @@ func Script(d Dialect, p *Plan) (string, error) {
 	}
 
 	return b.String(), nil
+}
+
+// CheckNames returns an error for a name the change gives that is longer than
+// the database keeps. The database would cut it without a word, and two names
+// that differ only past the limit would become one. ant shortens the names it
+// makes up itself, but leaves those it is given as they are.
+func CheckNames(d Dialect, c Change) error {
+	limit := d.MaxIdentifier()
+	if limit == 0 {
+		return nil
+	}
+
+	type named struct{ kind, name string }
+
+	var names []named
+
+	table := func(t *Table) {
+		names = append(names, named{"table", t.Name})
+
+		for _, col := range t.Columns {
+			names = append(names, named{"column", col.Name})
+		}
+
+		if t.PrimaryKey != nil {
+			names = append(names, named{"primary key", t.PrimaryKey.Name})
+		}
+
+		for _, k := range t.Uniques {
+			names = append(names, named{"unique constraint", k.Name})
+		}
+
+		for _, check := range t.Checks {
+			names = append(names, named{"check", check.Name})
+		}
+	}
+
+	switch c := c.(type) {
+	case CreateSchema:
+		names = append(names, named{"schema", c.Name})
+	case CreateTable:
+		table(c.Table)
+	case RenameTable:
+		names = append(names, named{"table", c.To})
+	case MoveTable:
+		names = append(names, named{"schema", c.Schema}, named{"table", c.To})
+	case AddColumn:
+		names = append(names, named{"column", c.Column.Name})
+	case RenameColumn:
+		names = append(names, named{"column", c.To})
+	case AddPrimaryKey:
+		names = append(names, named{"primary key", c.Key.Name})
+	case AddUnique:
+		names = append(names, named{"unique constraint", c.Key.Name})
+	case AddCheck:
+		names = append(names, named{"check", c.Check.Name})
+	case RenameConstraint:
+		names = append(names, named{"constraint", c.To})
+	case CreateIndex:
+		names = append(names, named{"index", c.Index.Name})
+	case RenameIndex:
+		names = append(names, named{"index", c.To})
+	case AddForeignKey:
+		names = append(names, named{"foreign key", c.Key.Name})
+	case CreateEnum:
+		names = append(names, named{"enum", c.Enum.Name})
+
+		for _, value := range c.Enum.Values {
+			names = append(names, named{"enum value", value})
+		}
+	case AddEnumValue:
+		names = append(names, named{"enum value", c.Value})
+	case CreateSequence:
+		names = append(names, named{"sequence", c.Sequence.Name})
+	}
+
+	for _, n := range names {
+		if len(n.name) > limit {
+			return fmt.Errorf(
+				"ant: %s name %q is %d bytes, and %s keeps only %d: give it a shorter one",
+				n.kind,
+				n.name,
+				len(n.name),
+				d.Name(),
+				limit,
+			)
+		}
+	}
+
+	return nil
 }

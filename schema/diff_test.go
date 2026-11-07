@@ -403,9 +403,10 @@ func TestReplacedColumns(t *testing.T) {
 				`ALTER TABLE "tags" DROP CONSTRAINT "tags_snail_check"`,
 				`DROP INDEX "tags_lower_idx"`,
 				`DROP INDEX "tags_label_idx"`,
+				// Rebuilt columns go before other columns change, and come back after.
 				`ALTER TABLE "tags" DROP COLUMN "slug"`,
-				`ALTER TABLE "tags" ADD COLUMN "slug" text NOT NULL GENERATED ALWAYS AS (upper(label)) STORED`,
 				`ALTER TABLE "tags" DROP COLUMN "🐌"`,
+				`ALTER TABLE "tags" ADD COLUMN "slug" text NOT NULL GENERATED ALWAYS AS (upper(label)) STORED`,
 				`ALTER TABLE "tags" ADD COLUMN "🐌" text NOT NULL GENERATED ALWAYS AS (upper(label)) STORED`,
 				`ALTER TABLE "tags" ADD CONSTRAINT "tags_slug_check" CHECK ('U&"' <> U&"sl\0075g")`,
 				`ALTER TABLE "tags" ADD CONSTRAINT "tags_case_check" CHECK (U&"slL0075g" UESCAPE 'L' <> '')`,
@@ -973,4 +974,268 @@ func TestColumnTypes(t *testing.T) {
 
 	_, ok := d.ColumnType(reflect.TypeOf(struct{}{}), schema.Facets{})
 	require.False(t, ok)
+}
+
+// Renames given together may swap names, through a spare one, and a column may
+// be named under its table's old name or its new one, a name with a dot in it
+// is found as it is or quoted, and a table may move to another schema.
+func TestRenameBatches(t *testing.T) {
+	swapped := users()
+	swapped.Column("name").Name, swapped.Column("bio").Name = "bio", "name"
+	swapped.Column("bio").Nullable, swapped.Column("name").Nullable = false, true
+
+	require.Equal(
+		t,
+		[]string{
+			`ALTER TABLE "users" RENAME COLUMN "name" TO "ant_rename_1"`,
+			`ALTER TABLE "users" RENAME COLUMN "bio" TO "name"`,
+			`ALTER TABLE "users" RENAME COLUMN "ant_rename_1" TO "bio"`,
+		},
+		run(t, of(users()), of(swapped), "users.name=bio", "users.bio=name"),
+	)
+
+	people := users()
+	people.Name = "people"
+	people.Column("email").Name = "mail"
+
+	people.PrimaryKey.Name, people.Uniques[0] = "people_pkey", &schema.Key{
+		Name:    "people_mail_key",
+		Columns: []string{"mail"},
+	}
+
+	for _, order := range [][]string{
+		{"users.email=mail", "users=people"},
+		{"users=people", "people.email=mail"},
+	} {
+		require.Equal(
+			t,
+			[]string{
+				`ALTER TABLE "users" RENAME TO "people"`,
+				`ALTER TABLE "people" RENAME COLUMN "email" TO "mail"`,
+				`ALTER TABLE "people" RENAME CONSTRAINT "users_pkey" TO "people_pkey"`,
+				`ALTER TABLE "people" RENAME CONSTRAINT "users_email_key" TO "people_mail_key"`,
+			},
+			run(t, of(users()), of(people), order...),
+			"%q",
+			order,
+		)
+	}
+
+	dotted := &schema.Table{Name: "a.b", Columns: []*schema.Column{{Name: "x.y", Type: "text"}}}
+	plain := &schema.Table{Name: "c", Columns: []*schema.Column{{Name: "z", Type: "text"}}}
+
+	for _, renames := range [][]string{
+		{"a.b=c", "c.x.y=z"},
+		{`"a.b"=c`, `"a.b"."x.y"=z`},
+	} {
+		require.Equal(
+			t,
+			[]string{
+				`ALTER TABLE "a.b" RENAME TO "c"`,
+				`ALTER TABLE "c" RENAME COLUMN "x.y" TO "z"`,
+			},
+			run(t, of(dotted), of(plain), renames...),
+		)
+	}
+
+	from := &schema.Schema{
+		Schemas: []string{"s1"},
+		Tables: []*schema.Table{{
+			Schema:  "s1",
+			Name:    "t",
+			Columns: []*schema.Column{{Name: "id", Type: "bigint"}},
+		}},
+	}
+
+	to := &schema.Schema{
+		Schemas: []string{"s2"},
+		Tables: []*schema.Table{{
+			Schema:  "s2",
+			Name:    "t",
+			Columns: []*schema.Column{{Name: "id", Type: "bigint"}},
+		}},
+	}
+
+	plan, err := schema.Diff(from, to)
+	require.NoError(t, err)
+	require.Len(t, plan.Hints, 1)
+	require.Equal(t, "s1.t=s2.t", plan.Hints[0].Flag())
+
+	require.Equal(
+		t,
+		[]string{`CREATE SCHEMA IF NOT EXISTS "s2"`, `ALTER TABLE "s1"."t" SET SCHEMA "s2"`},
+		run(t, from, to, plan.Hints[0].Flag()),
+	)
+}
+
+// The plan keeps a column's dependents working while it changes: a rename
+// rewrites the expressions that name it, a generated column is dropped before the
+// columns it reads change and comes back after, a foreign key goes around a type
+// change of either side, and index renames wait for the drops and go round a
+// swap.
+func TestPlanOrder(t *testing.T) {
+	calc := func(base, typ, expr string) *schema.Table {
+		return &schema.Table{
+			Name: "calc",
+			Columns: []*schema.Column{
+				{Name: "id", Type: "bigint"},
+				{Name: base, Type: typ},
+				{Name: "total", Type: "bigint", Generated: expr},
+			},
+			Checks: []*schema.Check{{Name: "calc_check", Expr: base + " > 0"}},
+			Indexes: []*schema.Index{
+				{Name: "calc_idx", Parts: []schema.IndexPart{{Expr: "abs(" + base + ")"}}},
+			},
+		}
+	}
+
+	require.Equal(
+		t,
+		[]string{`ALTER TABLE "calc" RENAME COLUMN "a" TO "x"`},
+		run(t, of(calc("a", "integer", "a * 2")), of(calc("x", "integer", "x * 2")), "calc.a=x"),
+		"PostgreSQL rewrites the expressions itself",
+	)
+
+	require.Equal(
+		t,
+		[]string{
+			`ALTER TABLE "calc" DROP COLUMN "total"`,
+			`ALTER TABLE "calc" ALTER COLUMN "a" TYPE bigint USING "a"::bigint`,
+			`ALTER TABLE "calc" ADD COLUMN "total" bigint NOT NULL GENERATED ALWAYS AS (a * 2) STORED`,
+		},
+		run(t, of(calc("a", "integer", "a * 2")), of(calc("a", "bigint", "a * 2"))),
+	)
+
+	retyped := posts()
+	retyped.Column("user_id").Type = "text"
+	keyed := users()
+	keyed.Column("id").Type = "text"
+
+	got := run(t, of(users(), posts()), of(keyed, retyped))
+	require.Equal(t, `ALTER TABLE "posts" DROP CONSTRAINT "posts_user_id_fkey"`, got[0])
+	require.Contains(t, got[len(got)-1], `ADD CONSTRAINT "posts_user_id_fkey" FOREIGN KEY`)
+
+	index := func(table, name string) *schema.Table {
+		return &schema.Table{
+			Name:    table,
+			Columns: []*schema.Column{{Name: "x", Type: "integer"}},
+			Indexes: []*schema.Index{{Name: name, Parts: []schema.IndexPart{{Column: "x"}}}},
+		}
+	}
+
+	require.Equal(
+		t,
+		[]string{
+			`ALTER INDEX "ix1" RENAME TO "ant_rename_1"`,
+			`ALTER INDEX "ix2" RENAME TO "ix1"`,
+			`ALTER INDEX "ant_rename_1" RENAME TO "ix2"`,
+		},
+		run(t, of(index("a", "ix1"), index("b", "ix2")), of(index("a", "ix2"), index("b", "ix1"))),
+	)
+
+	moved := index("b", "shared_idx")
+	require.Equal(
+		t,
+		[]string{`DROP INDEX "shared_idx"`, `ALTER INDEX "b_idx" RENAME TO "shared_idx"`},
+		run(
+			t,
+			of(index("a", "shared_idx"), index("b", "b_idx")),
+			of(
+				&schema.Table{Name: "a", Columns: []*schema.Column{{Name: "x", Type: "integer"}}},
+				moved,
+			),
+		),
+	)
+}
+
+// Enum values go where the models put them, a new value used in the same plan
+// takes the transaction away, and an order PostgreSQL cannot change is a
+// warning. A sequence's settings change in place.
+func TestTypeChanges(t *testing.T) {
+	mood := func(values ...string) *schema.Schema {
+		return &schema.Schema{
+			Enums: []*schema.Enum{{Name: "mood", Values: values}},
+			Tables: []*schema.Table{{
+				Name:    "t",
+				Columns: []*schema.Column{{Name: "m", Type: "mood", Default: "'sad'"}},
+			}},
+		}
+	}
+
+	require.Equal(
+		t,
+		[]string{
+			`ALTER TYPE "mood" ADD VALUE IF NOT EXISTS 'ok' BEFORE 'happy'`,
+			`ALTER TYPE "mood" ADD VALUE IF NOT EXISTS 'great'`,
+		},
+		run(t, mood("sad", "happy"), mood("sad", "ok", "happy", "great")),
+	)
+
+	plan, err := schema.Diff(mood("sad", "happy"), mood("sad", "happy"))
+	require.NoError(t, err)
+	require.False(t, plan.Online())
+
+	used := mood("sad", "happy", "ok")
+	used.Tables[0].Columns[0].Default = "'ok'"
+	plan, err = schema.Diff(mood("sad", "happy"), used)
+	require.NoError(t, err)
+	require.True(t, plan.Online(), "a value is usable once committed")
+	require.Contains(t, strings.Join(plan.Warnings(), " "), "uses the new value ok")
+
+	plan, err = schema.Diff(mood("sad", "happy", "ok"), mood("sad", "ok", "happy"))
+	require.NoError(t, err)
+
+	require.Contains(
+		t,
+		strings.Join(plan.Warnings(), " "),
+		"cannot reorder the values of enum mood",
+	)
+
+	seq := func(start, increment int64) *schema.Schema {
+		return &schema.Schema{
+			Sequences: []*schema.Sequence{{Name: "s", Start: start, Increment: increment}},
+		}
+	}
+
+	require.Equal(
+		t,
+		[]string{`ALTER SEQUENCE "s" INCREMENT BY 5 START WITH 100`},
+		run(t, seq(0, 0), seq(100, 5)),
+	)
+
+	require.Empty(t, run(t, seq(0, 0), seq(1, 1)), "zero is the default, 1")
+}
+
+// A script's comments hold no line break, which would end one early and make the
+// rest of it SQL, and a name too long for the database is refused rather than
+// cut.
+func TestScriptSafety(t *testing.T) {
+	odd := users()
+	odd.Columns = append(
+		odd.Columns,
+		&schema.Column{Name: "a\nSELECT 1/0", Type: "text", Nullable: true},
+	)
+
+	plan, err := schema.Diff(of(odd), of(users()))
+	require.NoError(t, err)
+
+	script, err := schema.Script(ddl(t), plan)
+	require.NoError(t, err)
+	require.Contains(t, script, `-- WARNING: this drops column users.a\nSELECT 1/0 and its data.`)
+	require.NotContains(t, script, "\nSELECT 1/0 and its data")
+
+	long := users()
+	long.Indexes = []*schema.Index{{
+		Name:  strings.Repeat("i", 64),
+		Parts: []schema.IndexPart{{Column: "name"}},
+	}}
+
+	plan, err = schema.Diff(of(users()), of(long))
+	require.NoError(t, err)
+
+	_, err = schema.Script(ddl(t), plan)
+	require.ErrorContains(t, err, "is 64 bytes, and postgres keeps only 63")
+
+	_, err = schema.Statements(ddl(t), plan)
+	require.ErrorContains(t, err, "is 64 bytes")
 }

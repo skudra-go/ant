@@ -50,9 +50,9 @@ Error helpers mean the same everywhere. `ant.IsUniqueViolation` works on all fiv
 
 **Generated keys.** MySQL has no `RETURNING`, so a key comes from `LastInsertId`, and other database-filled columns are read back with a second query. Rows with generated keys go in one at a time there, in both `SaveChanges` and `InsertMany`.
 
-**`ON DUPLICATE KEY` on MySQL and MariaDB.** It has no target: any unique key triggers it, not only the columns you name. If a different key is the one that collides, `Upsert` cannot find the row by your columns, and reports that it wrote nothing. Name the only unique key that can collide. It also takes no `WHERE`, so `Conflict.Where` is an error, and an `Upsert` of a copy that carries a version cannot check that version: the version moves on, but the copy's update goes ahead.
+**`ON DUPLICATE KEY` on MySQL and MariaDB.** It has no target: any unique key triggers it, not only the columns you name. If a different key is the one that collides, `Upsert` cannot find the row by your columns, and reports that it wrote nothing. Name the only unique key that can collide. It also takes no `WHERE`, so `Conflict.Where` is an error. An `Upsert` of a copy that carries a version checks it all the same: each assignment keeps the stored value unless the version matches, and a copy that is out of date changes nothing and gets `ErrConcurrency`. This reads the affected-row count, so leave the driver's `clientFoundRows` off, as it is by default.
 
-**Writes that read their own table on MySQL.** MySQL refuses an `UPDATE` or `DELETE` whose subquery reads the table being written (error 1093), so ant wraps such a subquery in a derived table there, which MySQL reads first. A subquery with several columns that share a name, or that are expressions, takes MySQL 8.0.19 or later, for the derived table's column list, and a correlated one 8.0.14. An upsert's `Set` cannot read its own table on MySQL at all.
+**Writes that read their own table on MySQL.** MySQL refuses an `UPDATE` or `DELETE` whose subquery reads the table being written (error 1093), so ant wraps such a subquery in a derived table there, which MySQL reads first. A subquery with several columns that share a name, or that are expressions, takes MySQL 8.0.19 or later, for the derived table's column list, and a correlated one 8.0.14. An upsert's `Set` that reads its own table is refused even through a derived table, so there ant writes the rows as `INSERT ... SELECT`, which MySQL allows. A `SELECT` has no `DEFAULT`, so `InsertMany` with such a `Set` and a column left to its default is refused with `ErrUnsupported`.
 
 **`OUTPUT` on SQL Server.** SQL Server refuses it on a table with triggers, so a model that needs a key back cannot be inserted into one.
 
@@ -65,6 +65,17 @@ Error helpers mean the same everywhere. `ant.IsUniqueViolation` works on all fiv
 **Writers at once on SQLite.** SQLite has one writer at a time. A second connection that writes fails at once with "database is locked" unless the DSN makes it wait, and a transaction that reads and then writes can fail even then, unless it takes the write lock when it begins: use `_pragma=busy_timeout(5000)&_txlock=immediate`. `PRAGMA journal_mode=WAL` lets readers go on while one writes; it stays with the file, so run it once rather than in the DSN, where every new connection would need the write lock to set it.
 
 **Paging on SQL Server.** `OFFSET ... FETCH` needs an `ORDER BY`, so ant adds a meaningless one if the query has none. SQL Server refuses a `Limit` of zero.
+
+**`Recursive` on SQL Server.** A recursive `WITH` there has no `RECURSIVE` and joins its parts only with `UNION ALL`, which keeps a row each time it is reached and never ends a cycle. So each row carries the path of keys that reached it, a row already on its path is not followed again, and the query reads one row per key, as `UNION` gives elsewhere. The path also lets ant lift SQL Server's limit of 100 levels, with `OPTION (MAXRECURSION 0)`. `Count` and `Exists` put the `WITH` at the start of their statement, the only place SQL Server takes one.
+
+**Long `In` lists.** A list of more values than the database takes parameters in one statement goes on PostgreSQL as one array, `= ANY($1)`, when its values are plain and of one type. Elsewhere, and for a list of secrets or of mixed types, the driver refuses it, at 65535 on MySQL and MariaDB, 32766 on SQLite, and about 2100 on SQL Server: use `InSub`, or split the list.
+
+**Values the drivers cannot take.** These are limits of `database/sql` or of a driver, which ant does not work around:
+
+- An `sql.Null[uint64]` above `math.MaxInt64` is refused by `database/sql`, though a bare `uint64` field is not.
+- `NULL` cannot be read into a named `[]byte` type, such as `json.RawMessage` or `net.IP`. Use a pointer to it for a column that allows `NULL`.
+- pgx hands an `INTERVAL` to `database/sql` as text, which does not convert to a `time.Duration`. Read it into `pgtype.Interval`, or store a number of microseconds.
+- `ant.JSON` and `secure.Value` refuse text that is not valid UTF-8, as a text column does: `encoding/json` would store U+FFFD in its place.
 
 **Times.** SQLite stores times as text, and SQL Server's `DATETIME2` has no zone, so ant binds UTC on both to keep one clock, whatever holds the time: `*time.Time`, `sql.NullTime`, an `sql.Null` of a time, a pointer to one, or an interface holding one, types built on them such as `ant.DeletedAt`, and arguments of raw queries, each element of an `IN` list included. A `driver.Valuer` of your own is passed as it is, so have it give a time in UTC. MySQL's driver does the same. `ant.Past` and `ant.Future` compare with the server's own clock, so run the server in UTC. On SQLite and MySQL, `CURRENT_TIMESTAMP` has whole seconds.
 

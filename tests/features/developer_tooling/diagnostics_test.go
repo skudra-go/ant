@@ -24,8 +24,13 @@ func TestDryRun(t *testing.T) {
 			return tx.Users.Insert(ctx, &fixture.User{Name: "Temp", Email: "temp@example.com"})
 		})
 		require.NoError(t, err)
-		require.Len(t, statements, 1)
-		require.Contains(t, statements[0].SQL, `INSERT INTO "users"`)
+
+		// A save inside a transaction goes in a savepoint, so that a failed one
+		// leaves the transaction usable.
+		require.Len(t, statements, 3)
+		require.Equal(t, "SAVEPOINT ant_sp_1", statements[0].SQL)
+		require.Contains(t, statements[1].SQL, `INSERT INTO "users"`)
+		require.Equal(t, "RELEASE SAVEPOINT ant_sp_1", statements[2].SQL)
 
 		count, err := db.Users.Count(ctx)
 		require.NoError(t, err)

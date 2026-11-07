@@ -9,6 +9,7 @@ package schema
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -57,12 +58,19 @@ type Enum struct {
 	Values []string `json:"values"`
 }
 
-// Sequence is a database sequence.
+// Sequence is a database sequence. A zero Start or Increment means 1, the
+// default.
 type Sequence struct {
 	Name      string `json:"name"`
 	Start     int64  `json:"start,omitempty"`
 	Increment int64  `json:"increment,omitempty"`
 }
+
+// start returns the sequence's start, 1 when unset.
+func (q *Sequence) start() int64 { return cmp.Or(q.Start, 1) }
+
+// increment returns the sequence's increment, 1 when unset.
+func (q *Sequence) increment() int64 { return cmp.Or(q.Increment, 1) }
 
 // Table is one table.
 type Table struct {
@@ -122,11 +130,27 @@ type Check struct {
 
 func (c *Check) sameAs(o *Check) bool { return c.Expr == o.Expr }
 
-// IndexPart is one indexed column or expression.
+// IndexPart is one indexed column or expression. Nulls is "first" or "last"
+// where the part puts NULLs other than where its direction does by default,
+// which is last going up and first going down, and empty otherwise.
 type IndexPart struct {
 	Column string `json:"column,omitempty"`
 	Expr   string `json:"expr,omitempty"`
 	Desc   bool   `json:"desc,omitempty"`
+	Nulls  string `json:"nulls,omitempty"`
+}
+
+// NullsOrder returns the Nulls value for a part going down or up whose NULLs
+// come first or not: empty where that is the direction's default.
+func NullsOrder(desc, first bool) string {
+	switch {
+	case first && !desc:
+		return "first"
+	case !first && desc:
+		return "last"
+	}
+
+	return ""
 }
 
 // Index is an index.

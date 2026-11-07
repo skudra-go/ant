@@ -81,5 +81,20 @@ func TestUpdate(t *testing.T) {
 				Update(ctx, ant.Set(&U.Email, "Carol@example.com"))
 			require.ErrorContains(t, err, "duplicate key")
 		})
+
+		// One column with two values is refused before it runs, the same on
+		// every database: PostgreSQL refuses it, and MySQL would keep the last.
+		t.Run("a column set twice", func(t *testing.T) {
+			_, err := db.Users.Where(ant.Eq(&U.ID, alice.ID)).
+				Update(ctx, ant.Set(&U.Age, 1), ant.Inc(&U.Age, 2))
+			require.ErrorContains(t, err, "User.Age has two assignments")
+
+			_, err = db.Users.UpdateMany(ctx, []*fixture.User{alice}, ant.F(&U.Age), ant.F(&U.Age))
+			require.ErrorContains(t, err, "User.Age has two assignments")
+
+			got, err := db.Users.Find(ctx, alice.ID)
+			require.NoError(t, err)
+			require.Equal(t, alice.Age, got.Age, "nothing ran")
+		})
 	})
 }

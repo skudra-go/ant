@@ -35,7 +35,9 @@ import (
 type DeletedAt = meta.DeletedAt
 
 // UnixTime is a time stored as whole seconds since 1970. On CreatedAt and
-// UpdatedAt, it is maintained like a time.Time.
+// UpdatedAt, it is maintained like a time.Time. The zero time is stored as 0,
+// as schemas of this kind mark no time, so 0, and the Unix epoch with it, reads
+// back as the zero time.
 type UnixTime = meta.UnixTime
 
 // Base is an optional embeddable model base. ID is a generated primary key. Any

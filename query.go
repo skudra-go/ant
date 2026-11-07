@@ -706,6 +706,28 @@ func (q *Query[T]) bulkTarget() ([]qb.Cond, error) {
 	return []qb.Cond{qb.In{Left: column, Sub: sub}}, nil
 }
 
+// keyColumns returns the columns of the model's primary key if q's rows carry
+// all of them, or nil.
+func (q *Query[T]) keyColumns() []string {
+	keys := q.model().Keys
+	columns := q.columns()
+	out := make([]string, 0, len(keys))
+
+	for _, f := range keys {
+		if !slices.Contains(columns, f) {
+			return nil
+		}
+
+		out = append(out, f.Column)
+	}
+
+	if len(out) == 0 {
+		return nil
+	}
+
+	return out
+}
+
 // keyIndex returns the position of the model's stored key in q's selection, or
 // -1 if q's rows do not carry it, so that a bulk write on a source made from q
 // can find the rows they came from. A set operation matches columns by
@@ -757,6 +779,14 @@ func (q *Query[T]) update(a []Assignment) (*qb.Update, *Query[T], error) {
 	model := n.model()
 	if model.ReadOnly {
 		return nil, nil, fmt.Errorf("%w: %s", ErrReadOnly, model.Type.Name())
+	}
+
+	if err := managedVersion(model, nil, set); err != nil {
+		return nil, nil, err
+	}
+
+	if err := assignedTwice(model, "assignments", assignedColumns(set)); err != nil {
+		return nil, nil, err
 	}
 
 	if updated := model.Updated; updated != nil &&
@@ -1119,7 +1149,7 @@ func recursive[T, V any](q *Query[T], rel *V) *Query[T] {
 
 	seed := q.member()
 	seed.Sets = []qb.SetOp{{Kind: "UNION", Select: step}}
-	out.with = []qb.CTE{{Name: recursiveName, Select: seed}}
+	out.with = []qb.CTE{{Name: recursiveName, Select: seed, Key: q.keyColumns()}}
 	out.recursive = true
 	out.from = &qb.Source{Name: recursiveName, Alias: model.Table.Name}
 	out.fromKey = q.keyIndex() >= 0
