@@ -332,6 +332,11 @@ func keys(
 	embeds.Find(ctx, 1)
 	embeds.Find(ctx, "LV")
 
+	// ant checks the key by Find's type argument, which the key converts to.
+	countryAliases.Find[models.Code](ctx, "LV")
+	countryAliases.Find[any](ctx, "LV") // want `Find key is (any|interface\{\}), and Country has a key of type string`
+	docAliases.Find[any](ctx, "a-slug") // want `Find key is (any|interface\{\}), and Doc has a key of type string`
+
 	// A key set past a goto may not be set, and one set by a method expression
 	// is read from the method's own argument.
 	jumpy.Find(ctx, 1)

@@ -209,3 +209,37 @@ func expressions(
 	user := &User{}
 	(*ant.Query[Post]).OrderBy[int](q, &user.Age).All(ctx) // want `OrderBy needs a field of a probe`
 }
+
+// UserQuery, CountryRepo, and Repo wrap ant's builders by embedding them, and
+// the methods they get from those are judged as the builders' own.
+type (
+	UserQuery   struct{ *ant.Query[User] }
+	CountryRepo struct{ *ant.Table[models.Country] }
+	Repo[T any] struct{ *ant.Table[T] }
+)
+
+func wrappers(
+	ctx context.Context,
+	uq UserQuery,
+	countries CountryRepo,
+	repo Repo[User],
+	posts *ant.Table[Post],
+) {
+	uq.Where(ant.Gt(&U.Age, 1)).All(ctx)
+	uq.Where(ant.Exists(posts.Where(ant.Gt(&U.Age, 1)))).All(ctx)
+	countries.Find(ctx, "LV")
+	repo.Where(ant.Gt(&U.Age, 1)).All(ctx)
+
+	uq.Where(ant.Gt(&P.UserID, 1)).All(ctx)                                  // want `condition on Post in a query of User`
+	repo.Where(ant.Gt(&P.UserID, 1)).All(ctx)                                // want `condition on Post in a query of User`
+	countries.Find(ctx, 1)                                                   // want `Find key is int, and Country has a key of type string`
+	uq.Where(ant.Exists(posts.Where(ant.Eq(&models.Co.Code, "x")))).All(ctx) // want `condition on Country in a query of Post`
+
+	user := &User{}
+	uq.OrderBy(&user.Age).All(ctx) // want `OrderBy needs a field of a probe`
+}
+
+// A wrapper of a model a type parameter stands for is judged once instantiated.
+func openWrapper[T any](ctx context.Context, repo Repo[T]) {
+	repo.Where(ant.Gt(&P.UserID, 1)).All(ctx)
+}
