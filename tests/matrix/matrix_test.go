@@ -24,7 +24,6 @@ import (
 // takes the combination, so a narrower pattern goes before a broader one.
 var known = []*knownFailure{
 	{pattern: `^TestMatrix/(mysql|mariadb)/.*/offset_3/(Update|Delete)$`, issue: "#22"},
-	{pattern: `/Union_of_paged_sides/`, issue: "#8, fixed by PR #16"},
 	{pattern: `^TestMatrix/sqlserver/(FromCTE|Recursive)/.*/(Count|Exists)$`, issue: "#23"},
 	{pattern: `^TestMatrix/sqlserver/Recursive/.*/(All|First|Include)$`, issue: "#46"},
 }

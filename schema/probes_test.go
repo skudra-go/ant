@@ -137,7 +137,6 @@ func prWorld(tables ...*schema.Table) *schema.Schema {
 // ---------------------------------------------------------------- sandbox
 
 type prSandbox struct {
-	t     *testing.T
 	d     schema.Dialect
 	admin *sql.DB
 	db    *sql.DB
@@ -179,7 +178,6 @@ func prNewSandbox(t *testing.T, p string) *prSandbox {
 	db.SetMaxOpenConns(1)
 
 	sb := &prSandbox{
-		t:     t,
 		d:     ddl(t),
 		admin: admin,
 		db:    db,
@@ -219,13 +217,15 @@ func prUnique(t *testing.T) string {
 	return "pr" + strings.ToLower(rand.Text()[:10]) + "_"
 }
 
-// wipe removes the scratch schema's contents and the named schemas.
-func (sb *prSandbox) wipe(named []string) {
-	sb.t.Helper()
+// wipe removes the scratch schema's contents and the named schemas. It takes
+// the running test rather than the one that made the sandbox, because each
+// direction of a probe is a subtest and may only stop itself.
+func (sb *prSandbox) wipe(t *testing.T, named []string) {
+	t.Helper()
 
 	for _, n := range named {
 		if _, err := sb.admin.Exec(`DROP SCHEMA IF EXISTS "` + n + `" CASCADE`); err != nil {
-			sb.t.Fatalf("wipe %s: %v", n, err)
+			t.Fatalf("wipe %s: %v", n, err)
 		}
 	}
 
@@ -234,7 +234,7 @@ func (sb *prSandbox) wipe(named []string) {
 		`CREATE SCHEMA "` + sb.main + `"`,
 	} {
 		if _, err := sb.admin.Exec(q); err != nil {
-			sb.t.Fatalf("wipe: %v", err)
+			t.Fatalf("wipe: %v", err)
 		}
 	}
 }
@@ -478,6 +478,9 @@ type probe struct {
 	backRenames []string
 	// noDB limits the probe to planning checks.
 	noDB bool
+	// refuse is a regexp for the error Diff must refuse the forward plan with,
+	// for a plan ant should not make. The probe then checks nothing else.
+	refuse string
 }
 
 func prFill(p string, in []string) []string {
@@ -609,7 +612,7 @@ func prMigrate(
 
 	named := prNames(from, to)
 
-	sb.wipe(named)
+	sb.wipe(t, named)
 
 	if err := sb.create(from); err != nil {
 		t.Errorf("[old schema does not create] %v", err)
@@ -667,7 +670,7 @@ func prMigrate(
 		)
 	}
 
-	sb.wipe(named)
+	sb.wipe(t, named)
 
 	if err := sb.create(to); err != nil {
 		t.Errorf("[new schema does not create from scratch] %v", err)
@@ -717,13 +720,12 @@ var knownScenarios = map[string]string{
 	"21_":      "#32",
 	"43_":      "#32",
 	"56_":      "#32",
-	"44_":      "#10, fixed by PR #17",
-	"58_":      "#10, fixed by PR #17",
 	"48_":      "#33",
 	"48_/back": "#33",
 	"54_":      "#34",
 	"25_":      "#35",
 	"33_":      "#36",
+	"45_":      "#36",
 	"40_":      "#36",
 }
 
@@ -749,13 +751,30 @@ func knownProbe(t *testing.T, issue string) {
 	}
 }
 
+// prRefused checks that Diff refuses to plan with the renames, with an error
+// that matches want.
+func prRefused(t *testing.T, from, to *schema.Schema, renames []string, want string) {
+	t.Helper()
+
+	_, err := schema.Diff(from, to, renames...)
+	if err == nil {
+		t.Errorf("Diff planned with %q, want a refusal matching %q", renames, want)
+
+		return
+	}
+
+	if !regexp.MustCompile(want).MatchString(err.Error()) {
+		t.Errorf("Diff refused with %q, want one matching %q", err, want)
+	}
+}
+
 func runProbe(t *testing.T, c probe) {
 	p := prUnique(t)
 	old, next := c.build(p)
 
 	var sb *prSandbox
 
-	if !c.noDB {
+	if !c.noDB && c.refuse == "" {
 		sb = prNewSandbox(t, p)
 	}
 
@@ -763,6 +782,13 @@ func runProbe(t *testing.T, c probe) {
 	// direction: prMigrate builds the old schema afresh every time.
 	t.Run("forward", func(t *testing.T) {
 		knownScenario(t, c.name, false)
+
+		if c.refuse != "" {
+			prRefused(t, old, next, prFill(p, c.renames), c.refuse)
+
+			return
+		}
+
 		prMigrate(t, sb, p, old, next, prFill(p, c.renames), prFill(p, c.seed), c.forbid, c.verify)
 	})
 
@@ -1990,9 +2016,11 @@ var probes = []probe{
 		},
 	},
 	{
-		// rename onto the name of a table that is dropped in the same plan
+		// rename onto the name of a table that is dropped in the same plan: the
+		// snapshot has that name, so the rename is refused (decision 82)
 		name:    "44_rename_table_onto_existing_table_name",
 		renames: []string{"users=people"},
+		refuse:  `rename "users=people": the snapshot already has a table people`,
 		build: func(p string) (*schema.Schema, *schema.Schema) {
 			old := prWorld(
 				prPK(prTab("people", prReq("id", "bigint"), prReq("legacy", "text")), "id"),
@@ -2309,11 +2337,11 @@ var probes = []probe{
 		back: true,
 	},
 	{
-		// a rename onto a column name that the same plan frees by dropping its owner
+		// a rename onto a column name that the same plan frees by dropping its
+		// owner: the table has that column, so the rename is refused (decision 82)
 		name:    "58_rename_column_onto_dropped_column_name",
 		renames: []string{"t.a=b"},
-		seed:    []string{"INSERT INTO t (id, a, b) VALUES (1, 'a', 'b')"},
-		verify:  []prCheckQuery{{"SELECT b FROM t", "a"}},
+		refuse:  `rename "t\.a=b": table t already has a column b`,
 		build: func(p string) (*schema.Schema, *schema.Schema) {
 			old := prWorld(
 				prPK(
@@ -2803,24 +2831,30 @@ func TestProbeDeterministic(t *testing.T) {
 		var first string
 
 		for i := 0; i < 5; i++ {
+			// A Diff that refuses is an outcome too, and must refuse the same
+			// way on every call, so a later call that fails is caught.
+			var got string
+
 			plan, err := schema.Diff(old, next, prFill("pdet_", c.renames)...)
 			if err != nil {
-				break
-			}
+				got = "Diff refused: " + err.Error()
+			} else {
+				schema.Backfill(d, plan)
 
-			schema.Backfill(d, plan)
+				script, err := schema.Script(d, plan)
+				if err != nil {
+					t.Errorf("%s: %v", c.name, err)
 
-			script, err := schema.Script(d, plan)
-			if err != nil {
-				t.Errorf("%s: %v", c.name, err)
+					break
+				}
 
-				break
+				got = script
 			}
 
 			if i == 0 {
-				first = script
-			} else if script != first {
-				t.Errorf("%s: Script is not deterministic:\n%s\n---\n%s", c.name, first, script)
+				first = got
+			} else if got != first {
+				t.Errorf("%s: plan is not deterministic:\n%s\n---\n%s", c.name, first, got)
 
 				break
 			}
