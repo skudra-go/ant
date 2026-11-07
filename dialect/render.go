@@ -309,7 +309,7 @@ func (r *renderer) fragment(f qb.Fragment) {
 	}
 
 	// Raw SQL cannot be read, so naming the table counts as maybe reading it.
-	if r.writing != nil && namesTable(f.SQL, r.writing.Name, r.writing.Schema) {
+	if r.writing != nil && namesTable(f.SQL, r.writing.Name) {
 		r.maybe = true
 	}
 
@@ -339,17 +339,18 @@ func (r *renderer) fragment(f qb.Fragment) {
 }
 
 // namesTable reports whether raw SQL names table, in any case, as MySQL reads
-// it: as a whole word, or quoted in backticks. A name inside a string literal or
-// a comment does not count. How MySQL splits SQL into literals depends on the
+// it: as a whole word, or quoted in backticks, whatever schema qualifies it,
+// since telling a schema from whatever else comes before a dot would take
+// parsing the SQL. A name inside a string literal or a comment does not count. How MySQL splits SQL into literals depends on the
 // SQL mode, which the renderer does not know: a backslash escapes a quote unless
 // NO_BACKSLASH_ESCAPES is set, and ANSI_QUOTES makes double quotes a name rather
 // than a string. So the SQL is read in every mode, and a name found in any of
 // them counts. Wrapping a subquery that did not need it costs a derived table,
 // and missing one fails the write with error 1093.
-func namesTable(q, table, schema string) bool {
+func namesTable(q, table string) bool {
 	for _, backslash := range []bool{true, false} {
 		for _, ansiQuotes := range []bool{true, false} {
-			if namesTableIn(q, table, schema, backslash, ansiQuotes) {
+			if namesTableIn(q, table, backslash, ansiQuotes) {
 				return true
 			}
 		}
@@ -362,7 +363,7 @@ func namesTable(q, table, schema string) bool {
 // -- to the end of the line, where -- needs a space or a control character
 // after it, and /* */, except that /*! */ holds SQL that MySQL runs, so that is
 // read on, past the version it may start with.
-func namesTableIn(q, table, schema string, backslash, ansiQuotes bool) bool {
+func namesTableIn(q, table string, backslash, ansiQuotes bool) bool {
 	word := func(c byte) bool {
 		return isNameByte(c, false) || c == '$' || c >= 0x80
 	}
@@ -375,19 +376,6 @@ func namesTableIn(q, table, schema string, backslash, ansiQuotes bool) bool {
 		return len(q)
 	}
 
-	// ours reports whether the name that starts at q[start] is the table: in
-	// any schema if the table names none, and otherwise in its own, or with no
-	// schema given, which may be the current one.
-	ours := func(start int, name string) bool {
-		if !strings.EqualFold(name, table) {
-			return false
-		}
-
-		qualifier, ok := qualifierBefore(q, start)
-
-		return schema == "" || !ok || strings.EqualFold(qualifier, schema)
-	}
-
 	for i := 0; i < len(q); {
 		c := q[i]
 		rest := q[i:]
@@ -395,7 +383,7 @@ func namesTableIn(q, table, schema string, backslash, ansiQuotes bool) bool {
 		switch {
 		case c == '`' || (c == '"' && ansiQuotes):
 			name, end := mysqlQuoted(q, i, false)
-			if ours(i, name) {
+			if strings.EqualFold(name, table) {
 				return true
 			}
 
@@ -428,7 +416,7 @@ func namesTableIn(q, table, schema string, backslash, ansiQuotes bool) bool {
 					end++
 				}
 
-				if ours(j, q[j:end]) {
+				if strings.EqualFold(q[j:end], table) {
 					return true
 				}
 			}
@@ -449,7 +437,7 @@ func namesTableIn(q, table, schema string, backslash, ansiQuotes bool) bool {
 				j++
 			}
 
-			if ours(i, q[i:j]) {
+			if strings.EqualFold(q[i:j], table) {
 				return true
 			}
 
@@ -460,58 +448,6 @@ func namesTableIn(q, table, schema string, backslash, ansiQuotes bool) bool {
 	}
 
 	return false
-}
-
-// qualifierBefore returns the name before the dot that comes before q[i], as the
-// schema of schema.table, quoted or not, with spaces around the dot or not.
-func qualifierBefore(q string, i int) (string, bool) {
-	space := func(c byte) bool { return c == ' ' || c == '\t' || c == '\n' || c == '\r' }
-
-	j := i - 1
-	for j >= 0 && space(q[j]) {
-		j--
-	}
-
-	if j < 0 || q[j] != '.' {
-		return "", false
-	}
-
-	for j--; j >= 0 && space(q[j]); j-- {
-	}
-
-	if j < 0 {
-		return "", false
-	}
-
-	if quote := q[j]; quote == '`' || quote == '"' {
-		k := j - 1
-
-		for ; k >= 0; k-- {
-			if q[k] == quote {
-				if k > 0 && q[k-1] == quote {
-					k--
-
-					continue
-				}
-
-				break
-			}
-		}
-
-		if k < 0 {
-			return "", false
-		}
-
-		return strings.ReplaceAll(q[k+1:j], string(quote)+string(quote), string(quote)), true
-	}
-
-	end := j + 1
-
-	for j >= 0 && (isNameByte(q[j], false) || q[j] == '$' || q[j] >= 0x80) {
-		j--
-	}
-
-	return q[j+1 : end], j+1 < end
 }
 
 // mysqlQuoted reads the quoted text that starts at q[i], and returns it and the

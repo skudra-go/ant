@@ -710,14 +710,16 @@ func TestSelfReadsAndSchemas(t *testing.T) {
 			true,
 		},
 		{
+			// In raw SQL any spelling of the table counts, whatever schema
+			// qualifies it, as raw SQL is not parsed.
 			"raw SQL in another schema",
 			update(written, raw("user_id IN (SELECT id FROM other.users)")),
-			false,
+			true,
 		},
 		{
 			"raw SQL in a quoted other schema",
 			update(written, raw("user_id IN (SELECT id FROM `other` . `users`)")),
-			false,
+			true,
 		},
 		{
 			"raw SQL in the same schema",
