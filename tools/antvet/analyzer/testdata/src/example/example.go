@@ -136,6 +136,34 @@ func (Early) Configure(b *ant.ModelBuilder[Early]) {
 	b.Key(&Ea.Code)
 }
 
+// Jumpy may jump past its key.
+type Jumpy struct { // want Jumpy:"key "
+	ID   int64
+	Code string
+}
+
+func (Jumpy) Configure(b *ant.ModelBuilder[Jumpy]) {
+	if useCode {
+		goto done
+	}
+
+	b.Key(&Ju.Code)
+
+done:
+	b.Table("jumpy")
+}
+
+// Expressed sets its key through a method expression, which takes the builder
+// first.
+type Expressed struct { // want Expressed:"key Code"
+	ID   int64
+	Code string
+}
+
+func (Expressed) Configure(b *ant.ModelBuilder[Expressed]) {
+	(*ant.ModelBuilder[Expressed]).Key(b, &Ex.Code)
+}
+
 // Aliased hands its builder on under another name.
 type Aliased struct { // want Aliased:"key "
 	ID   int64
@@ -186,14 +214,16 @@ var (
 )
 
 var (
-	U     = ant.Fields[User]()    // want U:"probe of example.User"
-	P     = ant.Fields[Post]()    // want P:"probe of example.Post"
-	Alias = U                     // want Alias:"probe of example.User"
-	M     = ant.Fields[Member]()  // want M:"probe of example.User"
-	D     = ant.Fields[Doc]()     // want D:"probe of example.Doc"
-	Pa    = ant.Fields[Pair]()    // want Pa:"probe of example.Pair"
-	Ig    = ant.Fields[Ignored]() // want Ig:"probe of example.Ignored"
-	Em    = ant.Fields[Embeds]()  // want Em:"probe of example.Embeds"
+	U     = ant.Fields[User]()      // want U:"probe of example.User"
+	P     = ant.Fields[Post]()      // want P:"probe of example.Post"
+	Alias = U                       // want Alias:"probe of example.User"
+	M     = ant.Fields[Member]()    // want M:"probe of example.User"
+	D     = ant.Fields[Doc]()       // want D:"probe of example.Doc"
+	Pa    = ant.Fields[Pair]()      // want Pa:"probe of example.Pair"
+	Ig    = ant.Fields[Ignored]()   // want Ig:"probe of example.Ignored"
+	Ju    = ant.Fields[Jumpy]()     // want Ju:"probe of example.Jumpy"
+	Ex    = ant.Fields[Expressed]() // want Ex:"probe of example.Expressed"
+	Em    = ant.Fields[Embeds]()    // want Em:"probe of example.Embeds"
 )
 
 func good(
@@ -274,6 +304,8 @@ func keys(
 	docAliases *ant.Table[DocAlias],
 	ignored *ant.Table[Ignored],
 	embeds *ant.Table[Embeds],
+	jumpy *ant.Table[Jumpy],
+	expressed *ant.Table[Expressed],
 ) {
 	fluent.Find(ctx, "LV")
 	fluent.Find(ctx, 1) // want `Find key is int, and Fluent has a key of type string`
@@ -299,6 +331,13 @@ func keys(
 	ignored.Find(ctx, "LV") // want `Find key is string, and Ignored has a key of type int64`
 	embeds.Find(ctx, 1)
 	embeds.Find(ctx, "LV")
+
+	// A key set past a goto may not be set, and one set by a method expression
+	// is read from the method's own argument.
+	jumpy.Find(ctx, 1)
+	jumpy.Find(ctx, "LV")
+	expressed.Find(ctx, "LV")
+	expressed.Find(ctx, 1) // want `Find key is int, and Expressed has a key of type string`
 }
 
 func bad(

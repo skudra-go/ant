@@ -545,13 +545,16 @@ func configuredKey(pass *analysis.Pass, fn *ast.FuncDecl) (string, bool) {
 		return true
 	})
 
-	// A return in the body, not in a closure, may come before the key is set.
+	// A return or a goto in the body, not in a closure, may come before the key
+	// is set, and skip it.
 	ast.Inspect(fn.Body, func(n ast.Node) bool {
-		switch n.(type) {
+		switch n := n.(type) {
 		case *ast.FuncLit:
 			return false
 		case *ast.ReturnStmt:
 			returns = true
+		case *ast.BranchStmt:
+			returns = returns || n.Tok == token.GOTO
 		}
 
 		return true
@@ -653,9 +656,11 @@ func setsKey(pass *analysis.Pass, call *ast.CallExpr) (string, bool) {
 
 	switch object.Name() {
 	case "Key":
-		if len(call.Args) == 1 {
-			return fieldPath(pass, call.Args[0]), true
+		if _, args, ok := methodCall(pass, call); ok && len(args) == 1 {
+			return fieldPath(pass, args[0]), true
 		}
+
+		return "", true // a key, but not one the analyzer can read
 	case "GenerateKey":
 		if len(call.Args) == 3 {
 			return fieldPath(pass, call.Args[1]), true
@@ -979,12 +984,16 @@ func (c *checker) fieldArgs(call *ast.CallExpr) (string, []ast.Expr) {
 	}
 
 	selector, ok := ast.Unparen(indexed(call.Fun)).(*ast.SelectorExpr)
-	if !ok || fieldMethods[selector.Sel.Name] == 0 || !isAntFunc(c.pass, call) ||
-		!builder(c.pass.TypesInfo.TypeOf(selector.X)) {
+	if !ok || fieldMethods[selector.Sel.Name] == 0 || !isAntFunc(c.pass, call) {
 		return "", nil
 	}
 
-	return selector.Sel.Name, first.of(call.Args)
+	recv, args, ok := methodCall(c.pass, call)
+	if !ok || !builder(c.pass.TypesInfo.TypeOf(recv)) {
+		return "", nil
+	}
+
+	return selector.Sel.Name, first.of(args)
 }
 
 // antType returns the named type of ant that t is, or points to, or nil.
@@ -1149,7 +1158,12 @@ func (c *checker) checkScope(call *ast.CallExpr, stack []ast.Node) {
 		return
 	}
 
-	own := queryModels(pass.TypesInfo.TypeOf(selector.X))
+	recv, args, ok := methodCall(pass, call)
+	if !ok {
+		return
+	}
+
+	own := queryModels(pass.TypesInfo.TypeOf(recv))
 	if own == nil {
 		return
 	}
@@ -1163,19 +1177,19 @@ func (c *checker) checkScope(call *ast.CallExpr, stack []ast.Node) {
 			return
 		}
 
-		for _, condition := range c.conditions(call.Args) {
+		for _, condition := range c.conditions(args) {
 			if name := calleeName(pass, condition); singleModel[name] {
 				c.judge(fieldFuncs[name].of(condition.Args), allowed, own, "")
 			}
 		}
 	case fieldMethods[method] == byScope:
 		if allowed, ok := c.scope(stack, own); ok {
-			c.judge(first.of(call.Args), allowed, own, method)
+			c.judge(first.of(args), allowed, own, method)
 		}
 	case fieldMethods[method] == byOwn:
-		c.judge(first.of(call.Args), own, own, method)
-	case updates[method] && len(call.Args) > 0:
-		for _, arg := range call.Args[1:] {
+		c.judge(first.of(args), own, own, method)
+	case updates[method] && len(args) > 0:
+		for _, arg := range args[1:] {
 			assignment, ok := ast.Unparen(arg).(*ast.CallExpr)
 			if !ok {
 				continue
@@ -1342,6 +1356,41 @@ func calledAt(stack []ast.Node, i int) (*ast.CallExpr, int) {
 
 func isArg(call *ast.CallExpr, node ast.Node) bool { return argIndex(call, node) >= 0 }
 
+// methodCall returns the receiver of a method call and the arguments the method
+// takes, written as recv.M(args) or as a method expression, T.M(recv, args),
+// which takes the receiver first. ok is false for any other call.
+func methodCall(pass *analysis.Pass, call *ast.CallExpr) (recv ast.Expr, args []ast.Expr, ok bool) {
+	selector, isSelector := ast.Unparen(indexed(call.Fun)).(*ast.SelectorExpr)
+	if !isSelector {
+		return nil, nil, false
+	}
+
+	switch selection := pass.TypesInfo.Selections[selector]; {
+	case selection == nil:
+		return nil, nil, false // a function of a package, as ant.Eq is
+	case selection.Kind() == types.MethodExpr:
+		if len(call.Args) == 0 {
+			return nil, nil, false
+		}
+
+		return call.Args[0], call.Args[1:], true
+	}
+
+	return selector.X, call.Args, true
+}
+
+// methodExpr reports whether call is written as a method expression.
+func methodExpr(pass *analysis.Pass, call *ast.CallExpr) bool {
+	selector, ok := ast.Unparen(indexed(call.Fun)).(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+
+	selection := pass.TypesInfo.Selections[selector]
+
+	return selection != nil && selection.Kind() == types.MethodExpr
+}
+
 // argIndex returns which of call's arguments node is, or -1.
 func argIndex(call *ast.CallExpr, node ast.Node) int {
 	return slices.IndexFunc(call.Args, func(a ast.Expr) bool { return ast.Node(a) == node })
@@ -1445,8 +1494,10 @@ walk:
 			continue // ant.Exists, ant.SubOf, and the like pass a query on
 		}
 
+		// A method expression takes its receiver first, so where an argument
+		// sits says nothing the analyzer follows.
 		selector, ok := ast.Unparen(indexed(call.Fun)).(*ast.SelectorExpr)
-		if !ok || !isAntFunc(c.pass, call) {
+		if !ok || !isAntFunc(c.pass, call) || methodExpr(c.pass, call) {
 			return nil, false
 		}
 
@@ -1526,11 +1577,16 @@ func (c *checker) joinsLater(stack []ast.Node) bool {
 // field, or the single field its Configure method makes the key.
 func checkFind(pass *analysis.Pass, call *ast.CallExpr) {
 	selector, ok := ast.Unparen(indexed(call.Fun)).(*ast.SelectorExpr)
-	if !ok || selector.Sel.Name != "Find" || len(call.Args) != 2 {
+	if !ok || selector.Sel.Name != "Find" {
 		return
 	}
 
-	model := queryArg(pass.TypesInfo.TypeOf(selector.X))
+	recv, args, ok := methodCall(pass, call)
+	if !ok || len(args) != 2 {
+		return
+	}
+
+	model := queryArg(pass.TypesInfo.TypeOf(recv))
 	if model == nil {
 		return
 	}
@@ -1566,13 +1622,13 @@ func checkFind(pass *analysis.Pass, call *ast.CallExpr) {
 		return
 	}
 
-	key := pass.TypesInfo.TypeOf(call.Args[1])
+	key := pass.TypesInfo.TypeOf(args[1])
 	if key == nil || compatible(id.Type(), key) {
 		return
 	}
 
 	pass.Reportf(
-		call.Args[1].Pos(),
+		args[1].Pos(),
 		"Find key is %s, and %s has a key of type %s",
 		types.TypeString(key, nil),
 		name(model),
