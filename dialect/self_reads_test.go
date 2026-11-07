@@ -306,6 +306,54 @@ func TestSelfReadsAreWrappedOnMySQL(t *testing.T) {
 				"SELECT MAX(`users`.`id`) AS `ant_c2`, `users`.`ant_c1` FROM `users`) AS materialized)",
 		},
 		{
+			"of columns given one name with AS, the first keeps it",
+			update(qb.In{
+				Left: qb.Row{Values: []qb.Expr{id, id}},
+				Sub: &qb.Select{
+					Columns: []qb.Selected{
+						{Value: id, Alias: "x"},
+						{Value: qb.Column{Table: posts, Name: "id"}, Alias: "x"},
+					},
+					From: qb.Source{Table: users},
+					Joins: []qb.Join{
+						{
+							Source: qb.Source{Table: posts},
+							On:     []qb.Cond{qb.Compare{Left: userID, Op: qb.OpEq, Right: id}},
+						},
+					},
+				},
+			}),
+			"UPDATE `users` SET `age` = ? WHERE (`users`.`id`, `users`.`id`) IN (" + wrap +
+				"SELECT `users`.`id` AS `x`, `posts`.`id` AS `ant_c1` FROM `users` JOIN `posts` ON " +
+				"`posts`.`user_id` = `users`.`id`) AS materialized)",
+		},
+		{
+			// MySQL reads ORDER BY ant_c1 as the select list's column of that
+			// name, so a name given to an expression must not be one the query
+			// refers to, in its own terms or in raw SQL.
+			"a generated name skips one the query refers to",
+			&qb.Update{
+				Table: users,
+				Set: []qb.Assignment{{
+					Column: "age",
+					Value: qb.Subquery{
+						Select: &qb.Select{
+							Columns: []qb.Selected{
+								{Value: qb.Func{Name: "ABS", Args: []qb.Expr{age}}},
+							},
+							From: qb.Source{Table: users},
+							Order: []qb.Order{
+								{Value: qb.Column{Name: "ant_c1"}},
+								{Value: qb.Fragment{SQL: "ant_c2"}},
+							},
+						},
+					},
+				}},
+			},
+			"UPDATE `users` SET `age` = (" + wrap + "SELECT ABS(`users`.`age`) AS `ant_c3` FROM `users` " +
+				"ORDER BY `ant_c1`, ant_c2) AS materialized)",
+		},
+		{
 			"a SELECT reads freely",
 			&qb.Select{
 				Columns: []qb.Selected{{Value: id}},

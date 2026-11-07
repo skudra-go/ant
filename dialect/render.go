@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/skudra-go/ant/internal/errs"
 	"github.com/skudra-go/ant/qb"
@@ -963,7 +964,7 @@ func (r *renderer) subquery(s *qb.Select, exists bool) {
 	r.args = r.args[:args]
 	r.replay = r.lazies
 
-	derived := derivable(s, exists)
+	derived := derivable(s, exists, sqlWords(text[start:]))
 	if derived == nil && r.err == nil {
 		r.err = fmt.Errorf(
 			"%w: a SELECT * beside other columns, or over a join or a set, that reads the table being written, on %s",
@@ -984,14 +985,18 @@ func (r *renderer) subquery(s *qb.Select, exists bool) {
 }
 
 // derivable returns s with columns a derived table takes, or nil if it cannot
-// tell them. A column named like another, or not named, as an expression is not,
-// gets a name of its own, and columns already named keep their names, which the
-// query may refer to. The columns of EXISTS matter only to what reads them, so
-// SELECT * there, which could name a column twice, becomes SELECT 1 unless
-// grouping, ordering, an offset, or a set reads the columns. A star that stays,
-// beside other columns or over a join or a set, may hold two columns of one
-// name, which a derived table refuses, so that is nil.
-func derivable(s *qb.Select, exists bool) *qb.Select {
+// tell them: each with a name of its own. A column that is not named, as an
+// expression is not, gets one, and so does a column named like another, except
+// the first of them given that name with AS, which keeps it for what refers to
+// it. A name it gets is one that taken, the words of the query's SQL, does not
+// hold, since MySQL reads a name in ORDER BY, GROUP BY, or HAVING as the column
+// of the select list called so before the table's column of that name. The
+// columns of EXISTS matter only to what reads them, so SELECT * there, which
+// could name a column twice, becomes SELECT 1 unless grouping, ordering, an
+// offset, or a set reads the columns. A star that stays, beside other columns or
+// over a join or a set, may hold two columns of one name, which a derived table
+// refuses, so that is nil.
+func derivable(s *qb.Select, exists bool, taken map[string]bool) *qb.Select {
 	out := *s
 
 	star := func(c qb.Selected) bool {
@@ -1037,26 +1042,47 @@ func derivable(s *qb.Select, exists bool) *qb.Select {
 	}
 
 	out.Columns = slices.Clone(s.Columns)
+	kept := map[string]bool{}
 	next := 0
 
 	for i, c := range out.Columns {
-		if name := natural(c); c.Alias == "" && (name == "" || seen[name] > 1) {
-			// A generated name must not be one the query has already.
-			for {
-				next++
+		switch name := natural(c); {
+		case name != "" && seen[name] == 1:
+			continue
+		case name != "" && c.Alias != "" && !kept[name]:
+			kept[name] = true
 
-				alias := fmt.Sprintf("ant_c%d", next)
-				if seen[alias] == 0 {
-					seen[alias]++
-					out.Columns[i].Alias = alias
+			continue
+		}
 
-					break
-				}
+		for {
+			next++
+
+			alias := fmt.Sprintf("ant_c%d", next)
+			if seen[alias] == 0 && !taken[alias] {
+				seen[alias]++
+				out.Columns[i].Alias = alias
+
+				break
 			}
 		}
 	}
 
 	return &out
+}
+
+// sqlWords returns the words of SQL in lower case: every name it may refer to,
+// quoted or not, along with its keywords and the like.
+func sqlWords(sql string) map[string]bool {
+	words := map[string]bool{}
+
+	for _, w := range strings.FieldsFunc(sql, func(c rune) bool {
+		return c != '_' && c != '$' && !unicode.IsLetter(c) && !unicode.IsDigit(c)
+	}) {
+		words[strings.ToLower(w)] = true
+	}
+
+	return words
 }
 
 func (r *renderer) merge(s *qb.Merge) {
