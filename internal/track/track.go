@@ -296,17 +296,20 @@ func (c Change) Keep() {
 // history holds the writes to one part of an entry that are not settled yet,
 // oldest first. A rollback can come late, once another operation has let go of
 // the tracker, and in any order, as two transactions can each save the entry
-// and roll back. So a write that rolls back puts back what it replaced only once
-// no write after it can stand: at once if it is the newest, or as soon as those
-// after it roll back too. A write after it that commits is in the rows, and
-// then nothing can be put back, so the rollback does what late says instead.
-// Kept writes are let go once nothing open is left below them, so the history
-// stays as short as the transactions still open.
+// and roll back. So writes are settled newest first, each once every write
+// after it has settled, which is the order a single transaction undoes them in:
+// one that rolls back with nothing kept after it puts back what it replaced, and
+// one that rolls back under a kept write, which is in the rows, does what late
+// says instead. Until then a settled write waits, and the result does not
+// depend on the order the transactions end in. The history holds no more than
+// the writes of transactions still open, and those below them.
 type history struct{ writes []*write }
 
 type write struct {
 	restore, late func()
 	undone, kept  bool
+	// overtaken means a write after this one was kept, so it rolls back late.
+	overtaken bool
 }
 
 // record adds a write, which restore takes back and late answers for, and
@@ -329,46 +332,33 @@ func (h *history) record(restore, late func()) Change {
 	}
 }
 
-// settle takes back the writes that rolled back with nothing open after them,
-// newest first, and lets go of those that nothing can come back to.
+// settle takes the settled writes off the top, newest first, until it reaches
+// one still open.
 func (h *history) settle() {
-	for n := len(h.writes); n > 0 && h.writes[n-1].undone; n = len(h.writes) {
+	for n := len(h.writes); n > 0; n = len(h.writes) {
 		top := h.writes[n-1]
+		if !top.undone && !top.kept {
+			return
+		}
+
+		// The slot is cleared, so the array does not keep the write alive.
+		h.writes[n-1] = nil
 		h.writes = h.writes[:n-1]
 
-		top.restore()
-	}
-
-	k := -1
-
-	for i, w := range h.writes {
-		if w.kept {
-			k = i
-		}
-	}
-
-	if k < 0 {
-		return
-	}
-
-	// Below the newest kept write, a rollback can no longer put anything back,
-	// and a kept write is done with.
-	var open []*write
-
-	for _, w := range h.writes[:k] {
 		switch {
-		case w.undone:
-			w.late()
-		case !w.kept:
-			open = append(open, w)
+		case top.kept:
+		case top.overtaken:
+			top.late()
+		default:
+			top.restore()
+		}
+
+		if n > 1 && (top.kept || top.overtaken) {
+			h.writes[n-2].overtaken = true
 		}
 	}
 
-	if len(open) > 0 {
-		open = append(open, h.writes[k])
-	}
-
-	h.writes = append(open, h.writes[k+1:]...)
+	h.writes = nil
 }
 
 type identity struct {
@@ -386,10 +376,10 @@ type Tracker struct {
 	seq     uint64
 	entries map[unsafe.Pointer]*Entry
 	first   map[identity]*Entry
-	// deletions counts the deletions of each row whose entries were forgotten,
+	// deletions holds the deletions of each row whose entries were forgotten,
 	// so that a rollback that comes late can tell a newer deletion happened. It
-	// holds a row only while a change that counts on it is open.
-	deletions map[identity]*deletion
+	// holds a row only while one of its deletions is unsettled.
+	deletions map[identity]*history
 	// OnTrack and OnState report entities starting to be tracked and changing
 	// state. They run with the tracker locked, so they must not call back into it.
 	OnTrack func(*Entry)
@@ -512,7 +502,7 @@ func New() *Tracker {
 		held:      make(chan struct{}, 1),
 		entries:   map[unsafe.Pointer]*Entry{},
 		first:     map[identity]*Entry{},
-		deletions: map[identity]*deletion{},
+		deletions: map[identity]*history{},
 	}
 }
 
@@ -613,12 +603,41 @@ func (t *Tracker) put(m *meta.Model, entity unsafe.Pointer, state State) *Entry 
 	return t.add(m, entity, state)
 }
 
-// Saved records e as saved in state, and returns the change. A removal asked
-// for after the save outlives its rollback: an entry that was new before it is
-// forgotten, since its row goes with the rollback, and any other stays Deleted,
-// as its row comes back.
-func (t *Tracker) Saved(e *Entry, state State) Change {
-	return e.saved(state, func(restore func()) func() { return t.keepRemoval(e, restore) })
+// Saved records e as saved in state, and returns the change. revert, if not nil,
+// takes back what the save wrote into the entity, such as a generated key, when
+// the change is taken back with nothing kept after it; it is given the address
+// the entity has by then. A removal asked for after the save outlives its
+// rollback: an entry that was new before it is forgotten, since its row goes
+// with the rollback, and any other stays Deleted, as its row comes back.
+func (t *Tracker) Saved(e *Entry, state State, revert func(entity unsafe.Pointer)) Change {
+	return e.saved(state, func(restore func()) func() {
+		return t.keepRemoval(e, func() {
+			restore()
+			t.revert(e, revert)
+		})
+	})
+}
+
+// revert runs revert on e's entity, and then lets go of the key e was known by
+// if the entity no longer holds it, as when the key was generated by the insert
+// the rollback took back.
+func (t *Tracker) revert(e *Entry, revert func(entity unsafe.Pointer)) {
+	if revert == nil {
+		return
+	}
+
+	revert(e.Entity)
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if e.keyed && !e.Holds(e.Entity) {
+		if t.first[e.id] == e {
+			delete(t.first, e.id)
+		}
+
+		e.id, e.keyed = identity{}, false
+	}
 }
 
 // Reloaded is Entry.Reloaded, keeping a removal asked for after the reload as
@@ -647,8 +666,14 @@ func (t *Tracker) keepRemoval(e *Entry, restore func()) func() {
 }
 
 // Added tracks a written entity, and returns the change, whose rollback stops
-// tracking it, unless a write since stands.
-func (t *Tracker) Added(m *meta.Model, entity unsafe.Pointer) Change {
+// tracking it and runs revert, as Saved does, unless a write since stands. The
+// entry is let go wherever its entity lives by then, as a save moves an entity
+// whose slice grew.
+func (t *Tracker) Added(
+	m *meta.Model,
+	entity unsafe.Pointer,
+	revert func(entity unsafe.Pointer),
+) Change {
 	// put reports to OnTrack, which may panic, and must not leave the lock held.
 	e := func() *Entry {
 		t.mu.Lock()
@@ -657,7 +682,16 @@ func (t *Tracker) Added(m *meta.Model, entity unsafe.Pointer) Change {
 		return t.put(m, entity, Unchanged)
 	}()
 
-	return e.columns.record(func() { t.Remove(entity) }, e.stale)
+	return e.columns.record(
+		func() {
+			t.Forget(e)
+
+			if revert != nil {
+				revert(e.Entity)
+			}
+		},
+		e.stale,
+	)
 }
 
 // Rekey records the key of an entity that received one on insert.
@@ -757,68 +791,51 @@ func (t *Tracker) Deleted(e *Entry) Change {
 	return t.undoDeletion(e.id, []*Entry{e})
 }
 
-// deletion counts the deletions of one row, and the changes still open that
-// count on them.
-type deletion struct{ count, open int }
-
-// undoDeletion counts a deletion of row id, whose entries gone the tracker
+// undoDeletion records a deletion of row id, whose entries gone the tracker
 // forgot, and returns the change, whose rollback tracks them again. A rollback
 // can come late, once another operation has let go of the tracker, and that
-// operation may have deleted the row again, which finds no entries to mark, as
-// they are forgotten already. So the deletions of such a row are counted, and a
-// rollback that a newer one came after leaves the row untracked, to be read
-// afresh. Rollbacks of one transaction run newest first, and each puts the count
-// back, so the one before it still applies. The count goes once no change is
-// open that could need it.
+// operation may have deleted the row again, which finds no entries to forget,
+// as they are forgotten already. So the deletions of a row are kept in a
+// history of the row's own, settled as an entry's writes are: a rollback with
+// a kept deletion after it leaves the row untracked, to be read afresh, and one
+// with nothing kept after it tracks the entries again, once every deletion
+// after it has settled. The history goes once all its deletions have settled.
+// It runs with the tracker locked, so its work does not lock it again.
 func (t *Tracker) undoDeletion(id identity, gone []*Entry) Change {
-	d := t.deletions[id]
+	h := t.deletions[id]
 
-	if d == nil {
+	if h == nil {
 		if len(gone) == 0 {
 			return Change{}
 		}
 
-		d = &deletion{}
-		t.deletions[id] = d
+		h = &history{}
+		t.deletions[id] = h
 	}
 
-	d.count++
-	d.open++
-	n := d.count
-
-	settled := func() {
-		if d.open--; d.open == 0 && t.deletions[id] == d {
-			delete(t.deletions, id)
-		}
-	}
-
-	return Change{
-		undo: func() {
-			t.mu.Lock()
-
-			late := d.count != n
-			if !late {
-				d.count = n - 1
-			}
-
-			settled()
-			t.mu.Unlock()
-
-			if late {
-				return
-			}
-
+	c := h.record(
+		func() {
 			for _, e := range gone {
-				t.Restore(e)
+				t.restore(e)
 			}
 		},
-		keep: func() {
+		func() {},
+	)
+
+	settle := func(f func()) func() {
+		return func() {
 			t.mu.Lock()
 			defer t.mu.Unlock()
 
-			settled()
-		},
+			f()
+
+			if len(h.writes) == 0 && t.deletions[id] == h {
+				delete(t.deletions, id)
+			}
+		}
 	}
+
+	return Change{undo: settle(c.Undo), keep: settle(c.Keep)}
 }
 
 func (t *Tracker) forget(e *Entry) {
@@ -837,6 +854,11 @@ func (t *Tracker) Restore(e *Entry) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	t.restore(e)
+}
+
+// restore is Restore, with the tracker locked.
+func (t *Tracker) restore(e *Entry) {
 	if other, ok := t.entries[e.Entity]; ok && other != e {
 		return
 	}

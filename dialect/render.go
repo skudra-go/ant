@@ -1125,6 +1125,11 @@ func (r *renderer) merge(s *qb.Merge) {
 	r.need(Merge)
 	r.write("MERGE INTO ")
 	r.table(s.Table)
+
+	if r.s.MergeHoldLock {
+		r.write(" WITH (HOLDLOCK)")
+	}
+
 	r.write(" USING ")
 	r.source(s.Using)
 	r.write(" ON ")

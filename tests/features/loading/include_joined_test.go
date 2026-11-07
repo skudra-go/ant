@@ -91,8 +91,7 @@ func TestIncludeJoinedTracked(t *testing.T) {
 		ctx := t.Context()
 		alice, _, _ := fixture.Seed(t, db)
 		require.NoError(t, db.Posts.Insert(ctx, &fixture.Post{UserID: alice.ID, Title: "one"}))
-		db.ClearTracked()
-
+		require.NoError(t, db.ClearTracked(ctx))
 		post, err := db.Posts.IncludeJoined(&P.User).First(ctx)
 		require.NoError(t, err)
 

@@ -24,6 +24,7 @@ type holder struct {
 	mu      sync.Mutex
 	started chan struct{}
 	let     chan struct{}
+	ctx     context.Context // the paused operation's, which shares its claim
 }
 
 // Before implements ant.Interceptor.
@@ -34,6 +35,7 @@ func (h *holder) Before(ctx context.Context, _ *ant.Statement) (context.Context,
 
 	h.mu.Lock()
 	started, let := h.started, h.let
+	h.ctx = ctx
 
 	select {
 	case <-started:
@@ -89,6 +91,22 @@ func (h *holder) while(t *testing.T, op func(ctx context.Context) error, during 
 	close(let)
 
 	return <-done
+}
+
+// heldEntry reads an entity's tracking state with the context of the operation
+// h paused, which shares that operation's claim on the tracker, so it shows
+// the state while the operation holds the tracker.
+func heldEntry[T any](t *testing.T, h *holder, db ant.Handle, entity *T) *ant.EntityEntry[T] {
+	t.Helper()
+
+	h.mu.Lock()
+	ctx := h.ctx
+	h.mu.Unlock()
+
+	entry, err := ant.Entry(ctx, db, entity)
+	require.NoError(t, err)
+
+	return entry
 }
 
 // byTitle orders included posts.
@@ -183,6 +201,9 @@ func TestConcurrentUse(t *testing.T) {
 				}},
 				{"LoadOne", func(ctx context.Context) error {
 					return db.Posts.LoadOne(ctx, &P.User, &Post{UserID: bob.ID})
+				}},
+				{"LoadMissing, before it reads the relation", func(ctx context.Context) error {
+					return db.Users.LoadMissing(ctx, &U.Posts, bob)
 				}},
 				{"Insert", func(ctx context.Context) error {
 					return db.Users.Insert(ctx, stranger())
@@ -282,7 +303,7 @@ func TestConcurrentUse(t *testing.T) {
 				require.Equal(
 					t,
 					ant.Unchanged,
-					ant.Entry(db, carol).State(),
+					heldEntry(t, h, db, carol).State(),
 					"not while the load holds the tracker",
 				)
 			})
@@ -294,7 +315,7 @@ func TestConcurrentUse(t *testing.T) {
 			require.Equal(
 				t,
 				ant.Modified,
-				ant.Entry(db, carol).State(),
+				fixture.Entry(t, db, carol).State(),
 				"and once the load let go, the tracker knows the change is not saved",
 			)
 		})
@@ -309,7 +330,7 @@ func TestConcurrentUse(t *testing.T) {
 				dan := &User{Name: "Dan", Email: "dan.tx@example.com"}
 
 				err := one.Tx(ctx, func(tx *AppDB) error {
-					if err := ant.Add(tx, dan); err != nil {
+					if err := ant.Add(ctx, tx, dan); err != nil {
 						return err
 					}
 
@@ -340,7 +361,7 @@ func TestConcurrentUse(t *testing.T) {
 				require.Equal(
 					t,
 					ant.Added,
-					ant.Entry(one, dan).State(),
+					fixture.Entry(t, one, dan).State(),
 					"once the load let go, the insert is pending again",
 				)
 			},
@@ -352,7 +373,7 @@ func TestConcurrentUse(t *testing.T) {
 		// newer write stands, so the next save does not insert the row twice.
 		t.Run("a late rollback leaves a newer write alone", func(t *testing.T) {
 			dan := &User{Name: "Dan", Email: "dan.late@example.com"}
-			require.NoError(t, ant.Add(db, dan))
+			require.NoError(t, ant.Add(ctx, db, dan))
 
 			saved, abort := make(chan struct{}), make(chan struct{})
 			finished := make(chan error, 1)
@@ -371,7 +392,7 @@ func TestConcurrentUse(t *testing.T) {
 			}()
 
 			<-saved
-			require.Equal(t, ant.Unchanged, ant.Entry(db, dan).State())
+			require.Equal(t, ant.Unchanged, fixture.Entry(t, db, dan).State())
 
 			err := h.while(
 				t,
@@ -386,7 +407,7 @@ func TestConcurrentUse(t *testing.T) {
 			require.NoError(t, err, "the second insert went in after the rollback")
 
 			require.NoError(t, db.SaveChanges(ctx), "and is not inserted again")
-			require.Equal(t, ant.Unchanged, ant.Entry(db, dan).State())
+			require.Equal(t, ant.Unchanged, fixture.Entry(t, db, dan).State())
 
 			n, err := db.Users.Where(ant.Eq(&U.Email, dan.Email)).Count(ctx)
 			require.NoError(t, err)
@@ -399,7 +420,7 @@ func TestConcurrentUse(t *testing.T) {
 		// entity is new again, so the next save inserts it once.
 		t.Run("two late rollbacks of one insert leave it pending", func(t *testing.T) {
 			eve := &User{Name: "Eve", Email: "eve.twice@example.com"}
-			require.NoError(t, ant.Add(db, eve))
+			require.NoError(t, ant.Add(ctx, db, eve))
 
 			saved, abort := make(chan struct{}), make(chan struct{})
 			finished := make(chan error, 1)
@@ -441,7 +462,7 @@ func TestConcurrentUse(t *testing.T) {
 			)
 			require.ErrorContains(t, err, "roll back too")
 
-			require.Equal(t, ant.Added, ant.Entry(db, eve).State(), "neither insert stayed")
+			require.Equal(t, ant.Added, fixture.Entry(t, db, eve).State(), "neither insert stayed")
 			require.NoError(t, db.SaveChanges(ctx))
 
 			n, err := db.Users.Where(ant.Eq(&U.Email, eve.Email)).Count(ctx)
@@ -461,7 +482,7 @@ func TestConcurrentUse(t *testing.T) {
 					return tx.Users.DeleteByID(ctx, u.ID)
 				}},
 				{"Remove and SaveChanges", func(tx *AppDB, u *User) error {
-					if err := ant.Remove(tx, u); err != nil {
+					if err := ant.Remove(ctx, tx, u); err != nil {
 						return err
 					}
 
@@ -496,7 +517,7 @@ func TestConcurrentUse(t *testing.T) {
 						t.Fatalf("the transaction ended before it deleted: %v", err)
 					}
 
-					require.Equal(t, ant.Detached, ant.Entry(db, ola).State())
+					require.Equal(t, ant.Detached, fixture.Entry(t, db, ola).State())
 
 					err := h.while(
 						t,
@@ -515,7 +536,7 @@ func TestConcurrentUse(t *testing.T) {
 					require.Equal(
 						t,
 						ant.Detached,
-						ant.Entry(db, ola).State(),
+						fixture.Entry(t, db, ola).State(),
 						"so it stays untracked",
 					)
 
@@ -523,6 +544,78 @@ func TestConcurrentUse(t *testing.T) {
 					require.ErrorIs(t, err, ant.ErrNotFound)
 				})
 			}
+		})
+
+		// Two transactions delete one row, and both roll back, the older first,
+		// while the newer one holds the tracker. The older rollback waits for the
+		// newer deletion to end, and once that one rolls back too, the row is
+		// back, and so is the removal the older transaction saved.
+		t.Run("two deletions that roll back, oldest first, keep the removal", func(t *testing.T) {
+			vic := &User{Name: "Vic", Email: "vic.late@example.com"}
+			require.NoError(t, db.Users.Insert(ctx, vic))
+
+			deleted, abort := make(chan struct{}), make(chan struct{})
+			finished := make(chan error, 1)
+
+			go func() {
+				finished <- db.Tx(ctx, func(tx *AppDB) error {
+					if err := ant.Remove(ctx, tx, vic); err != nil {
+						return err
+					}
+
+					if err := tx.SaveChanges(ctx); err != nil {
+						return err
+					}
+
+					close(deleted)
+					<-abort
+
+					return errors.New("roll back")
+				})
+			}()
+
+			select {
+			case <-deleted:
+			case err := <-finished:
+				t.Fatalf("the transaction ended before it deleted: %v", err)
+			}
+
+			err := h.while(
+				t,
+				func(ctx context.Context) error {
+					return db.Tx(ctx, func(tx *AppDB) error {
+						if err := tx.Users.DeleteByID(ctx, vic.ID); err != nil {
+							return err
+						}
+
+						return errors.New("roll back too")
+					})
+				},
+				func() {
+					close(abort)
+					require.ErrorContains(t, <-finished, "roll back")
+
+					require.Equal(
+						t,
+						ant.Detached,
+						heldEntry(t, h, db, vic).State(),
+						"not while the newer deletion holds the tracker",
+					)
+				},
+			)
+			require.ErrorContains(t, err, "roll back too")
+
+			require.Equal(
+				t,
+				ant.Deleted,
+				fixture.Entry(t, db, vic).State(),
+				"the removal is pending again",
+			)
+
+			require.NoError(t, db.SaveChanges(ctx))
+
+			_, err = db.Users.NoTracking().Find(ctx, vic.ID)
+			require.ErrorIs(t, err, ant.ErrNotFound, "and the next save deleted the row")
 		})
 
 		// A rollback reversed late, after a newer save of a relation, keeps what
@@ -609,7 +702,7 @@ func TestConcurrentUse(t *testing.T) {
 				"the value the reload read went with the rows",
 			)
 
-			require.Equal(t, ant.Unchanged, ant.Entry(db, &vic.Posts[0]).State())
+			require.Equal(t, ant.Unchanged, fixture.Entry(t, db, &vic.Posts[0]).State())
 		})
 
 		// Loading a relation reads, and writes nothing, so a rollback after it
@@ -619,7 +712,7 @@ func TestConcurrentUse(t *testing.T) {
 			gus := &User{Name: "Gus", Email: "gus.load@example.com"}
 
 			err := db.Tx(ctx, func(tx *AppDB) error {
-				require.NoError(t, ant.Add(tx, fay))
+				require.NoError(t, ant.Add(ctx, tx, fay))
 				require.NoError(t, tx.SaveChanges(ctx))
 				require.NoError(t, tx.Users.Load(ctx, &U.Posts, fay))
 
@@ -630,8 +723,19 @@ func TestConcurrentUse(t *testing.T) {
 			})
 			require.ErrorContains(t, err, "roll back")
 
-			require.Equal(t, ant.Added, ant.Entry(db, fay).State(), "Fay's insert is pending again")
-			require.Equal(t, ant.Detached, ant.Entry(db, gus).State(), "Gus was never stored")
+			require.Equal(
+				t,
+				ant.Added,
+				fixture.Entry(t, db, fay).State(),
+				"Fay's insert is pending again",
+			)
+
+			require.Equal(
+				t,
+				ant.Detached,
+				fixture.Entry(t, db, gus).State(),
+				"Gus was never stored",
+			)
 
 			require.NoError(t, db.SaveChanges(ctx), "so the next save inserts Fay")
 			require.NotZero(t, stored(t, db, fay.ID).ID)
@@ -647,21 +751,21 @@ func TestConcurrentUse(t *testing.T) {
 			hal := &User{Name: "Hal", Email: "hal.removed@example.com"}
 
 			err := db.Tx(ctx, func(tx *AppDB) error {
-				require.NoError(t, ant.Add(tx, hal))
+				require.NoError(t, ant.Add(ctx, tx, hal))
 
 				ivy.Age = 50
 
 				require.NoError(t, tx.SaveChanges(ctx))
 
-				require.NoError(t, ant.Remove(tx, hal))
-				require.NoError(t, ant.Remove(tx, ivy))
+				require.NoError(t, ant.Remove(ctx, tx, hal))
+				require.NoError(t, ant.Remove(ctx, tx, ivy))
 
 				return errors.New("roll back")
 			})
 			require.ErrorContains(t, err, "roll back")
 
-			require.Equal(t, ant.Detached, ant.Entry(db, hal).State())
-			require.Equal(t, ant.Deleted, ant.Entry(db, ivy).State())
+			require.Equal(t, ant.Detached, fixture.Entry(t, db, hal).State())
+			require.Equal(t, ant.Deleted, fixture.Entry(t, db, ivy).State())
 
 			require.NoError(t, db.SaveChanges(ctx))
 
@@ -676,7 +780,7 @@ func TestConcurrentUse(t *testing.T) {
 			"a reload between a save and its rollback does not stop the rollback",
 			func(t *testing.T) {
 				jo := &User{Name: "Jo", Email: "jo.reload@example.com"}
-				require.NoError(t, ant.Add(db, jo))
+				require.NoError(t, ant.Add(ctx, db, jo))
 
 				err := db.Tx(ctx, func(tx *AppDB) error {
 					require.NoError(t, tx.SaveChanges(ctx))
@@ -689,7 +793,7 @@ func TestConcurrentUse(t *testing.T) {
 				require.Equal(
 					t,
 					ant.Added,
-					ant.Entry(db, jo).State(),
+					fixture.Entry(t, db, jo).State(),
 					"the insert is pending again",
 				)
 
@@ -716,7 +820,7 @@ func TestConcurrentUse(t *testing.T) {
 			require.ErrorContains(t, err, "roll back")
 
 			require.Equal(t, 1, kim.Age, "the value the reload read went with the rows")
-			require.Equal(t, ant.Unchanged, ant.Entry(db, kim).State())
+			require.Equal(t, ant.Unchanged, fixture.Entry(t, db, kim).State())
 			require.Equal(t, 1, stored(t, db, kim.ID).Age)
 		})
 
@@ -733,7 +837,13 @@ func TestConcurrentUse(t *testing.T) {
 			})
 			require.ErrorContains(t, err, "roll back")
 			require.Equal(t, "Maxine", max.Name)
-			require.Equal(t, ant.Modified, ant.Entry(db, max).State(), "and is still to be saved")
+
+			require.Equal(
+				t,
+				ant.Modified,
+				fixture.Entry(t, db, max).State(),
+				"and is still to be saved",
+			)
 		})
 
 		t.Run("a removal asked for after a reload outlives the rollback", func(t *testing.T) {
@@ -742,12 +852,12 @@ func TestConcurrentUse(t *testing.T) {
 
 			err := db.Tx(ctx, func(tx *AppDB) error {
 				require.NoError(t, tx.Users.Reload(ctx, ned))
-				require.NoError(t, ant.Remove(tx, ned))
+				require.NoError(t, ant.Remove(ctx, tx, ned))
 
 				return errors.New("roll back")
 			})
 			require.ErrorContains(t, err, "roll back")
-			require.Equal(t, ant.Deleted, ant.Entry(db, ned).State())
+			require.Equal(t, ant.Deleted, fixture.Entry(t, db, ned).State())
 
 			require.NoError(t, db.SaveChanges(ctx))
 			n, err := db.Users.Where(ant.Eq(&U.Email, ned.Email)).Count(ctx)
@@ -835,13 +945,13 @@ func TestConcurrentUse(t *testing.T) {
 					require.Equal(
 						t,
 						ant.Unchanged,
-						ant.Entry(o.session, o.bob).State(),
+						heldEntry(t, h, o.session, o.bob).State(),
 						"not while the load holds the session's tracker",
 					)
 				},
 			)
 
-			require.Equal(t, ant.Modified, ant.Entry(o.session, o.bob).State())
+			require.Equal(t, ant.Modified, fixture.Entry(t, o.session, o.bob).State())
 		})
 
 		t.Run("a transaction from UseTx reverses the tracker", func(t *testing.T) {
@@ -856,14 +966,21 @@ func TestConcurrentUse(t *testing.T) {
 			eve := &User{Name: "Eve", Email: "eve.tx@example.com"}
 
 			err = tx.Tx(ctx, func(inner *AppDB) error {
-				require.NoError(t, ant.Add(inner, eve))
+				require.NoError(t, ant.Add(ctx, inner, eve))
 				require.NoError(t, inner.SaveChanges(ctx))
 
 				return errors.New("roll back to the savepoint")
 			})
 			require.ErrorContains(t, err, "savepoint")
-			require.Equal(t, ant.Added, ant.Entry(db, eve).State(), "the insert is pending again")
-			ant.Detach(db, eve)
+
+			require.Equal(
+				t,
+				ant.Added,
+				fixture.Entry(t, db, eve).State(),
+				"the insert is pending again",
+			)
+
+			require.NoError(t, ant.Detach(ctx, db, eve))
 		})
 
 		t.Run("a context that a finished operation gave out claims nothing", func(t *testing.T) {
@@ -1020,7 +1137,7 @@ func TestConcurrentUseWithTrackingOff(t *testing.T) {
 			require.NoError(t, err)
 		})
 
-		require.NoError(t, ant.Attach(db, alice))
+		require.NoError(t, ant.Attach(ctx, db, alice))
 
 		ops := []struct {
 			name string

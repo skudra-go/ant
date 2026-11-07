@@ -32,7 +32,57 @@ type node struct {
 
 	generated []*meta.Field // filled by the database in this unit
 	stamped   []*meta.Field // filled in Go in this unit
-	restore   []func()      // undoes Go-side changes if the unit fails
+	restore   []prior       // values the unit replaced, put back if it fails
+}
+
+// prior is a value a unit replaced in an entity, such as the version it moved on.
+type prior struct {
+	field *meta.Field
+	value reflect.Value
+}
+
+// copyOf returns a copy of f's value in entity.
+func copyOf(f *meta.Field, entity unsafe.Pointer) reflect.Value {
+	v := reflect.New(f.Type).Elem()
+	v.Set(f.Value(entity))
+
+	return v
+}
+
+// undoing returns how a rollback takes back what the unit wrote into n's entity
+// once its row is gone: the values the database filled, such as a generated key,
+// and those the unit filled, such as timestamps and the version. It is given
+// the address the entity has by then, and a value changed since stays. A key
+// given back to the database lets the next save insert the entity again. With
+// no transaction whose rollback ant would see, there is nothing to take back.
+func (u *unit) undoing(n *node) func(entity unsafe.Pointer) {
+	if u.s.tx == nil || !u.s.tx.sees() {
+		return nil
+	}
+
+	filled := slices.Clone(n.restore)
+
+	for _, f := range slices.Concat(n.generated, n.stamped) {
+		filled = append(filled, prior{f, reflect.Zero(f.Type)})
+	}
+
+	if len(filled) == 0 {
+		return nil
+	}
+
+	left := make([]any, len(filled))
+
+	for i, p := range filled {
+		left[i] = copyOf(p.field, n.entity).Interface()
+	}
+
+	return func(entity unsafe.Pointer) {
+		for i, p := range filled {
+			if v := p.field.Value(entity); reflect.DeepEqual(v.Interface(), left[i]) {
+				v.Set(p.value)
+			}
+		}
+	}
 }
 
 // fkLink fills a foreign key from a parent just before a node is written.
@@ -49,6 +99,8 @@ type unit struct {
 	nodes  map[unsafe.Pointer]*node
 	order  []*node // in discovery order
 	pivots []pivotChange
+	// dry plans the unit without changing any entity, for HasChanges.
+	dry bool
 }
 
 // pivotChange adds or removes one join table row.
@@ -319,12 +371,24 @@ func (u *unit) walk(n *node) error {
 		if n.entry != nil && r.Kind == meta.One {
 			if _, loaded := n.entry.Parents[r]; loaded && link.BelongsTo && r.Empty(n.entity) &&
 				nullable(link.Local) {
-				link.Local.Value(n.entity).SetZero()
+				u.unlink(n, link.Local)
 			}
 		}
 	}
 
 	return nil
+}
+
+// unlink clears the foreign key of a relation the application emptied. A dry
+// unit notes the change instead.
+func (u *unit) unlink(n *node, f *meta.Field) {
+	switch v := f.Value(n.entity); {
+	case v.IsZero():
+	case u.dry:
+		n.changed = append(n.changed, f)
+	default:
+		v.SetZero()
+	}
 }
 
 func (u *unit) tracksRelation(n *node, r *meta.Relation) bool {
@@ -376,10 +440,10 @@ func (u *unit) follow(n *node, r *meta.Relation, link meta.Link, entity unsafe.P
 		})
 	case link.BelongsTo:
 		n.links = append(n.links, fkLink{other, link.Local, link.Foreign})
-		n.setMorph(r)
+		u.morph(n, r)
 	default:
 		other.links = append(other.links, fkLink{n, link.Foreign, link.Local})
-		other.setMorph(r)
+		u.morph(other, r)
 	}
 
 	if seen {
@@ -387,6 +451,14 @@ func (u *unit) follow(n *node, r *meta.Relation, link meta.Link, entity unsafe.P
 	}
 
 	return u.walk(other)
+}
+
+// morph records which table n's polymorphic foreign key refers to, unless the
+// unit is dry; the link it goes with counts as a write either way.
+func (u *unit) morph(n *node, r *meta.Relation) {
+	if !u.dry {
+		n.setMorph(r)
+	}
 }
 
 // setMorph records which table a polymorphic foreign key refers to.
@@ -624,6 +696,32 @@ func (u *unit) writes() int {
 	return count
 }
 
+// writesAnything reports whether running the unit would write a row, which
+// HasChanges asks. writes counts each node with a foreign key to set, which
+// suits choosing a transaction; here a key that already holds its parent's does
+// not count, since assignForeignKeys leaves it and nothing is written.
+func (u *unit) writesAnything() bool {
+	if len(u.pivots) > 0 {
+		return true
+	}
+
+	for _, n := range u.order {
+		if n.insert || n.remove || n.forced || n.changed != nil ||
+			n.entry != nil && n.entity == n.entry.Entity && len(n.entry.Changed()) > 0 {
+			return true
+		}
+
+		for _, l := range n.links {
+			key, ok := l.source.Key(l.parent.entity)
+			if current, set := l.field.Key(n.entity); ok && (!set || current != key) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 // run writes the unit in one transaction and updates the tracker.
 func (u *unit) run(ctx context.Context) error {
 	order, err := u.sorted()
@@ -703,8 +801,8 @@ func (u *unit) run(ctx context.Context) error {
 
 			n.generated, n.stamped = nil, nil
 
-			for _, f := range n.restore {
-				f()
+			for _, p := range n.restore {
+				p.field.Value(n.entity).Set(p.value)
 			}
 
 			n.restore = nil
@@ -1205,13 +1303,8 @@ func (u *unit) update(ctx context.Context, to exec.Executor, n *node) error {
 
 	if updated := n.model.Updated; updated != nil && !slices.Contains(n.changed, updated) {
 		if entity := n.entity; n.entry != nil && entity == n.entry.Entity {
-			before := updated.Value(entity).Interface()
+			n.restore = append(n.restore, prior{updated, copyOf(updated, entity)})
 			setTime(updated, entity, u.s.settings.timestamp())
-
-			n.restore = append(
-				n.restore,
-				func() { updated.Value(entity).Set(reflect.ValueOf(before)) },
-			)
 
 			n.changed = append(n.changed, updated)
 		}
@@ -1262,11 +1355,10 @@ func (u *unit) bumpVersion(n *node) {
 		return
 	}
 
-	value := v.Value(n.entity)
-	before := value.Int()
-	value.SetInt(before + 1)
+	n.restore = append(n.restore, prior{v, copyOf(v, n.entity)})
 
-	n.restore = append(n.restore, func() { value.SetInt(before) })
+	value := v.Value(n.entity)
+	value.SetInt(value.Int() + 1)
 
 	if !slices.Contains(n.changed, v) {
 		n.changed = append(n.changed, v)
@@ -1341,13 +1433,13 @@ func (u *unit) commit() {
 		switch {
 		case n.remove || entry != nil && n.entity != entry.Entity:
 		case entry != nil && wrote:
-			undo = append(undo, tracker.Saved(entry, track.Unchanged))
+			undo = append(undo, tracker.Saved(entry, track.Unchanged, u.undoing(n)))
 
 			if n.insert {
 				tracker.Rekey(entry)
 			}
 		case entry == nil && wrote && u.s.settings.tracking && len(n.model.Keys) > 0:
-			undo = append(undo, tracker.Added(n.model, n.entity))
+			undo = append(undo, tracker.Added(n.model, n.entity, u.undoing(n)))
 		}
 	}
 

@@ -25,7 +25,7 @@ func (a *AuditTrail) SavingChanges(ctx context.Context, changes []ant.Change) er
 db, err := ant.Open[AppDB](ctx, postgres.Dialect, dsn, ant.WithInterceptor(&AuditTrail{log}))
 ```
 
-To record old values too, read them with `ant.Original(ant.Entry(db, user), &U.Age)`.
+To record old values too, take the entry with `entry, err := ant.Entry(ctx, db, user)` and read them with `ant.Original(entry, &U.Age)`.
 
 ## An audit row in the same transaction
 

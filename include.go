@@ -593,6 +593,19 @@ func (t *Table[T]) LoadMissing[R any](ctx context.Context, rel *[]R, entities ..
 		return err
 	}
 
+	if _, err := t.model(); err != nil {
+		return err
+	}
+
+	// The relations are read under the claim, so another operation cannot be
+	// loading them meanwhile.
+	ctx, release, err := t.state.claim(ctx, t.state.touchesTracker())
+	if err != nil {
+		return err
+	}
+
+	defer release()
+
 	var missing []*T
 
 	for _, e := range entities {

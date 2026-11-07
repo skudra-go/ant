@@ -136,7 +136,7 @@ func TestSoftDelete(t *testing.T) {
 			session := ant.Session(db)
 			note, err := session.Notes.Where(ant.Eq(&N.Text, "gone")).Single(ctx)
 			require.NoError(t, err)
-			require.NoError(t, ant.Remove(session, note))
+			require.NoError(t, ant.Remove(ctx, session, note))
 			require.NoError(t, session.SaveChanges(ctx))
 			require.Equal(t, 2, rawCount())
 		})

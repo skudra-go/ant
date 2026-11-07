@@ -563,22 +563,22 @@ func (s spec[V]) tracked(t *testing.T, db *prDB[V]) {
 		e := &prRow[V]{V: s.vals[0]}
 		require.NoError(t, db.Rows.Insert(ctx, e))
 
-		if db.HasChanges() {
-			t.Errorf("HasChanges after Insert of %#v: %s", s.vals[0], db.DebugTracked())
+		if fixture.HasChanges(t, db) {
+			t.Errorf("HasChanges after Insert of %#v: %s", s.vals[0], fixture.DebugTracked(t, db))
 		}
 
 		for i := 1; i <= n; i++ {
 			v := s.vals[i%n]
 			e.V = v
 
-			if n > 1 && !db.HasChanges() {
+			if n > 1 && !fixture.HasChanges(t, db) {
 				t.Errorf("HasChanges is false after changing the field to %#v", v)
 			}
 
 			require.NoError(t, db.SaveChanges(ctx), "SaveChanges %#v", v)
 
-			if db.HasChanges() {
-				t.Errorf("HasChanges after SaveChanges of %#v: %s", v, db.DebugTracked())
+			if fixture.HasChanges(t, db) {
+				t.Errorf("HasChanges after SaveChanges of %#v: %s", v, fixture.DebugTracked(t, db))
 			}
 
 			got, err := db.Rows.NoTracking().Find(ctx, e.ID)
@@ -597,13 +597,12 @@ func (s spec[V]) tracked(t *testing.T, db *prDB[V]) {
 			require.NoError(t, db.Rows.Insert(ctx, &prRow[V]{V: v}))
 		}
 
-		db.ClearTracked()
-
+		require.NoError(t, db.ClearTracked(ctx))
 		rows, err := db.Rows.OrderBy(&f.ID).All(ctx)
 		require.NoError(t, err)
 
 		for _, r := range rows {
-			if !db.HasChanges() {
+			if !fixture.HasChanges(t, db) {
 				continue
 			}
 
@@ -611,7 +610,7 @@ func (s spec[V]) tracked(t *testing.T, db *prDB[V]) {
 				"HasChanges right after loading (row %d = %#v): %s",
 				r.ID,
 				r.V,
-				db.DebugTracked(),
+				fixture.DebugTracked(t, db),
 			)
 
 			break
@@ -2417,15 +2416,15 @@ func TestProbeEmbeddedPrefixes(t *testing.T) {
 		require.NotNil(t, got.Shipping.Zip)
 
 		// Change tracking sees a change in one nested field only.
-		db.ClearTracked()
+		require.NoError(t, db.ClearTracked(ctx))
 		tracked, err := db.Customers.Find(ctx, b.ID)
 		require.NoError(t, err)
-		require.False(t, db.HasChanges())
+		require.False(t, fixture.HasChanges(t, db))
 
 		tracked.Shipping.Tags = append(tracked.Shipping.Tags, "added")
 		tracked.Billing.Zip = &zip
 
-		require.True(t, db.HasChanges())
+		require.True(t, fixture.HasChanges(t, db))
 		require.NoError(t, db.SaveChanges(ctx))
 
 		got, err = db.Customers.NoTracking().Find(ctx, b.ID)
@@ -2965,8 +2964,8 @@ func TestProbeTimestamps(t *testing.T) {
 			t.Errorf("SaveChanges did not advance UpdatedAt: %v -> %v", before, tracked.UpdatedAt)
 		}
 
-		if db.HasChanges() {
-			t.Errorf("HasChanges after SaveChanges: %s", db.DebugTracked())
+		if fixture.HasChanges(t, db) {
+			t.Errorf("HasChanges after SaveChanges: %s", fixture.DebugTracked(t, db))
 		}
 
 		// Upsert with explicit timestamps overwrites them (UpdatedAt) as written.
@@ -3313,16 +3312,16 @@ func (s spec[V]) pointersTracked(t *testing.T, db *prDB[V]) {
 
 		e := &prNRow[V]{}
 		require.NoError(t, db.NRows.Insert(ctx, e))
-		require.False(t, db.HasChanges())
+		require.False(t, fixture.HasChanges(t, db))
 
 		for i := range s.vals {
 			v := s.vals[i]
 			e.P = &v
-			require.True(t, db.HasChanges(), "nil -> &%#v not seen as a change", v)
+			require.True(t, fixture.HasChanges(t, db), "nil -> &%#v not seen as a change", v)
 			require.NoError(t, db.SaveChanges(ctx), "SaveChanges &%#v", v)
 
-			if db.HasChanges() {
-				t.Errorf("HasChanges after saving &%#v: %s", v, db.DebugTracked())
+			if fixture.HasChanges(t, db) {
+				t.Errorf("HasChanges after saving &%#v: %s", v, fixture.DebugTracked(t, db))
 			}
 
 			if p := read(t, e.ID); p == nil && !s.null(v) {
@@ -3333,7 +3332,13 @@ func (s spec[V]) pointersTracked(t *testing.T, db *prDB[V]) {
 
 			e.P = nil
 
-			require.True(t, db.HasChanges() || s.null(v), "&%#v -> nil not seen as a change", v)
+			require.True(
+				t,
+				fixture.HasChanges(t, db) || s.null(v),
+				"&%#v -> nil not seen as a change",
+				v,
+			)
+
 			require.NoError(t, db.SaveChanges(ctx))
 
 			if p := read(t, e.ID); p != nil {
@@ -3350,7 +3355,7 @@ func (s spec[V]) pointersTracked(t *testing.T, db *prDB[V]) {
 
 			*e.P = b
 
-			if !s.equal(a, b) && !db.HasChanges() {
+			if !s.equal(a, b) && !fixture.HasChanges(t, db) {
 				t.Errorf("in-place change of the pointee %#v -> %#v not seen", a, b)
 			}
 
@@ -3453,7 +3458,7 @@ func TestProbeValuerScannerErrors(t *testing.T) {
 
 			require.Error(t, db.SaveChanges(ctx))
 
-			if !db.HasChanges() {
+			if !fixture.HasChanges(t, db) {
 				t.Errorf("a failed SaveChanges left the entity looking clean")
 			}
 
@@ -3754,11 +3759,16 @@ func TestProbeTrackingMutations(t *testing.T) {
 
 			seed := prTrackSeed()
 			require.NoError(t, db.Rows.Insert(ctx, seed))
-			db.ClearTracked()
-
+			require.NoError(t, db.ClearTracked(ctx))
 			e, err := db.Rows.Find(ctx, seed.ID)
 			require.NoError(t, err)
-			require.False(t, db.HasChanges(), "fresh load: %s", db.DebugTracked())
+
+			require.False(
+				t,
+				fixture.HasChanges(t, db),
+				"fresh load: %s",
+				fixture.DebugTracked(t, db),
+			)
 
 			return e
 		}
@@ -3770,7 +3780,7 @@ func TestProbeTrackingMutations(t *testing.T) {
 				e := load(t)
 				mutate(e)
 
-				if !db.HasChanges() {
+				if !fixture.HasChanges(t, db) {
 					t.Fatalf("change not detected")
 				}
 
@@ -3778,8 +3788,8 @@ func TestProbeTrackingMutations(t *testing.T) {
 					t.Fatalf("SaveChanges: %v", err)
 				}
 
-				if db.HasChanges() {
-					t.Errorf("still dirty after SaveChanges: %s", db.DebugTracked())
+				if fixture.HasChanges(t, db) {
+					t.Errorf("still dirty after SaveChanges: %s", fixture.DebugTracked(t, db))
 				}
 
 				got, err := db.Rows.NoTracking().Find(ctx, e.ID)
@@ -3818,8 +3828,8 @@ func TestProbeTrackingMutations(t *testing.T) {
 				e := load(t)
 				mutate(e)
 
-				if db.HasChanges() {
-					t.Errorf("an equal value counts as a change: %s", db.DebugTracked())
+				if fixture.HasChanges(t, db) {
+					t.Errorf("an equal value counts as a change: %s", fixture.DebugTracked(t, db))
 				}
 			})
 		}
@@ -3903,7 +3913,7 @@ func TestProbeOddKeys(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, "b", fresh.Name)
 
-			db.ClearTracked()
+			require.NoError(t, db.ClearTracked(ctx))
 			loaded, err := db.TimeKeys.Find(ctx, at)
 			require.NoError(t, err)
 
@@ -3948,7 +3958,7 @@ func TestProbeOddKeys(t *testing.T) {
 			at := time.Now()
 			r := &prReading{DeviceID: 7, At: at, Value: 1.5}
 			require.NoError(t, db.Readings.Insert(ctx, r))
-			require.False(t, db.HasChanges())
+			require.False(t, fixture.HasChanges(t, db))
 
 			all, err := db.Readings.All(ctx)
 			require.NoError(t, err)
@@ -3996,7 +4006,7 @@ func TestProbeOddKeys(t *testing.T) {
 			)
 
 			// Delete by the tracked entity.
-			require.NoError(t, ant.Remove(db, r))
+			require.NoError(t, ant.Remove(ctx, db, r))
 			require.NoError(t, db.SaveChanges(ctx))
 
 			n, err = db.Readings.Count(ctx)

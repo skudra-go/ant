@@ -73,6 +73,10 @@ type Syntax struct {
 	HintInSelect bool
 	// MergeSemicolon ends MERGE with the semicolon the database demands.
 	MergeSemicolon bool
+	// MergeHoldLock locks the key ranges a MERGE reads until it ends, for a
+	// database whose MERGE otherwise lets two at once both find no row and
+	// both insert it.
+	MergeHoldLock bool
 	// TransactSavepoints uses SAVE TRANSACTION, which has no release.
 	TransactSavepoints bool
 

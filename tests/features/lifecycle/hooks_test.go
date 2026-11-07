@@ -161,7 +161,7 @@ func TestHooks(t *testing.T) {
 			session := ant.Session(db)
 			m := &Member{Name: "protected", Email: "p"}
 			require.NoError(t, session.Members.Insert(ctx, m))
-			require.NoError(t, ant.Remove(session, m))
+			require.NoError(t, ant.Remove(ctx, session, m))
 			require.ErrorContains(t, session.SaveChanges(ctx), "cannot delete")
 
 			m.Name = "open"
@@ -212,7 +212,7 @@ func TestObservers(t *testing.T) {
 			require.NoError(t, db.SaveChanges(ctx))
 			require.Equal(t, []string{"a"}, updated)
 
-			require.NoError(t, ant.Remove(db, m))
+			require.NoError(t, ant.Remove(ctx, db, m))
 			require.NoError(t, db.SaveChanges(ctx))
 			require.Equal(t, []string{"a"}, deleted)
 		})

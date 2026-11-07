@@ -168,23 +168,23 @@ API names are targets and may change until the v1.0 freeze. Features with no pub
 - [x] Opt out per query: `q.NoTracking()`
 - [x] Default tracking setting: `ant.WithTracking(false)`
 - [x] No-tracking with identity resolution: `q.NoTrackingResolved()`
-- [x] Attach an existing entity: `ant.Attach(db, user)`
-- [x] Detach an entity: `ant.Detach(db, user)`
-- [x] Mark for update: `ant.MarkModified(db, user)`
-- [x] Mark for delete: `ant.Remove(db, user)`
-- [x] Clear the tracker: `db.ClearTracked()`
-- [x] Query state: `ant.Entry(db, user).State()`
-- [x] Inspect dirty fields: `ant.Entry(db, user).Changed()`, `ant.IsDirty(entry, &U.Age)`
+- [x] Attach an existing entity: `ant.Attach(ctx, db, user)`
+- [x] Detach an entity: `ant.Detach(ctx, db, user)`
+- [x] Mark for update: `ant.MarkModified(ctx, db, user)`
+- [x] Mark for delete: `ant.Remove(ctx, db, user)`
+- [x] Clear the tracker: `db.ClearTracked(ctx)`
+- [x] Query state: `entry, err := ant.Entry(ctx, db, user)`, then `entry.State()`
+- [x] Inspect dirty fields: `entry.Changed()`, `ant.IsDirty(entry, &U.Age)`
 - [x] Original values: `ant.Original(entry, &U.Age)`
-- [x] Has pending changes: `db.HasChanges()`
-- [x] List tracked entities: `ant.Tracked[User](db)`
+- [x] Has pending changes: `db.HasChanges(ctx)`
+- [x] List tracked entities: `ant.Tracked[User](ctx, db)`
 - [x] Change detection runs at `SaveChanges`, so no manual call is needed
 - [x] Custom value comparers for slices and maps: `b.Comparer`
 - [ ] Relationship fixup across loaded entities
   - Skipped: It conflicts with [the rule](03-vision.md) that a field that was not loaded stays empty, which is what makes a nil slice mean "not loaded". With fixup, a field would fill in or not depending on what else ran earlier, which makes bugs that come and go. Elements of a `[]T` relation are values, so ant could not share one entity between two parents anyway. Use `Include`, which says what you want.
 - [x] Change relations through navigations or foreign keys
 - [x] Temporary keys are not needed: Go zero keys mark new entities, and parents are inserted first
-- [x] Tracker debug output: `db.DebugTracked()`
+- [x] Tracker debug output: `db.DebugTracked(ctx)`
 
 ### Writing
 
@@ -193,7 +193,7 @@ API names are targets and may change until the v1.0 freeze. Features with no pub
 - [x] Remove related entities through a tracked navigation
 - [x] Cascade delete of tracked entities
 - [x] Set-null on orphaned tracked entities
-- [x] Saving disconnected graphs: `ant.TrackGraph(db, root, fn)`
+- [x] Saving disconnected graphs: `ant.TrackGraph(ctx, db, root, fn)`
 - [x] Skip association saves: `db.Users.InsertOnly(ctx, u)`
 - [x] Batched `SaveChanges` statements
   - Inserts only, up to 200 rows a statement. A model with insert hooks, a `.Touch()` relation, or a `WithoutAutoTx` save is written one row at a time, because each of those needs a result per row. Updates stay one statement each, since a shared statement could only apply one set of columns.

@@ -151,7 +151,7 @@ func TestValueObjectKeys(t *testing.T) {
 		order := &Order{Total: 5}
 		require.NoError(t, db.Orders.Insert(ctx, order))
 		require.NotZero(t, order.ID)
-		db.ClearTracked()
+		require.NoError(t, db.ClearTracked(ctx))
 		loaded, err := db.Orders.Find(ctx, order.ID)
 		require.NoError(t, err)
 		require.Equal(t, 5, loaded.Total)

@@ -2,7 +2,9 @@ package track
 
 import (
 	"fmt"
+	"maps"
 	"reflect"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -449,7 +451,7 @@ func TestRemovalOutlivesRollback(t *testing.T) {
 		tr := New()
 		r := &row{ID: 1}
 		e := tr.Track(m, unsafe.Pointer(r), Added)
-		undo := tr.Saved(e, Unchanged)
+		undo := tr.Saved(e, Unchanged, nil)
 		tr.Track(m, unsafe.Pointer(r), Deleted)
 		undo.Undo()
 
@@ -462,7 +464,7 @@ func TestRemovalOutlivesRollback(t *testing.T) {
 		tr := New()
 		r := &row{ID: 2}
 		e := tr.Track(m, unsafe.Pointer(r), Modified)
-		undo := tr.Saved(e, Unchanged)
+		undo := tr.Saved(e, Unchanged, nil)
 		tr.Track(m, unsafe.Pointer(r), Deleted)
 		undo.Undo()
 
@@ -475,7 +477,7 @@ func TestRemovalOutlivesRollback(t *testing.T) {
 		tr := New()
 		r := &row{ID: 3}
 		e := tr.Track(m, unsafe.Pointer(r), Added)
-		undo := tr.Saved(e, Unchanged)
+		undo := tr.Saved(e, Unchanged, nil)
 		undo.Undo()
 
 		if e.State != Added {
@@ -746,7 +748,8 @@ func TestOverlappingRollbacks(t *testing.T) {
 	})
 }
 
-// Writes that commit are let go, so an entry saved again and again holds none.
+// Writes that commit are let go, so an entry saved again and again holds none,
+// and an open write under them holds only that a kept one came after it.
 func TestKeptWritesAreLetGo(t *testing.T) {
 	e := New().Track(meta.OfType(reflect.TypeFor[row]()), unsafe.Pointer(&row{ID: 1}), Unchanged)
 
@@ -757,19 +760,409 @@ func TestKeptWritesAreLetGo(t *testing.T) {
 		e.SetLinks(nil, nil).Keep()
 	}
 
-	if len(e.columns.writes) != 2 || len(e.links.writes) != 0 {
+	if len(e.columns.writes) != 1 || len(e.links.writes) != 0 {
 		t.Errorf(
-			"held %d and %d writes, want the open one and the newest kept one",
+			"held %d and %d writes, want only the open one",
 			len(e.columns.writes),
 			len(e.links.writes),
 		)
 	}
 
+	if !e.columns.writes[0].overtaken {
+		t.Error("the open write forgot that a kept write came after it")
+	}
+
 	open.Keep()
 
-	if len(e.columns.writes) != 0 {
+	if e.columns.writes != nil {
 		t.Errorf("held %d writes once all were kept", len(e.columns.writes))
 	}
+}
+
+// When every write has rolled back, the history lets go of its array, whose
+// slots would otherwise keep each write's snapshot alive.
+func TestSettledHistoryHoldsNothing(t *testing.T) {
+	e := New().Track(meta.OfType(reflect.TypeFor[row]()), unsafe.Pointer(&row{ID: 1}), Unchanged)
+
+	var changes []Change
+
+	for range 8 {
+		changes = append(changes, e.Saved(Unchanged))
+	}
+
+	array := e.columns.writes[:cap(e.columns.writes)]
+
+	for _, c := range changes[4:] {
+		c.Undo()
+	}
+
+	for i, w := range array[4:] {
+		if w != nil {
+			t.Fatalf("slot %d still holds a write that rolled back", 4+i)
+		}
+	}
+
+	for _, c := range changes[:4] {
+		c.Undo()
+	}
+
+	if e.columns.writes != nil {
+		t.Error("an empty history kept its array")
+	}
+}
+
+// outcome is how one write's transaction ends.
+type outcome bool
+
+const (
+	commits    outcome = true
+	rollsBack  outcome = false
+	maxHistory         = 4
+)
+
+// orders returns every order of 0..n-1.
+func orders(n int) [][]int {
+	if n == 0 {
+		return [][]int{{}}
+	}
+
+	var out [][]int
+
+	for _, rest := range orders(n - 1) {
+		for i := 0; i <= len(rest); i++ {
+			order := slices.Insert(slices.Clone(rest), i, n-1)
+			out = append(out, order)
+		}
+	}
+
+	return out
+}
+
+// outcomes returns every way n writes can end.
+func outcomes(n int) [][]outcome {
+	out := [][]outcome{{}}
+
+	for range n {
+		var next [][]outcome
+
+		for _, o := range out {
+			next = append(
+				next,
+				append(slices.Clone(o), commits),
+				append(slices.Clone(o), rollsBack),
+			)
+		}
+
+		out = next
+	}
+
+	return out
+}
+
+// settleIn ends each write's change, in the order given.
+func settleIn(changes []Change, ends []outcome, order []int) {
+	for _, i := range order {
+		if ends[i] == commits {
+			changes[i].Keep()
+		} else {
+			changes[i].Undo()
+		}
+	}
+}
+
+// Writes that overlap, each in a transaction of its own, may end in any order.
+// Whatever the order, an entry ends as a single transaction would leave it:
+// as the newest write that committed left it, or as it was before them all if
+// none did, and Modified if a write under the newest kept one rolled back, so
+// the next save writes every column.
+func TestColumnsSettleInAnyOrder(t *testing.T) {
+	m := meta.OfType(reflect.TypeFor[row]())
+
+	for n := 1; n <= maxHistory; n++ {
+		for _, ends := range outcomes(n) {
+			for _, order := range orders(n) {
+				r := &row{ID: 1, Name: "before"}
+				e := New().Track(m, unsafe.Pointer(r), Unchanged)
+
+				changes := make([]Change, n)
+
+				for i := range changes {
+					r.Name = fmt.Sprint("write ", i)
+					changes[i] = e.Saved(Unchanged)
+				}
+
+				settleIn(changes, ends, order)
+
+				newest, under := -1, false
+
+				for i, end := range ends {
+					if end == commits {
+						newest = i
+					}
+				}
+
+				for _, end := range ends[:max(newest, 0)] {
+					under = under || end == rollsBack
+				}
+
+				want, state := "before", Unchanged
+
+				if newest >= 0 {
+					want = fmt.Sprint("write ", newest)
+				}
+
+				if under {
+					state = Modified
+				}
+
+				if got := (*row)(e.Original()).Name; got != want || e.State != state {
+					t.Errorf(
+						"ends %v in order %v: snapshot %q and %s, want %q and %s",
+						ends,
+						order,
+						got,
+						e.State,
+						want,
+						state,
+					)
+				}
+
+				if e.columns.writes != nil {
+					t.Errorf(
+						"ends %v in order %v: %d writes held",
+						ends,
+						order,
+						len(e.columns.writes),
+					)
+				}
+			}
+		}
+	}
+}
+
+// The same holds for the members of loaded relations: each member ends as the
+// newest write that committed and changed it left it, or as it was before them
+// all. With A={1}, B={1,2}, and C={1,2,3}, where only B commits, the members are
+// {2}: 1 went in with A and 3 with C, which rolled back.
+func TestLinksSettleInAnyOrder(t *testing.T) {
+	m := meta.Of[row]()
+
+	var r meta.Relation
+
+	entries := map[int]*Entry{}
+
+	for k := range 6 {
+		entries[k] = &Entry{}
+	}
+
+	// Each write sets the members in sets[i+1] and the parent i+1, over what
+	// the one before it set.
+	sets := [][]int{{0}, {0, 1}, {1, 2}, {1, 2, 3}, {3, 4}}
+
+	members := func(keys []int) map[any]*Entry {
+		out := map[any]*Entry{}
+
+		for _, k := range keys {
+			out[k] = entries[k]
+		}
+
+		return out
+	}
+
+	for n := 1; n <= maxHistory; n++ {
+		for _, ends := range outcomes(n) {
+			for _, order := range orders(n) {
+				e := New().Track(m, unsafe.Pointer(fresh()), Unchanged)
+				e.Members = map[*meta.Relation]map[any]*Entry{&r: members(sets[0])}
+				e.Parents = map[*meta.Relation]any{&r: 0}
+
+				changes := make([]Change, n)
+
+				for i := range changes {
+					changes[i] = e.SetLinks(
+						map[*meta.Relation]map[any]*Entry{&r: members(sets[i+1])},
+						map[*meta.Relation]any{&r: i + 1},
+					)
+				}
+
+				settleIn(changes, ends, order)
+
+				want, parent := map[any]*Entry{}, any(0)
+
+				for k := range 6 {
+					in := slices.Contains(sets[0], k)
+
+					for i, end := range ends {
+						if end == commits &&
+							slices.Contains(sets[i], k) != slices.Contains(sets[i+1], k) {
+							in = slices.Contains(sets[i+1], k)
+						}
+					}
+
+					if in {
+						want[k] = entries[k]
+					}
+				}
+
+				for i, end := range ends {
+					if end == commits {
+						parent = i + 1
+					}
+				}
+
+				if got := e.Members[&r]; !maps.Equal(got, want) || e.Parents[&r] != parent {
+					t.Errorf(
+						"ends %v in order %v: members %v and parent %v, want %v and %v",
+						ends,
+						order,
+						keysOf(got),
+						e.Parents[&r],
+						keysOf(want),
+						parent,
+					)
+				}
+
+				if e.links.writes != nil {
+					t.Errorf(
+						"ends %v in order %v: %d writes held",
+						ends,
+						order,
+						len(e.links.writes),
+					)
+				}
+			}
+		}
+	}
+}
+
+func keysOf(members map[any]*Entry) []int {
+	var out []int
+
+	for k := range members {
+		out = append(out, k.(int))
+	}
+
+	slices.Sort(out)
+
+	return out
+}
+
+// Deletions of one row by overlapping transactions may end in any order. The
+// row's entries come back if no deletion committed, in the state each was in,
+// and stay gone if one did; either way the tracker lets go of the record.
+func TestDeletionsSettleInAnyOrder(t *testing.T) {
+	m := meta.Of[row]()
+
+	for n := 1; n <= maxHistory; n++ {
+		for _, ends := range outcomes(n) {
+			for _, order := range orders(n) {
+				tr := New()
+				r := fresh()
+				e := tr.Track(m, unsafe.Pointer(r), Deleted) // a pending removal, saved
+
+				changes := make([]Change, n)
+
+				for i := range changes {
+					if i == 0 {
+						changes[i] = tr.Deleted(e)
+					} else {
+						changes[i] = tr.ForgetRow(m, int64(1)) // finds nothing to forget
+					}
+				}
+
+				settleIn(changes, ends, order)
+
+				committed := slices.Contains(ends, commits)
+
+				switch got := tr.Find(m, int64(1)); {
+				case committed && got != nil:
+					t.Errorf("ends %v in order %v: a deleted row is tracked", ends, order)
+				case !committed && got != e:
+					t.Errorf("ends %v in order %v: the row did not come back", ends, order)
+				case !committed && e.State != Deleted:
+					t.Errorf("ends %v in order %v: the removal is no longer pending", ends, order)
+				}
+
+				if len(tr.deletions) != 0 {
+					t.Errorf(
+						"ends %v in order %v: %d rows still recorded",
+						ends,
+						order,
+						len(tr.deletions),
+					)
+				}
+			}
+		}
+	}
+}
+
+// A rollback with nothing kept after it takes back what the save wrote into
+// the entity, at the address it has by then, and the key it was known by goes,
+// so the next save inserts it again. A value changed since stays, and a late
+// rollback leaves the values alone.
+func TestSavedRevertsTheEntity(t *testing.T) {
+	m := meta.Of[row]()
+
+	zeroID := func(entity unsafe.Pointer) {
+		if r := (*row)(entity); r.ID == 7 {
+			r.ID = 0
+		}
+	}
+
+	t.Run("in time", func(t *testing.T) {
+		tr := New()
+		r := &row{}
+		e := tr.Track(m, unsafe.Pointer(r), Added)
+		r.ID = 7 // the key the insert generated
+		undo := tr.Saved(e, Unchanged, zeroID)
+		tr.Rekey(e)
+
+		moved := *r
+		tr.Move(e, unsafe.Pointer(&moved))
+
+		undo.Undo()
+
+		switch {
+		case moved.ID != 0:
+			t.Errorf("key %d left where the entity lives", moved.ID)
+		case e.State != Added:
+			t.Errorf("state %s", e.State)
+		case tr.Find(m, int64(7)) != nil:
+			t.Error("the entry is still known by the key the rollback took back")
+		}
+	})
+
+	t.Run("late", func(t *testing.T) {
+		tr := New()
+		r := &row{}
+		e := tr.Track(m, unsafe.Pointer(r), Added)
+		r.ID = 7
+		undo := tr.Saved(e, Unchanged, zeroID)
+		tr.Rekey(e)
+		tr.Saved(e, Unchanged, zeroID).Keep()
+
+		undo.Undo()
+
+		if r.ID != 7 || tr.Find(m, int64(7)) != e {
+			t.Error("a late rollback took back the values a kept write stands on")
+		}
+	})
+
+	t.Run("an entity added by the write", func(t *testing.T) {
+		tr := New()
+		r := &row{ID: 7}
+		undo := tr.Added(m, unsafe.Pointer(r), zeroID)
+		e := tr.Get(unsafe.Pointer(r))
+
+		moved := *r
+		tr.Move(e, unsafe.Pointer(&moved))
+
+		undo.Undo()
+
+		if tr.Get(unsafe.Pointer(&moved)) != nil || moved.ID != 0 {
+			t.Error("the rollback did not follow the entity its slice moved")
+		}
+	})
 }
 
 // A deletion's count goes once no change that needs it is open, whether the
@@ -813,7 +1206,7 @@ func TestAddedPanicInOnTrackLeavesTheTrackerUnlocked(t *testing.T) {
 	func() {
 		defer func() { _ = recover() }()
 
-		tr.Added(m, unsafe.Pointer(fresh()))
+		tr.Added(m, unsafe.Pointer(fresh()), nil)
 	}()
 
 	done := make(chan struct{})

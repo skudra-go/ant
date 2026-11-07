@@ -21,13 +21,13 @@ func TestStates(t *testing.T) {
 		t.Run("Add inserts", func(t *testing.T) {
 			session := ant.Session(db)
 			user := newUser("added")
-			require.NoError(t, ant.Add(session, user))
-			require.Equal(t, ant.Added, ant.Entry(session, user).State())
-			require.True(t, session.HasChanges())
+			require.NoError(t, ant.Add(ctx, session, user))
+			require.Equal(t, ant.Added, fixture.Entry(t, session, user).State())
+			require.True(t, fixture.HasChanges(t, session))
 
 			require.NoError(t, session.SaveChanges(ctx))
 			require.NotZero(t, user.ID)
-			require.Equal(t, ant.Unchanged, ant.Entry(session, user).State())
+			require.Equal(t, ant.Unchanged, fixture.Entry(t, session, user).State())
 
 			found, err := session.Users.Find(ctx, user.ID)
 			require.NoError(t, err)
@@ -48,13 +48,13 @@ func TestStates(t *testing.T) {
 			session := ant.Session(db)
 			user := newUser("removed")
 			require.NoError(t, session.Users.Insert(ctx, user))
-			require.NoError(t, ant.Remove(session, user))
-			require.Equal(t, ant.Deleted, ant.Entry(session, user).State())
+			require.NoError(t, ant.Remove(ctx, session, user))
+			require.Equal(t, ant.Deleted, fixture.Entry(t, session, user).State())
 
 			require.NoError(t, session.SaveChanges(ctx))
 			_, err := db.Users.NoTracking().Find(ctx, user.ID)
 			require.ErrorIs(t, err, ant.ErrNotFound)
-			require.Equal(t, ant.Detached, ant.Entry(session, user).State())
+			require.Equal(t, ant.Detached, fixture.Entry(t, session, user).State())
 		})
 
 		t.Run("Attach tracks without writing", func(t *testing.T) {
@@ -69,8 +69,8 @@ func TestStates(t *testing.T) {
 				Email: user.Email,
 				Age:   20,
 			}
-			require.NoError(t, ant.Attach(session, disconnected))
-			require.False(t, session.HasChanges())
+			require.NoError(t, ant.Attach(ctx, session, disconnected))
+			require.False(t, fixture.HasChanges(t, session))
 
 			disconnected.Age = 22
 
@@ -85,7 +85,7 @@ func TestStates(t *testing.T) {
 			session := ant.Session(db)
 			disconnected := *user
 			disconnected.Name = "renamed"
-			require.NoError(t, ant.MarkModified(session, &disconnected))
+			require.NoError(t, ant.MarkModified(ctx, session, &disconnected))
 			require.NoError(t, session.SaveChanges(ctx))
 			require.Equal(t, "renamed", stored(t, db, user.ID).Name)
 		})
@@ -95,8 +95,8 @@ func TestStates(t *testing.T) {
 			user := newUser("detached")
 			require.NoError(t, session.Users.Insert(ctx, user))
 			user.Age = 99
-			ant.Detach(session, user)
-			require.False(t, session.HasChanges())
+			require.NoError(t, ant.Detach(ctx, session, user))
+			require.False(t, fixture.HasChanges(t, session))
 			require.NoError(t, session.SaveChanges(ctx))
 			require.Equal(t, 20, stored(t, db, user.ID).Age)
 		})
@@ -107,18 +107,18 @@ func TestStates(t *testing.T) {
 			require.NoError(t, session.Users.Insert(ctx, user))
 			user.Age = 99
 
-			session.ClearTracked()
-			require.False(t, session.HasChanges())
-			require.Empty(t, ant.Tracked[User](session))
+			require.NoError(t, session.ClearTracked(ctx))
+			require.False(t, fixture.HasChanges(t, session))
+			require.Empty(t, fixture.Tracked[User](t, session))
 		})
 
 		t.Run("marking needs a key and an entity", func(t *testing.T) {
 			type keyless struct{ Name string }
 
 			session := ant.Session(db)
-			require.ErrorIs(t, ant.Add(session, &keyless{}), ant.ErrNoKey)
-			require.ErrorIs(t, ant.Remove[User](session, nil), ant.ErrNilEntity)
-			require.ErrorIs(t, ant.Add(&AppDB{}, newUser("x")), ant.ErrNotOpen)
+			require.ErrorIs(t, ant.Add(ctx, session, &keyless{}), ant.ErrNoKey)
+			require.ErrorIs(t, ant.Remove[User](ctx, session, nil), ant.ErrNilEntity)
+			require.ErrorIs(t, ant.Add(ctx, &AppDB{}, newUser("x")), ant.ErrNotOpen)
 		})
 	})
 }
@@ -130,7 +130,7 @@ func TestEntry(t *testing.T) {
 
 		t.Run("after a change", func(t *testing.T) {
 			bob.Age = 18
-			entry := ant.Entry(db, bob)
+			entry := fixture.Entry(t, db, bob)
 			require.Equal(t, ant.Modified, entry.State())
 			require.Equal(t, []string{"Age"}, entry.Changed())
 			require.True(t, ant.IsDirty(entry, &U.Age))
@@ -142,16 +142,16 @@ func TestEntry(t *testing.T) {
 		})
 
 		t.Run("Tracked lists a model", func(t *testing.T) {
-			require.Len(t, ant.Tracked[User](db), 3)
+			require.Len(t, fixture.Tracked[User](t, db), 3)
 		})
 
 		t.Run("DebugTracked describes it", func(t *testing.T) {
-			require.Contains(t, db.DebugTracked(), "User")
-			require.Contains(t, db.DebugTracked(), "Modified Age")
+			require.Contains(t, fixture.DebugTracked(t, db), "User")
+			require.Contains(t, fixture.DebugTracked(t, db), "Modified Age")
 		})
 
 		t.Run("an untracked entity", func(t *testing.T) {
-			entry := ant.Entry(db, &User{})
+			entry := fixture.Entry(t, db, &User{})
 			require.Equal(t, ant.Detached, entry.State())
 			require.Empty(t, entry.Changed())
 			_, err := ant.Original(entry, &U.Age)
@@ -190,9 +190,9 @@ func TestConcurrency(t *testing.T) {
 
 		require.ErrorIs(t, db.SaveChanges(ctx), ant.ErrConcurrency)
 		require.Equal(t, 30, stored(t, db, alice.ID).Age, "the whole save rolled back")
-		require.True(t, db.HasChanges(), "the changes are still pending")
+		require.True(t, fixture.HasChanges(t, db), "the changes are still pending")
 
-		ant.Detach(db, bob)
+		require.NoError(t, ant.Detach(ctx, db, bob))
 		require.NoError(t, db.SaveChanges(ctx), "a retry can succeed")
 		require.Equal(t, 44, stored(t, db, alice.ID).Age)
 	})
@@ -204,8 +204,8 @@ func TestRetryAfterFailure(t *testing.T) {
 		ctx := t.Context()
 		session := ant.Session(db)
 		first, clash := newUser("first"), &User{Name: "clash", Email: "first@example.com"}
-		require.NoError(t, ant.Add(session, first))
-		require.NoError(t, ant.Add(session, clash))
+		require.NoError(t, ant.Add(ctx, session, first))
+		require.NoError(t, ant.Add(ctx, session, clash))
 
 		require.ErrorContains(t, session.SaveChanges(ctx), "duplicate key")
 		require.Zero(t, first.ID, "keys from the rolled back insert are cleared")

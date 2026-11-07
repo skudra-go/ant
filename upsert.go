@@ -285,7 +285,7 @@ func (t *Table[T]) Upsert(ctx context.Context, e *T, conflict *Conflict) (bool, 
 
 	if t.state.settings.tracking && model.Key() != nil {
 		entry := t.state.tracker.Track(model, unsafe.Pointer(e), track.Unchanged)
-		saved := t.state.tracker.Saved(entry, track.Unchanged)
+		saved := t.state.tracker.Saved(entry, track.Unchanged, nil)
 		t.state.tracker.Rekey(entry)
 		t.state.record(saved)
 	}
@@ -642,7 +642,10 @@ func (t *Table[T]) InsertFrom(ctx context.Context, rows *Projection[T]) (int64, 
 
 // FirstOrCreate returns the first row that meets conds, or inserts e and returns
 // it. If another writer inserts a matching row first and a unique constraint
-// stops this insert, it returns that row. The bool reports whether e was created.
+// stops this insert, it returns that row. In a transaction, on a database with
+// row locks, it reads that row with FOR SHARE, or FOR UPDATE on MariaDB, since
+// the transaction's snapshot may not show it. The bool reports whether e was
+// created.
 func (t *Table[T]) FirstOrCreate(ctx context.Context, e *T, conds ...Cond) (*T, bool, error) {
 	if e == nil {
 		return nil, false, ErrNilEntity
@@ -673,6 +676,20 @@ func (t *Table[T]) FirstOrCreate(ctx context.Context, e *T, conds ...Cond) (*T, 
 
 	if !IsUniqueViolation(created) {
 		return nil, false, created
+	}
+
+	// In a transaction, the row that stopped the insert may have committed after
+	// the transaction's snapshot, which a plain read at MySQL's REPEATABLE READ
+	// does not see. A locking read sees the newest row.
+	if syntax := dialect.SyntaxOf(
+		t.state.dialect,
+	); t.state.tx != nil &&
+		!syntax.Lacks(dialect.RowLocks) {
+		if syntax.Lacks(dialect.ShareLocks) {
+			q = q.ForUpdate()
+		} else {
+			q = q.ForShare()
+		}
 	}
 
 	found, err = q.First(ctx)

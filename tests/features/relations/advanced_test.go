@@ -75,7 +75,7 @@ func TestThrough(t *testing.T) {
 
 		empty := &Country{Name: "Nowhere"}
 		require.NoError(t, db.Countries.Insert(ctx, latvia, empty))
-		db.ClearTracked()
+		require.NoError(t, db.ClearTracked(ctx))
 
 		t.Run("Include loads across the middle table", func(t *testing.T) {
 			countries, err := db.Countries.OrderBy(&Cn.Name).
@@ -200,7 +200,7 @@ func TestPolymorphicRelations(t *testing.T) {
 		require.NoError(t, db.Essays.Insert(ctx, blog))
 		require.NoError(t, db.Videos.Insert(ctx, video))
 		require.Equal(t, blog.ID, video.ID, "the point of the test")
-		db.ClearTracked()
+		require.NoError(t, db.ClearTracked(ctx))
 
 		t.Run("saving through the relation sets the type", func(t *testing.T) {
 			count, err := db.Remarks.Where(ant.Eq(&Rk.OwnerType, "video")).Count(ctx)

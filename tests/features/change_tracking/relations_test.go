@@ -100,7 +100,7 @@ func TestChangingRelations(t *testing.T) {
 			slices.Reverse(alice.Posts)
 			require.NoError(t, session.SaveChanges(ctx()))
 			require.Equal(t, []string{"A", "B", "C"}, storedTitles(t, db, alice.ID))
-			require.False(t, session.HasChanges())
+			require.False(t, fixture.HasChanges(t, session))
 		})
 	})
 

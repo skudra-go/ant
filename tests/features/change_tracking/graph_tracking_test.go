@@ -21,8 +21,7 @@ func TestTrackGraph(t *testing.T) {
 		alice, _, _ := fixture.Seed(t, db)
 		existing := &fixture.Post{UserID: alice.ID, Title: "old"}
 		require.NoError(t, db.Posts.Insert(ctx, existing))
-		db.ClearTracked()
-
+		require.NoError(t, db.ClearTracked(ctx))
 		// A body with a changed user, a changed post, and a new post.
 		incoming := &fixture.User{
 			Name:  "Alice Updated",
@@ -38,7 +37,7 @@ func TestTrackGraph(t *testing.T) {
 
 		var visited []string
 
-		err := ant.TrackGraph(db, incoming, func(n ant.GraphNode) ant.State {
+		err := ant.TrackGraph(ctx, db, incoming, func(n ant.GraphNode) ant.State {
 			visited = append(visited, n.Model)
 
 			if n.HasKey {
@@ -64,7 +63,7 @@ func TestTrackGraph(t *testing.T) {
 		require.Equal(t, alice.ID, loaded.Posts[1].UserID, "the foreign key was filled in")
 
 		t.Run("Detached skips an entity and everything below it", func(t *testing.T) {
-			db.ClearTracked()
+			require.NoError(t, db.ClearTracked(ctx))
 
 			skipped := &fixture.User{
 				Name:  "Nobody",
@@ -74,18 +73,18 @@ func TestTrackGraph(t *testing.T) {
 
 			count := 0
 
-			require.NoError(t, ant.TrackGraph(db, skipped, func(ant.GraphNode) ant.State {
+			require.NoError(t, ant.TrackGraph(ctx, db, skipped, func(ant.GraphNode) ant.State {
 				count++
 
 				return ant.Detached
 			}))
 
 			require.Equal(t, 1, count)
-			require.False(t, db.HasChanges())
+			require.False(t, fixture.HasChanges(t, db))
 		})
 
 		t.Run("a nil root is an error", func(t *testing.T) {
-			require.ErrorIs(t, ant.TrackGraph[fixture.User](db, nil, nil), ant.ErrNilEntity)
+			require.ErrorIs(t, ant.TrackGraph[fixture.User](ctx, db, nil, nil), ant.ErrNilEntity)
 		})
 	})
 }
@@ -141,11 +140,11 @@ func TestComparer(t *testing.T) {
 
 		row.Items.V = []string{"y", "x"}
 
-		require.False(t, db.HasChanges(), "the same items in another order")
+		require.False(t, fixture.HasChanges(t, db), "the same items in another order")
 
 		row.Items.V = []string{"y", "z"}
 
-		require.True(t, db.HasChanges())
+		require.True(t, fixture.HasChanges(t, db))
 		require.NoError(t, db.SaveChanges(ctx))
 	})
 }
