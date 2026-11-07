@@ -58,6 +58,12 @@ func (q *Query[T]) Include[R any](rel *[]R, shape ...func(*Query[R]) *Query[R]) 
 	return q
 }
 
+func (q *Query[T]) IncludeOne[R any](rel **R, shape ...func(*Query[R]) *Query[R]) *Query[T] {
+	return q
+}
+
+func (q *Query[T]) When(ok bool, f func(*Query[T]) *Query[T]) *Query[T] { return q }
+
 func (q *Query[T]) GroupBy[V any](field *V) *Grouped { return nil }
 
 type Grouped struct{}

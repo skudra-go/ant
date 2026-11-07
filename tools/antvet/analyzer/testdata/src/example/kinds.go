@@ -39,6 +39,15 @@ func deep(
 	arrays.Find(ctx, [3]int64{})                 // want `Find key is \[3\]int64, and Row\[\[4\]int64\] has a key of type \[4\]int64`
 }
 
+// Ri is a probe of a model whose type argument is an interface.
+var Ri = ant.Fields[Row[interface{ Get() int64 }]]() // want Ri:"probe of example.Row\\[interface\\{Get\\(\\) int64\\}\\]"
+
+// A type parameter inside an interface leaves the model open, as anywhere else,
+// so the query is not judged until an instantiation fills it in.
+func opened[T any](ctx context.Context, rows *ant.Table[Row[interface{ Get() T }]]) {
+	rows.Where(ant.Eq(&Ri.Name, "x")).All(ctx)
+}
+
 // Two models of one name are still two models.
 func shadowed(ctx context.Context) {
 	type Thing struct {

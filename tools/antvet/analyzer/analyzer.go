@@ -445,7 +445,7 @@ func findKeys(pass *analysis.Pass) {
 			}
 
 			model := receiverType(pass, fn)
-			if model == nil {
+			if model == nil || !configures(pass.TypesInfo.Defs[fn.Name]) {
 				continue
 			}
 
@@ -583,6 +583,31 @@ func isAntFunc(pass *analysis.Pass, call *ast.CallExpr) bool {
 	object, ok := pass.TypesInfo.Uses[id].(*types.Func)
 
 	return ok && object.Pkg() != nil && object.Pkg().Path() == antPath
+}
+
+// configures reports whether a method named Configure is one ant calls: it
+// finds the method by reflection and calls it only with one argument, a
+// *ModelBuilder. One that takes anything else is never called, so it sets no
+// key.
+func configures(method types.Object) bool {
+	fn, ok := method.(*types.Func)
+	if !ok {
+		return false
+	}
+
+	sig, ok := fn.Type().(*types.Signature)
+	if !ok || sig.Params().Len() != 1 || sig.Variadic() {
+		return false
+	}
+
+	param := types.Unalias(sig.Params().At(0).Type())
+	if _, ok := param.(*types.Pointer); !ok {
+		return false
+	}
+
+	named := antType(param)
+
+	return named != nil && named.Obj().Name() == "ModelBuilder"
 }
 
 // receiverType returns the named type a method is declared on.
@@ -1050,6 +1075,24 @@ func generic(t types.Type) bool {
 				return true
 			}
 		}
+	case *types.Interface:
+		for m := range t.ExplicitMethods() {
+			if generic(m.Type()) {
+				return true
+			}
+		}
+
+		for e := range t.EmbeddedTypes() {
+			if generic(e) {
+				return true
+			}
+		}
+	case *types.Union:
+		for i := range t.Len() {
+			if generic(t.Term(i).Type()) {
+				return true
+			}
+		}
 	case interface{ Elem() types.Type }:
 		return generic(t.Elem())
 	}
@@ -1362,6 +1405,12 @@ walk:
 				break walk
 			}
 
+			// An include's shape is a query ant runs apart, for the related
+			// model alone, so nothing outside the shape is in its scope.
+			if c.shapes(stack, lit) {
+				return out, true
+			}
+
 			i = lit
 
 			continue
@@ -1415,6 +1464,23 @@ walk:
 	}
 
 	return out, true
+}
+
+// shapes reports whether the function literal at stack[lit] is the shape given to
+// Include or IncludeOne, which builds the query of a related model.
+func (c *checker) shapes(stack []ast.Node, lit int) bool {
+	if lit == 0 {
+		return false
+	}
+
+	call, ok := stack[lit-1].(*ast.CallExpr)
+	if !ok || argIndex(call, stack[lit]) < 1 || !isAntFunc(c.pass, call) {
+		return false
+	}
+
+	selector, ok := ast.Unparen(indexed(call.Fun)).(*ast.SelectorExpr)
+
+	return ok && (selector.Sel.Name == "Include" || selector.Sel.Name == "IncludeOne")
 }
 
 // returnedFrom returns where in stack the function literal is whose return
@@ -1472,6 +1538,17 @@ func checkFind(pass *analysis.Pass, call *ast.CallExpr) {
 	// An alias of a model has the key of the model it stands for.
 	model = types.Unalias(model)
 	path := "ID"
+
+	// ant finds Configure by reflection, so one a model gets from a struct it
+	// embeds runs too, and sets a key the analyzer does not follow.
+	set := types.NewMethodSet(types.NewPointer(model))
+	if sel := set.Lookup(
+		nil,
+		"Configure",
+	); sel != nil && len(sel.Index()) > 1 &&
+		configures(sel.Obj()) {
+		return
+	}
 
 	if named, ok := model.(*types.Named); ok {
 		fact := new(keyFact)

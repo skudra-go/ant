@@ -104,9 +104,14 @@ func methods(ctx context.Context, users *ant.Table[User], posts *ant.Table[Post]
 	users.Where(ant.Exists(posts.Where(ant.Gt(&U.Age, 18)).OrderBy[string](&P.ID))).All(ctx)
 	users.Where(ant.Exists(posts.Where().OrderBy(&U.Name))).All(ctx)
 	users.Where(ant.Exists(posts.Where().GroupBy(&U.Name))).All(ctx)
+	// A subquery inside a shape may name the shape's query, and When hands its
+	// function the same query, whose scope it keeps.
 	users.Where().Include(&U.Posts, func(q *ant.Query[Post]) *ant.Query[Post] {
-		return q.Where(ant.Gt(&U.Age, 18))
+		return q.Where(ant.Exists(users.Where(ant.Gt(&P.UserID, 1))))
 	}).All(ctx)
+	users.Where(ant.Exists(posts.Where().When(useCode, func(q *ant.Query[Post]) *ant.Query[Post] {
+		return q.Where(ant.Gt(&U.Age, 18))
+	}))).All(ctx)
 
 	// A query built apart inside a shape may end up inside the shape's query,
 	// so it is not judged by the query the shape is given to.
@@ -128,6 +133,18 @@ func methods(ctx context.Context, users *ant.Table[User], posts *ant.Table[Post]
 	posts.Where(ant.Gt(&U.Age, 1)).Update(ctx, ant.Set(&P.UserID, 1))        // want `condition on User in a query of Post`
 	users.Where().Include(&U.Posts, func(q *ant.Query[Post]) *ant.Query[Post] {
 		return q.Where(ant.Eq(&models.Co.Code, "x")) // want `condition on Country in a query of Post`
+	}).All(ctx)
+
+	// An include's shape is a query of the related model alone, which ant
+	// runs apart, so it cannot name the query it is given to.
+	users.Where().Include(&U.Posts, func(q *ant.Query[Post]) *ant.Query[Post] {
+		return q.Where(ant.Gt(&U.Age, 18)) // want `condition on User in a query of Post`
+	}).All(ctx)
+	posts.Where().IncludeOne(&P.User, func(q *ant.Query[User]) *ant.Query[User] {
+		return q.Where(ant.Gt(&P.UserID, 1)) // want `condition on Post in a query of User`
+	}).All(ctx)
+	posts.Where().When(useCode, func(q *ant.Query[Post]) *ant.Query[Post] {
+		return q.Where(ant.Gt(&U.Age, 18)) // want `condition on User in a query of Post`
 	}).All(ctx)
 	users.Where().Include(&U.Posts, func(q *ant.Query[Post]) *ant.Query[Post] {
 		if useCode {

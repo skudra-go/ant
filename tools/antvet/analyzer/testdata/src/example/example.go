@@ -26,6 +26,27 @@ type Post struct {
 // Member is User under another name, as a test package might alias a fixture.
 type Member = User
 
+// Ignored's Configure takes an argument ant never gives, so ant never calls it,
+// and its key stays ID.
+type Ignored struct {
+	ID   int64
+	Code string
+}
+
+func (Ignored) Configure(b *ant.ModelBuilder[Ignored], also int) { b.Key(&Ig.Code) }
+
+// Keyed is embedded in Embeds, which gets its Configure, and whatever key that
+// sets, which the analyzer does not follow.
+type Keyed struct{} // want Keyed:"key Code"
+
+func (Keyed) Configure(b *ant.ModelBuilder[Embeds]) { b.Key(&Em.Code) }
+
+type Embeds struct {
+	Keyed
+	ID   int64
+	Code string
+}
+
 // CountryAlias and DocAlias stand for models whose keys Configure sets, in
 // another package and in this one.
 type (
@@ -165,12 +186,14 @@ var (
 )
 
 var (
-	U     = ant.Fields[User]()   // want U:"probe of example.User"
-	P     = ant.Fields[Post]()   // want P:"probe of example.Post"
-	Alias = U                    // want Alias:"probe of example.User"
-	M     = ant.Fields[Member]() // want M:"probe of example.User"
-	D     = ant.Fields[Doc]()    // want D:"probe of example.Doc"
-	Pa    = ant.Fields[Pair]()   // want Pa:"probe of example.Pair"
+	U     = ant.Fields[User]()    // want U:"probe of example.User"
+	P     = ant.Fields[Post]()    // want P:"probe of example.Post"
+	Alias = U                     // want Alias:"probe of example.User"
+	M     = ant.Fields[Member]()  // want M:"probe of example.User"
+	D     = ant.Fields[Doc]()     // want D:"probe of example.Doc"
+	Pa    = ant.Fields[Pair]()    // want Pa:"probe of example.Pair"
+	Ig    = ant.Fields[Ignored]() // want Ig:"probe of example.Ignored"
+	Em    = ant.Fields[Embeds]()  // want Em:"probe of example.Embeds"
 )
 
 func good(
@@ -249,6 +272,8 @@ func keys(
 	aliased *ant.Table[Aliased],
 	countryAliases *ant.Table[CountryAlias],
 	docAliases *ant.Table[DocAlias],
+	ignored *ant.Table[Ignored],
+	embeds *ant.Table[Embeds],
 ) {
 	fluent.Find(ctx, "LV")
 	fluent.Find(ctx, 1) // want `Find key is int, and Fluent has a key of type string`
@@ -267,6 +292,13 @@ func keys(
 	docAliases.Find(ctx, "a-slug")
 	countryAliases.Find(ctx, 1) // want `Find key is int, and Country has a key of type string`
 	docAliases.Find(ctx, 1)     // want `Find key is int, and Doc has a key of type string`
+
+	// A Configure ant never calls sets no key, and one a model embeds may set
+	// any.
+	ignored.Find(ctx, 1)
+	ignored.Find(ctx, "LV") // want `Find key is string, and Ignored has a key of type int64`
+	embeds.Find(ctx, 1)
+	embeds.Find(ctx, "LV")
 }
 
 func bad(
