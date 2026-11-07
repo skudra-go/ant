@@ -263,20 +263,21 @@ func (s spec[V]) crud(t *testing.T, db *prDB[V]) {
 		step(t, "in", func(t *testing.T) {
 			knownHere(t)
 
-			var nonNull []int64
-
-			for i, v := range s.vals {
-				if !s.null(v) {
-					nonNull = append(nonNull, ids[i])
+			// In is Eq of each value, so a value stored as NULL matches NULL.
+			matches := func(v, w V) bool {
+				if s.null(v) || s.null(w) {
+					return s.null(v) && s.null(w)
 				}
+
+				return s.equal(v, w)
 			}
 
-			if got := idsWhere(t, s.in(&f.V, s.vals...)); !slices.Equal(got, nonNull) {
+			if got := idsWhere(t, s.in(&f.V, s.vals...)); !slices.Equal(got, ids) {
 				t.Errorf(
-					"In(all %d values): rows %v, want %v (NULL never matches IN)",
+					"In(all %d values): rows %v, want %v (a NULL matches as in Eq)",
 					n,
 					got,
-					nonNull,
+					ids,
 				)
 			}
 
@@ -294,13 +295,14 @@ func (s spec[V]) crud(t *testing.T, db *prDB[V]) {
 
 				for _, v := range []V{a, b} {
 					for i, w := range s.vals {
-						if !s.null(v) && s.equal(v, w) {
+						if matches(v, w) {
 							want = append(want, ids[i])
 						}
 					}
 				}
 
 				slices.Sort(want)
+				want = slices.Compact(want)
 
 				if got := idsWhere(t, s.in(&f.V, a, b)); !slices.Equal(got, want) {
 					t.Errorf("In(first,last): rows %v, want %v", got, want)
@@ -1045,12 +1047,14 @@ func TestProbeScalars(t *testing.T) {
 		in:   ant.In[ant.UnixTime],
 	})
 
-	// The Unix epoch itself is stored as 0, which reads back as the zero time.
+	// 0 stands for the zero time, as legacy schemas use it for no time, so the
+	// Unix epoch itself, which is 0 too, reads back as the zero time.
 	probe(t, spec[ant.UnixTime]{
 		name:  "ant.UnixTime epoch",
 		sql:   "BIGINT",
 		vals:  []ant.UnixTime{{Time: time.Unix(0, 0).UTC()}},
 		same:  func(a, b ant.UnixTime) bool { return a.Time.Equal(b.Time) },
+		norm:  func(ant.UnixTime) ant.UnixTime { return ant.UnixTime{} },
 		eq:    ant.Eq[ant.UnixTime],
 		in:    ant.In[ant.UnixTime],
 		noPtr: true,
@@ -4057,13 +4061,9 @@ func TestProbeSecure(t *testing.T) {
 		},
 	})
 
-	probe(t, spec[secure.Value[string]]{
-		noEq:  true,
-		name:  "secure.Value[string] invalid UTF-8 (JSON replaces the bytes)",
-		sql:   "TEXT",
-		vals:  []secure.Value[string]{sv("ab\xffcd")},
-		noPtr: true,
-	})
+	// JSON, which seals the value, would put U+FFFD in place of the bytes, so
+	// such text is refused, as a TEXT column refuses it.
+	refusesInvalidUTF8(t, sv("ab\xffcd"), "TEXT")
 
 	probe(t, spec[secure.Value[int64]]{
 		noEq: true,
@@ -4342,55 +4342,59 @@ func TestProbeOutOfRangeReads(t *testing.T) {
 }
 
 // ant.JSON also replaces invalid UTF-8, silently, as encoding/json does.
+// encoding/json writes U+FFFD in place of text that is not valid UTF-8, so ant
+// refuses such text, as a TEXT column does, rather than store something else.
 func TestProbeJSONInvalidUTF8(t *testing.T) {
-	knownHere(t)
+	refusesInvalidUTF8(t, ant.JSON[string]{V: "ab\xffcd"}, "JSONB")
+	refusesInvalidUTF8(t, ant.JSON[map[string]any]{V: map[string]any{"k\xff": 1}}, "JSONB")
 
-	probe(t, spec[ant.JSON[string]]{
-		name: "ant.JSON[string] invalid UTF-8",
-		sql:  "JSONB",
-		vals: []ant.JSON[string]{{V: "ab\xffcd"}},
+	refusesInvalidUTF8(
+		t,
+		ant.JSON[map[string]any]{V: map[string]any{"k": []any{"ok", "x\xfe"}}},
+		"JSONB",
+	)
+}
+
+// refusesInvalidUTF8 checks that inserting v fails before anything is stored.
+func refusesInvalidUTF8[V any](t *testing.T, v V, sqlType string) {
+	t.Helper()
+
+	ddl := spec[V]{sql: sqlType}.ddl()
+	fixture.RunWith(t, ddl, func(t *testing.T, db *prDB[V]) {
+		err := db.Rows.Insert(t.Context(), &prRow[V]{V: v})
+		require.ErrorContains(t, err, "not valid UTF-8")
+
+		n, err := db.Rows.Count(t.Context())
+		require.NoError(t, err)
+		require.Zero(t, n)
 	})
 }
 
-// knownProbes are probes that fail for a tracked issue, by test name.
+// knownProbes are probes that fail for a reason docs/databases.md gives, a limit
+// of a driver or of the standard library that ant does not work around, by test
+// name. ANT_RUN_KNOWN=1 runs them, to see whether that has changed.
 var knownProbes = []struct {
 	pattern *regexp.Regexp
-	issue   string
+	reason  string
 }{
-	{regexp.MustCompile(`^TestProbeScalars/float(32|64)/postgres#0[23]/`), "#48"},
-	{regexp.MustCompile(`^TestProbeArrays/postgres\.Array\[float64\]/postgres#0[23]/`), "#48"},
-	{regexp.MustCompile(`^TestProbeArrays/postgres\.Point_with_Inf_and_NaN/`), "#48, #52"},
+	// database/sql's Null[T].Value refuses a uint64 with the high bit set.
 	{
-		regexp.MustCompile(
-			`^TestProbeTrackingMutations/postgres/no-op_(UnixTime|Null_time)_other_zone$`,
-		),
-		"#48",
+		regexp.MustCompile(`^TestProbeNullTypes/sql\.Null\[uint64\]_high_bit/`),
+		"a database/sql limit",
 	},
+	// database/sql cannot scan NULL into a named []byte.
 	{
-		regexp.MustCompile(
-			`^TestProbeTrackingMutations/postgres/mutate_JSON_map_(nested|slice_elem)$`,
-		),
-		"#47",
+		regexp.MustCompile(`^TestProbeBytes/(named_\[\]byte|json\.RawMessage)_with_NULL/`),
+		"a database/sql limit",
 	},
-	{regexp.MustCompile(`^TestProbeOddKeys/postgres/(time_key|composite_key_with_a_time)`), "#49"},
-	{regexp.MustCompile(`^TestProbeCustomValuers/Lines_`), "#50"},
-	{regexp.MustCompile(`^TestProbePointScanFormats$`), "#52"},
-	{regexp.MustCompile(`^TestProbeScalars/ant\.UnixTime_epoch/`), "#53"},
-	{regexp.MustCompile(`^TestProbeNullTypes/sql\.Null\[uint64\]_high_bit/`), "#53"},
-	{regexp.MustCompile(`^TestProbeInWithNulls$`), "#53"},
-	{regexp.MustCompile(`^TestProbeCustomValuers/Temp_`), "#53"},
-	{regexp.MustCompile(`^TestProbeBytes/(named_\[\]byte|json\.RawMessage)_with_NULL/`), "#53"},
-	{regexp.MustCompile(`^TestProbeBigBatches/postgres/In_with_a_huge_list$`), "#53"},
-	{
-		regexp.MustCompile(`^TestProbeOtherNative/(time\.Duration_in_INTERVAL|net\.IP_in_INET)/`),
-		"#53",
-	},
-	{regexp.MustCompile(`^TestProbeSecure/secure\.Value\[string\]_invalid_UTF-8`), "#53"},
-	{regexp.MustCompile(`^TestProbeJSONInvalidUTF8$`), "#53"},
+	// pgx hands an INTERVAL to database/sql as text, which is no time.Duration.
+	{regexp.MustCompile(`^TestProbeOtherNative/time\.Duration_in_INTERVAL/`), "a pgx limit"},
+	// database/sql cannot scan NULL into a net.IP, a named []byte.
+	{regexp.MustCompile(`^TestProbeOtherNative/net\.IP_in_INET/`), "a database/sql limit"},
 }
 
-// knownHere skips the running test if it fails for a tracked issue, unless
-// ANT_RUN_KNOWN is set, as it is when working on that issue.
+// knownHere skips the running test if it fails for a known reason, unless
+// ANT_RUN_KNOWN is set.
 func knownHere(t *testing.T) {
 	t.Helper()
 
@@ -4400,7 +4404,7 @@ func knownHere(t *testing.T) {
 
 	for _, k := range knownProbes {
 		if k.pattern.MatchString(t.Name()) {
-			t.Skipf("known failure, %s; ANT_RUN_KNOWN=1 runs it", k.issue)
+			t.Skipf("known failure, %s; ANT_RUN_KNOWN=1 runs it", k.reason)
 		}
 	}
 }

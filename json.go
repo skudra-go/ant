@@ -6,6 +6,8 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
+
+	"github.com/skudra-go/ant/internal/jsontext"
 )
 
 // JSON stores a Go value in a JSON column. The zero value of V is stored as its
@@ -30,8 +32,13 @@ func (j JSON[V]) MarshalJSON() ([]byte, error) { return json.Marshal(j.V) }
 // UnmarshalJSON reads the value inside.
 func (j *JSON[V]) UnmarshalJSON(data []byte) error { return json.Unmarshal(data, &j.V) }
 
-// Value implements driver.Valuer.
+// Value implements driver.Valuer. Text that is not valid UTF-8 is refused, as a
+// text column refuses it, since JSON would store U+FFFD in its place.
 func (j JSON[V]) Value() (driver.Value, error) {
+	if err := jsontext.Valid(j.V); err != nil {
+		return nil, err
+	}
+
 	text, err := json.Marshal(j.V)
 	if err != nil {
 		return nil, err

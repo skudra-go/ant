@@ -66,6 +66,29 @@ type RenameTable struct {
 // String implements Change.
 func (c RenameTable) String() string { return fmt.Sprintf("rename table %s to %s", c.Table, c.To) }
 
+// MoveTable moves a table to another schema, and gives it a new name there if To
+// is set. Its indexes and constraints move with it.
+type MoveTable struct {
+	quiet
+	Table  Ref
+	Schema string
+	To     string
+}
+
+// String implements Change.
+func (c MoveTable) String() string {
+	return fmt.Sprintf("move table %s to %s", c.Table, Ref{c.Schema, c.name()})
+}
+
+// name returns the table's name in its new schema.
+func (c MoveTable) name() string {
+	if c.To == "" {
+		return c.Table.Name
+	}
+
+	return c.To
+}
+
 // AddColumn adds a column. Backfill is a literal that fills existing rows of a
 // NOT NULL column.
 type AddColumn struct {
@@ -100,10 +123,12 @@ func (c AddColumn) Warning() string {
 	)
 }
 
-// DropColumn removes a column.
+// DropColumn removes a column. Again is set when the plan adds the column back
+// later, as it does for a generated column that it rebuilds.
 type DropColumn struct {
 	Table  Ref
 	Column *Column
+	Again  *Column
 }
 
 // String implements Change.
@@ -113,7 +138,27 @@ func (c DropColumn) String() string {
 
 // Warning implements Change.
 func (c DropColumn) Warning() string {
-	return fmt.Sprintf("this drops column %s.%s and its data.", c.Table, c.Column.Name)
+	name := c.Table.String() + "." + c.Column.Name
+
+	switch {
+	case c.Again == nil:
+		return fmt.Sprintf("this drops column %s and its data.", name)
+	case c.Column.Generated == "":
+		return fmt.Sprintf(
+			"%s becomes generated, so it is dropped and added again further down: its stored values are replaced by computed ones, and its indexes and constraints are rebuilt.",
+			name,
+		)
+	case c.Column.Generated != c.Again.Generated:
+		return fmt.Sprintf(
+			"%s gets a new expression, so it is dropped and added again further down, which rewrites the table and rebuilds its indexes and constraints.",
+			name,
+		)
+	}
+
+	return fmt.Sprintf(
+		"%s is computed from a column this plan drops or changes the type of, so it is dropped and added again further down, which rewrites the table and rebuilds its indexes and constraints.",
+		name,
+	)
 }
 
 // RenameColumn renames a column.
@@ -128,10 +173,12 @@ func (c RenameColumn) String() string {
 	return fmt.Sprintf("rename column %s.%s to %s", c.Table, c.From, c.To)
 }
 
-// AlterColumn changes a column from one definition to another.
+// AlterColumn changes a column from one definition to another. FromEnum says
+// From.Type is a native enum, which casts to another type only through text.
 type AlterColumn struct {
 	Table    Ref
 	From, To *Column
+	FromEnum bool
 }
 
 // Replaces reports whether the column is dropped and added again, which is how
@@ -431,16 +478,76 @@ type CreateEnum struct {
 // String implements Change.
 func (c CreateEnum) String() string { return "create enum " + c.Enum.Name }
 
-// AddEnumValue adds a value to an enum.
+// AddEnumValue adds a value to an enum, before value Before if it is set, and
+// last otherwise, so that the enum sorts as the models list it. Used says the
+// same plan uses the value, which PostgreSQL allows only once the value is
+// committed, so the plan cannot run in one transaction.
 type AddEnumValue struct {
-	quiet
-	Enum  string
-	Value string
+	Enum   string
+	Value  string
+	Before string
+	Used   bool
 }
 
 // String implements Change.
 func (c AddEnumValue) String() string {
 	return fmt.Sprintf("add value %s to enum %s", c.Value, c.Enum)
+}
+
+// Warning implements Change.
+func (c AddEnumValue) Warning() string {
+	if !c.Used {
+		return ""
+	}
+
+	return fmt.Sprintf(
+		"this migration uses the new value %s of enum %s, which PostgreSQL allows only once the value is committed, so the file runs without a transaction. To keep one, add the value in a migration of its own.",
+		c.Value,
+		c.Enum,
+	)
+}
+
+// RunsOnline reports whether the value must be committed before the rest of the
+// plan runs.
+func (c AddEnumValue) RunsOnline() bool { return c.Used }
+
+// ReorderEnum reports an enum whose values sort in another order than the models
+// list, which needs a person: PostgreSQL cannot reorder them.
+type ReorderEnum struct {
+	Enum   string
+	Values []string // as the models list them
+}
+
+// String implements Change.
+func (c ReorderEnum) String() string { return "reorder the values of enum " + c.Enum }
+
+// Warning implements Change.
+func (c ReorderEnum) Warning() string {
+	return fmt.Sprintf(
+		"PostgreSQL cannot reorder the values of enum %s to %s. Rebuild the type by hand: create a new one, move the columns over, and drop the old one.",
+		c.Enum,
+		strings.Join(c.Values, ", "),
+	)
+}
+
+// AlterSequence changes how a sequence counts. Its current value is kept.
+type AlterSequence struct {
+	From, To *Sequence
+}
+
+// String implements Change.
+func (c AlterSequence) String() string { return "change sequence " + c.To.Name }
+
+// Warning implements Change.
+func (c AlterSequence) Warning() string {
+	if c.From.start() == c.To.start() {
+		return ""
+	}
+
+	return fmt.Sprintf(
+		"a new start for sequence %s does not move its current value. Run ALTER SEQUENCE ... RESTART by hand if you mean that.",
+		c.To.Name,
+	)
 }
 
 // DropEnum removes an enum.

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 	"unsafe"
 
 	"github.com/skudra-go/ant/internal/meta"
@@ -177,23 +178,29 @@ func (m *Merger[T]) Exec(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 
-	if stmt.Actions, err = versioned(model, stmt.Actions); err != nil {
+	stmt.Actions, err = maintained(model, stmt.Actions, m.table.state.settings.timestamp())
+	if err != nil {
 		return 0, err
 	}
 
 	return m.table.state.run(ctx, &stmt)
 }
 
-// versioned keeps a model's version as other writes do: an update moves it on,
-// so a copy loaded before cannot save over it, and an insert starts it at 1
-// unless the source gives one.
-func versioned(model *meta.Model, actions []qb.MergeAction) ([]qb.MergeAction, error) {
-	v := model.Version
-	if v == nil {
-		return actions, nil
-	}
-
+// maintained keeps what ant keeps on other writes. An update moves the version
+// on, so a copy loaded before cannot save over it, and sets UpdatedAt. An insert
+// starts the version at 1, sets CreatedAt and UpdatedAt, and marks the row with
+// the model's discriminator. A value the statement gives itself is kept, except
+// the version, which is ant's, and a column given two values is refused.
+func maintained(
+	model *meta.Model,
+	actions []qb.MergeAction,
+	now time.Time,
+) ([]qb.MergeAction, error) {
 	out := slices.Clone(actions)
+
+	stampValue := func(f *meta.Field) qb.Expr {
+		return qb.Param{Value: timeValue(f, now).Interface()}
+	}
 
 	for i, a := range out {
 		switch {
@@ -202,10 +209,45 @@ func versioned(model *meta.Model, actions []qb.MergeAction) ([]qb.MergeAction, e
 				return nil, err
 			}
 
-			a.Set = append(slices.Clone(a.Set), nextVersion(model))
-		case !a.Matched && len(a.Columns) > 0 && !slices.Contains(a.Columns, v.Column):
-			a.Columns = append(slices.Clone(a.Columns), v.Column)
-			a.Values = append(slices.Clone(a.Values), one)
+			if err := assignedTwice(model, "assignments", assignedColumns(a.Set)); err != nil {
+				return nil, err
+			}
+
+			a.Set = slices.Clone(a.Set)
+
+			if f := model.Updated; f != nil &&
+				!slices.Contains(assignedColumns(a.Set), f.Column) {
+				a.Set = append(a.Set, qb.Assignment{Column: f.Column, Value: stampValue(f)})
+			}
+
+			if model.Version != nil {
+				a.Set = append(a.Set, nextVersion(model))
+			}
+		case !a.Matched && len(a.Columns) > 0:
+			if err := assignedTwice(model, "mappings", a.Columns); err != nil {
+				return nil, err
+			}
+
+			a.Columns, a.Values = slices.Clone(a.Columns), slices.Clone(a.Values)
+
+			add := func(f *meta.Field, value qb.Expr) {
+				if f != nil && !slices.Contains(a.Columns, f.Column) {
+					a.Columns = append(a.Columns, f.Column)
+					a.Values = append(a.Values, value)
+				}
+			}
+
+			add(model.Version, one)
+
+			for _, f := range []*meta.Field{model.Created, model.Updated} {
+				if f != nil {
+					add(f, stampValue(f))
+				}
+			}
+
+			if d := model.Discriminator; d != nil {
+				add(d, qb.Param{Value: model.DiscriminatorValue})
+			}
 		}
 
 		out[i] = a

@@ -673,6 +673,21 @@ func TestConformanceMerge(t *testing.T) {
 		alice, err := app.Users.NoTracking().Where(ant.Eq(&U.Name, "alice")).First(ctx)
 		require.NoError(t, err)
 		require.Equal(t, 41, alice.Age)
+
+		// An inserted row gets its timestamps, as from Insert.
+		_, err = ant.Merge(&app.Users, ant.Values(app, Wanted{"dora", 22}), ant.EqCol(&U.Name, &W.Name)).
+			WhenNotMatched(
+				ant.Into(&U.Name, &W.Name),
+				ant.Into(&U.Email, &W.Name),
+				ant.Into(&U.Age, &W.Rank),
+			).
+			Exec(ctx)
+		require.NoError(t, err)
+
+		dora, err := app.Users.NoTracking().Where(ant.Eq(&U.Name, "dora")).First(ctx)
+		require.NoError(t, err)
+		require.False(t, dora.CreatedAt.IsZero())
+		require.True(t, dora.UpdatedAt.Equal(dora.CreatedAt))
 	})
 }
 
@@ -959,10 +974,10 @@ type LedgerDB struct {
 	Ledgers ant.Table[Ledger]
 }
 
-// An upsert that updates moves the version on, as every write does. Where the
-// database takes a condition on an upsert, a copy that carries a version updates
-// only that version. ON DUPLICATE KEY takes none, so on MySQL and MariaDB the
-// copy's update goes ahead.
+// An upsert that updates moves the version on, as every write does, and a copy
+// that carries a version updates only that version, on every database: ON
+// DUPLICATE KEY takes no condition, so on MySQL and MariaDB each assignment
+// checks it.
 func TestConformanceUpsertVersion(t *testing.T) {
 	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
 		ctx := t.Context()
@@ -1013,24 +1028,43 @@ func TestConformanceUpsertVersion(t *testing.T) {
 			require.EqualValues(t, i+2, fresh.Version)
 		}
 
-		_, err = db.Ledgers.Upsert(
-			ctx,
-			&Ledger{
+		total := func() int {
+			stored, err := db.Ledgers.NoTracking().Where(ant.Eq(&Lg.Code, "a")).First(ctx)
+			require.NoError(t, err)
+
+			return stored.Total
+		}
+
+		// ON DUPLICATE KEY takes no condition, so there each assignment checks
+		// the version itself.
+		for _, conflict := range []*ant.Conflict{
+			onCode,
+			onCode.DoUpdate(ant.F(&Lg.Total)),
+			onCode.Set(ant.Inc(&Lg.Total, 1)),
+		} {
+			stale := &Ledger{
 				ID:      1,
 				Code:    "a",
 				Total:   9,
 				Version: 1,
-			},
-			onCode,
-		)
-
-		if has(target, dialect.ConflictWhere) {
+			}
+			_, err = db.Ledgers.Upsert(ctx, stale, conflict)
 			require.ErrorIs(t, err, ant.ErrConcurrency, "a stale copy is refused")
 			require.EqualValues(t, 4, version())
-		} else {
-			require.NoError(t, err, "ON DUPLICATE KEY has no condition")
-			require.EqualValues(t, 5, version())
+			require.Equal(t, 6, total(), "and writes nothing")
 		}
+
+		current := &Ledger{
+			ID:      1,
+			Code:    "a",
+			Total:   7,
+			Version: 4,
+		}
+		_, err = db.Ledgers.Upsert(ctx, current, onCode)
+		require.NoError(t, err, "a copy of the stored version saves")
+		require.EqualValues(t, 5, version())
+		require.EqualValues(t, 5, current.Version)
+		require.Equal(t, 7, total())
 
 		n, err := db.Ledgers.InsertMany(ctx,
 			[]*Ledger{{ID: 3, Code: "a", Total: 1}, {ID: 4, Code: "b", Total: 1}},
@@ -1328,6 +1362,48 @@ func TestConformanceWritesReadingTheirTable(t *testing.T) {
 			require.Equal(t, 35, ages(t, app)["bob"])
 		})
 
+		// MySQL refuses this through a derived table too, so there the rows come
+		// from a SELECT, which it allows.
+		t.Run("an upsert whose Set reads the table", func(t *testing.T) {
+			app := fresh(t)
+			oldest := ant.SubExpr(app.Users.Query(), ant.Max(&U.Age)).Expr()
+			onEmail := ant.OnConflict(&U.Email).Set(ant.SetExpr(&U.Age, oldest))
+			bob := &User{Name: "bob", Email: "bob@example.com", Age: 1}
+
+			_, err := app.Users.Upsert(ctx, bob, onEmail)
+
+			if !has(target, dialect.OnConflict) {
+				require.ErrorIs(t, err, ant.ErrUnsupported)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, 35, bob.Age)
+
+			n, err := app.Users.InsertMany(
+				ctx,
+				[]*User{
+					{Name: "alice", Email: "alice@example.com", Age: 1},
+					{Name: "dave", Email: "dave@example.com", Age: 40},
+				},
+				ant.WithConflict(onEmail),
+			)
+			require.NoError(t, err)
+			require.Positive(t, n)
+
+			require.Equal(
+				t,
+				map[string]int{
+					"alice": 35,
+					"bob":   35,
+					"carol": 35,
+					"dave":  40,
+				},
+				ages(t, app),
+			)
+		})
+
 		t.Run("a read through another table's subquery", func(t *testing.T) {
 			app := fresh(t)
 			byOlder := app.Posts.Where(
@@ -1535,5 +1611,146 @@ func TestConformanceWritesReadingTheirTable(t *testing.T) {
 			require.EqualValues(t, 2, n, "alice and bob have no post")
 			require.Equal(t, map[string]int{"carol": 35}, ages(t, app))
 		})
+	})
+}
+
+type Node struct {
+	ID       int64
+	ParentID *int64
+	Name     string
+	Parent   *Node
+	Children []Node
+}
+
+func (Node) Configure(b *ant.ModelBuilder[Node]) {
+	b.Table("conf_nodes")
+}
+
+type NodeDB struct {
+	ant.Context
+	Nodes ant.Table[Node]
+}
+
+var Nd = ant.Fields[Node]()
+
+// Recursive gives each row it reaches once, ends a cycle in the data, and goes
+// as deep as the data does. SQL Server, which joins a recursive WITH only with
+// UNION ALL and stops at 100 levels, carries the path to each row instead, and
+// Count and Exists move the WITH out of their subquery, where it cannot go.
+func TestConformanceRecursive(t *testing.T) {
+	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
+		ctx := t.Context()
+		_, err := target.DB.ExecContext(ctx, `CREATE TABLE conf_nodes (
+			id BIGINT PRIMARY KEY,
+			parent_id BIGINT NULL,
+			name VARCHAR(20) NOT NULL)`)
+		require.NoError(t, err)
+
+		t.Cleanup(func() {
+			_, _ = target.DB.ExecContext(context.Background(), "DROP TABLE conf_nodes")
+		})
+
+		db, err := ant.Open[NodeDB](ctx, target.Dialect, target.DSN)
+		require.NoError(t, err)
+		t.Cleanup(func() { db.Close() })
+
+		nodes := []*Node{
+			{ID: 1, Name: "root"},
+			{ID: 2, ParentID: new(int64(1)), Name: "a"},
+			{ID: 3, ParentID: new(int64(1)), Name: "b"},
+			{ID: 4, ParentID: new(int64(2)), Name: "a1"},
+			{ID: 5, ParentID: new(int64(6)), Name: "c1"},
+			{ID: 6, ParentID: new(int64(5)), Name: "c2"},
+		}
+
+		// A chain deeper than SQL Server's default limit of 100 levels.
+		const deep = 150
+		for i := range deep {
+			n := &Node{ID: int64(100 + i), Name: fmt.Sprintf("d%d", i)}
+
+			if i > 0 {
+				n.ParentID = new(int64(99 + i))
+			}
+
+			nodes = append(nodes, n)
+		}
+
+		_, err = db.Nodes.InsertMany(ctx, nodes)
+		require.NoError(t, err)
+
+		named := func(q *ant.Query[Node]) []string {
+			t.Helper()
+
+			got, err := q.OrderBy(&Nd.Name).All(ctx)
+			require.NoError(t, err)
+
+			out := make([]string, len(got))
+
+			for i, n := range got {
+				out[i] = n.Name
+			}
+
+			return out
+		}
+
+		down := func(ids ...int64) *ant.Query[Node] {
+			return db.Nodes.Where(ant.In(&Nd.ID, ids...)).Recursive(&Nd.Children)
+		}
+
+		up := func(ids ...int64) *ant.Query[Node] {
+			return db.Nodes.Where(ant.In(&Nd.ID, ids...)).RecursiveOne(&Nd.Parent)
+		}
+
+		require.Equal(t, []string{"a", "a1", "b", "root"}, named(down(1)))
+
+		require.Equal(
+			t,
+			[]string{"a", "a1", "b", "root"},
+			named(down(1, 2)),
+			"two starts, one tree",
+		)
+
+		require.Equal(t, []string{"c1", "c2"}, named(down(5)), "a cycle ends")
+		require.Equal(t, []string{"a", "a1", "root"}, named(up(4)))
+		require.Equal(t, []string{"a", "a1", "b", "root"}, named(up(4, 3)), "two starts, one root")
+		require.Equal(t, []string{"c1", "c2"}, named(up(6)), "a cycle ends going up")
+
+		n, err := down(1, 2).Count(ctx)
+		require.NoError(t, err)
+		require.EqualValues(t, 4, n)
+
+		n, err = down(100).Count(ctx)
+		require.NoError(t, err)
+		require.EqualValues(t, deep, n, "deeper than 100 levels")
+
+		n, err = down(1, 2).OrderBy(&Nd.ID).Limit(3).Count(ctx)
+		require.NoError(t, err)
+		require.EqualValues(t, 3, n, "a paged Count")
+
+		found, err := down(5).Where(ant.Eq(&Nd.Name, "c2")).Exists(ctx)
+		require.NoError(t, err)
+		require.True(t, found)
+
+		found, err = down(1).Where(ant.Eq(&Nd.Name, "c2")).Exists(ctx)
+		require.NoError(t, err)
+		require.False(t, found)
+
+		first, err := down(1).OrderByDesc(&Nd.Name).First(ctx)
+		require.NoError(t, err)
+		require.Equal(t, "root", first.Name)
+
+		fromCTE := db.Nodes.Query().FromCTE("named", db.Nodes.Where(ant.Like(&Nd.Name, "c%")))
+
+		found, err = fromCTE.Exists(ctx)
+		require.NoError(t, err)
+		require.True(t, found, "Exists on FromCTE")
+
+		n, err = fromCTE.Distinct().Count(ctx)
+		require.NoError(t, err)
+		require.EqualValues(t, 2, n, "Count with Distinct on FromCTE")
+
+		n, err = fromCTE.OrderBy(&Nd.ID).Offset(1).Count(ctx)
+		require.NoError(t, err)
+		require.EqualValues(t, 1, n, "a paged Count on FromCTE")
 	})
 }

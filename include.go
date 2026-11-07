@@ -28,7 +28,8 @@ const partitionColumn = "ant_row"
 // The tracked argument is false when the parents are not tracked, so that their
 // related rows are not either, whatever order the builder calls came in.
 type include struct {
-	load func(ctx context.Context, parents []unsafe.Pointer, tracked bool) error
+	load     func(ctx context.Context, parents []unsafe.Pointer, tracked bool) error
+	relation *meta.Relation
 }
 
 // Include loads a one-to-many relation in one extra query per relation, however
@@ -108,7 +109,7 @@ func manyInclude[R any](
 		return loadMany(ctx, r, link, untrackedUnless(sub, tracked), parents)
 	}
 
-	return ownedInclude{include{load}, r.Owner}, nil
+	return ownedInclude{include{load, r}, r.Owner}, nil
 }
 
 func oneInclude[R any](
@@ -134,7 +135,7 @@ func oneInclude[R any](
 		return loadOne(ctx, r, link, untrackedUnless(sub, tracked), parents)
 	}
 
-	return ownedInclude{include{load}, r.Owner}, nil
+	return ownedInclude{include{load, r}, r.Owner}, nil
 }
 
 // scoped applies a relation's scope to a query of its target. A morph condition
@@ -430,15 +431,26 @@ func loadMany[R any](
 	}
 
 	if sub.state != nil && sub.tracked() {
-		trackMany[R](sub.state, r, link, parents)
+		trackMany[R](sub.state, r, link, parents, sub.includes)
 	}
 
 	return nil
 }
 
 // trackMany tracks each loaded element where it finally lives, and records the
-// entries each parent loaded, to notice changes to the slice.
-func trackMany[R any](s *state, r *meta.Relation, link meta.Link, parents []unsafe.Pointer) {
+// entries each parent loaded, to notice changes to the slice. The elements were
+// loaded into values of their own, which are not tracked, so what their nested
+// includes loaded is recorded on each element's entry here. A parent that held
+// other elements before lets go of their entries, as its slice no longer holds
+// them, so that an edit to one is not saved behind what it shows, unless one
+// was marked by hand.
+func trackMany[R any](
+	s *state,
+	r *meta.Relation,
+	link meta.Link,
+	parents []unsafe.Pointer,
+	nested []include,
+) {
 	for _, p := range parents {
 		elements := *slot[[]R](p, r)
 
@@ -448,8 +460,16 @@ func trackMany[R any](s *state, r *meta.Relation, link meta.Link, parents []unsa
 			element := unsafe.Pointer(&elements[i])
 
 			entry := s.tracker.Copy(link.Target, element)
-			if key, ok := link.Target.KeyOf(element); ok && entry != nil {
+			if entry == nil {
+				continue
+			}
+
+			if key, ok := link.Target.KeyOf(element); ok {
 				members[key] = entry
+			}
+
+			for _, inc := range nested {
+				recordLoaded(s, entry, inc.relation)
 			}
 		}
 
@@ -457,10 +477,55 @@ func trackMany[R any](s *state, r *meta.Relation, link meta.Link, parents []unsa
 			continue // a through relation is read, never written
 		}
 
-		if e := s.tracker.Get(p); e != nil {
-			e.SetMembers(r, members)
+		e := s.tracker.Get(p)
+		if e == nil {
+			continue
+		}
+
+		kept := make(map[*track.Entry]bool, len(members))
+
+		for _, entry := range members {
+			kept[entry] = true
+		}
+
+		// An element marked by hand, as by Remove, keeps its mark.
+		for _, old := range e.Members[r] {
+			if old != nil && !kept[old] && old.State == track.Unchanged {
+				s.tracker.Forget(old)
+			}
+		}
+
+		e.SetMembers(r, members)
+	}
+}
+
+// recordLoaded records on entry what its relation r holds, as a load of r into a
+// tracked entity records it.
+func recordLoaded(s *state, entry *track.Entry, r *meta.Relation) {
+	link, err := linkFor(r)
+	if err != nil || r.Pivot != nil && r.Pivot.ReadOnly {
+		return
+	}
+
+	if r.Kind == meta.One {
+		for _, related := range r.Related(entry.Entity) {
+			if key, ok := link.Target.KeyOf(related); ok {
+				entry.SetParent(r, key)
+			}
+		}
+
+		return
+	}
+
+	members := map[any]*track.Entry{}
+
+	for _, related := range r.Related(entry.Entity) {
+		if key, ok := link.Target.KeyOf(related); ok {
+			members[key] = s.tracker.Get(related)
 		}
 	}
+
+	entry.SetMembers(r, members)
 }
 
 func loadOne[R any](

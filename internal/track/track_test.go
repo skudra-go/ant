@@ -1,8 +1,10 @@
 package track
 
 import (
+	"database/sql"
 	"fmt"
 	"maps"
+	"math"
 	"reflect"
 	"slices"
 	"sync"
@@ -1220,5 +1222,89 @@ func TestAddedPanicInOnTrackLeavesTheTrackerUnlocked(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("the tracker stayed locked after the panic")
+	}
+}
+
+type stamp struct{ at time.Time }
+
+type values struct {
+	ID    int64
+	F     float64
+	F32   float32
+	P     *float64
+	Arr   []float64
+	When  sql.Null[time.Time]
+	Stamp stamp
+	Doc   map[string]any
+}
+
+// A NaN that stays one, and a time at the same instant in another zone, are no
+// change, however they are held. Maps and slices inside an any are copied, so
+// an edit inside them is one.
+func TestChangedValues(t *testing.T) {
+	nan := math.NaN()
+	at := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	zone := time.FixedZone("x", 3600)
+
+	newValues := func() *values {
+		return &values{
+			ID:    1,
+			F:     nan,
+			F32:   float32(nan),
+			P:     new(nan),
+			Arr:   []float64{1, nan},
+			When:  sql.Null[time.Time]{V: at, Valid: true},
+			Stamp: stamp{at: at},
+			Doc:   map[string]any{"m": map[string]any{"z": true}, "k": []any{1.0}},
+		}
+	}
+
+	cases := []struct {
+		name   string
+		change func(*values)
+		want   string
+	}{
+		{"NaN stays NaN", func(*values) {}, ""},
+		{"NaN to a number", func(v *values) { v.F = 1 }, "F"},
+		{"float32 NaN to a number", func(v *values) { v.F32 = 1 }, "F32"},
+		{"NaN through a pointer", func(v *values) { *v.P = 1 }, "P"},
+		{"NaN in a slice", func(v *values) { v.Arr[1] = 2 }, "Arr"},
+		{"sql.Null time in another zone", func(v *values) { v.When.V = at.In(zone) }, ""},
+		{
+			"sql.Null time at another instant",
+			func(v *values) {
+				v.When.V = at.Add(time.Second)
+			},
+			"When",
+		},
+		{"unexported time in another zone", func(v *values) { v.Stamp.at = at.In(zone) }, ""},
+		{"unexported time at another instant", func(v *values) { v.Stamp.at = at.Add(1) }, "Stamp"},
+		{
+			"a map inside an any",
+			func(v *values) {
+				v.Doc["m"].(map[string]any)["z"] = false
+			},
+			"Doc",
+		},
+		{"a slice inside an any", func(v *values) { v.Doc["k"].([]any)[0] = 2.0 }, "Doc"},
+		{"a nil any", func(v *values) { v.Doc["k"] = nil }, "Doc"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			v := newValues()
+			e := New().Track(meta.Of[values](), unsafe.Pointer(v), Unchanged)
+			c.change(v)
+
+			got := ""
+
+			if names := changed(e); len(names) > 0 {
+				got = names[0]
+			}
+
+			if got != c.want {
+				t.Errorf("changed = %q, want %q", got, c.want)
+			}
+		})
 	}
 }

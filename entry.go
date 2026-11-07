@@ -49,7 +49,8 @@ func MarkModified[T any](ctx context.Context, h Handle, entity *T) error {
 	return mark(ctx, h, entity, track.Modified)
 }
 
-// Remove schedules an entity for deletion by the next SaveChanges.
+// Remove schedules an entity for deletion by the next SaveChanges. An entity
+// added and never saved is let go instead, as it has no row to delete.
 func Remove[T any](ctx context.Context, h Handle, entity *T) error {
 	return mark(ctx, h, entity, track.Deleted)
 }
@@ -74,6 +75,13 @@ func mark[T any](ctx context.Context, h Handle, entity *T, state track.State) er
 	}
 
 	defer release()
+
+	if e := s.tracker.Get(unsafe.Pointer(entity)); state == track.Deleted && e != nil &&
+		e.State == track.Added {
+		s.tracker.Remove(unsafe.Pointer(entity))
+
+		return nil
+	}
 
 	s.tracker.Track(model, unsafe.Pointer(entity), state)
 

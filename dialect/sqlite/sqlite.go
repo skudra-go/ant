@@ -31,6 +31,7 @@ var syntax = dialect.Syntax{
 	ValuesUnion:   true,
 	UTCTimes:      true,
 	MaxParameters: 32766,
+	NoArrayParams: true,
 }
 
 func (impl) Name() string       { return "sqlite" }

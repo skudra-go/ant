@@ -683,6 +683,22 @@ func (i *IndexBuilder) Desc() *IndexBuilder {
 	return i
 }
 
+// NullsFirst puts NULLs first in the most recently added column, which only a
+// column going up needs, as one going down has them first already.
+func (i *IndexBuilder) NullsFirst() *IndexBuilder { return i.nulls(true) }
+
+// NullsLast puts NULLs last in the most recently added column, which only a
+// column going down needs, as one going up has them last already.
+func (i *IndexBuilder) NullsLast() *IndexBuilder { return i.nulls(false) }
+
+func (i *IndexBuilder) nulls(first bool) *IndexBuilder {
+	if n := len(i.index.Parts); n > 0 {
+		i.index.Parts[n-1].NullsFirst = &first
+	}
+
+	return i
+}
+
 // Unique makes the index unique.
 func (i *IndexBuilder) Unique() *IndexBuilder {
 	i.index.Unique = true

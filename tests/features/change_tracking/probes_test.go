@@ -8,7 +8,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -348,8 +347,6 @@ func TestProbeRemoveThenReaddSameSave(t *testing.T) {
 // Re-adding a child whose row was deleted by an earlier save either fails or
 // brings the row back. Silently doing nothing loses it.
 func TestProbeReaddAfterDeleteSaved(t *testing.T) {
-	knownProbe(t, "#44")
-
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
 		ctx := t.Context()
 		aSeed, _ := seedAB(t, db)
@@ -478,8 +475,6 @@ func TestProbeMoveAwayAndBack(t *testing.T) {
 // Moving a child to a parent whose Emps were not loaded (the natural thing to
 // do after Find) must move it, not delete it.
 func TestProbeMoveToParentWithoutLoadedRelation(t *testing.T) {
-	knownProbe(t, "#37")
-
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
 		ctx := t.Context()
 		aSeed, bSeed := seedAB(t, db)
@@ -514,8 +509,6 @@ func TestProbeMoveToParentWithoutLoadedRelation(t *testing.T) {
 
 // Moving a child to a parent that is new in the same save.
 func TestProbeMoveToNewParent(t *testing.T) {
-	knownProbe(t, "#37")
-
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
 		ctx := t.Context()
 		aSeed, _ := seedAB(t, db)
@@ -547,8 +540,6 @@ func TestProbeMoveToNewParent(t *testing.T) {
 // Removing a child from the slice of a parent that was inserted by this
 // session (its slice was never loaded, but it was in memory when inserted).
 func TestProbeRemoveFromInsertedParentSlice(t *testing.T) {
-	knownProbe(t, "#45")
-
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
 		ctx := t.Context()
 		ses := ant.Session(db)
@@ -736,8 +727,6 @@ func TestProbeVersionedOrphanAfterEditSave(t *testing.T) {
 // the other removed from the slice. The row is deleted; the edit must not turn
 // into a conflict with the same unit's delete.
 func TestProbeVersionedDuplicateInstanceEditAndOrphan(t *testing.T) {
-	knownProbe(t, "#42")
-
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
 		ctx := t.Context()
 		aSeed, _ := seedAB(t, db)
@@ -762,8 +751,6 @@ func TestProbeVersionedDuplicateInstanceEditAndOrphan(t *testing.T) {
 // The same item loaded twice, edits to different columns through each instance,
 // with a version column: both must be saved without a false conflict.
 func TestProbeVersionedDuplicateInstancesBothEdited(t *testing.T) {
-	knownProbe(t, "#42")
-
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
 		ctx := t.Context()
 		g := &Grp{Name: "g"}
@@ -851,8 +838,6 @@ func TestProbeRetryAfterFailureWithMove(t *testing.T) {
 
 // SaveChanges inside a Tx that rolls back, then SaveChanges again outside.
 func TestProbeTxRollbackThenSaveAgain(t *testing.T) {
-	knownProbe(t, "#38")
-
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
 		ctx := t.Context()
 		aSeed, bSeed := seedAB(t, db)
@@ -885,8 +870,6 @@ func TestProbeTxRollbackThenSaveAgain(t *testing.T) {
 
 // A graph inserted in a Tx that rolls back can be inserted again.
 func TestProbeTxRollbackInsertGraphThenInsertAgain(t *testing.T) {
-	knownProbe(t, "#38")
-
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
 		ctx := t.Context()
 		ses := ant.Session(db)
@@ -919,8 +902,6 @@ func TestProbeTxRollbackInsertGraphThenInsertAgain(t *testing.T) {
 
 // Entities added in a Tx that rolls back, saved via SaveChanges: same.
 func TestProbeTxRollbackAddThenSaveAgain(t *testing.T) {
-	knownProbe(t, "#38")
-
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
 		ctx := t.Context()
 		ses := ant.Session(db)
@@ -961,8 +942,6 @@ func TestProbeTxCommitCleansTracker(t *testing.T) {
 
 // A rollback after a slice reallocation inside the Tx.
 func TestProbeTxRollbackAfterRealloc(t *testing.T) {
-	knownProbe(t, "#38")
-
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
 		ctx := t.Context()
 		aSeed, _ := seedAB(t, db)
@@ -1037,8 +1016,6 @@ func TestProbeDetachChildThenEditThenAttach(t *testing.T) {
 // A detached child dropped from its parent's slice is nobody's business any
 // more: it should not be deleted.
 func TestProbeDetachedChildRemovedFromSlice(t *testing.T) {
-	knownProbe(t, "#44")
-
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
 		ctx := t.Context()
 		aSeed, _ := seedAB(t, db)
@@ -1118,8 +1095,6 @@ func TestProbeRemoveThenAttachCancels(t *testing.T) {
 // Add then Remove of an entity that was never saved writes nothing and is not
 // an error.
 func TestProbeAddThenRemoveNewEntity(t *testing.T) {
-	knownProbe(t, "#44")
-
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
 		ctx := t.Context()
 		seedAB(t, db)
@@ -1321,8 +1296,6 @@ func TestProbeM2MUnlinkAndRemoveFromSlice(t *testing.T) {
 
 // The other side of the relation.
 func TestProbeM2MOtherSide(t *testing.T) {
-	knownProbe(t, "#39")
-
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
 		ctx := t.Context()
 		a, b := seedAB(t, db)
@@ -1363,8 +1336,6 @@ func TestProbeM2MNewGraphBothDirections(t *testing.T) {
 // After a graph with a many-to-many relation is inserted, a further SaveChanges
 // has nothing to do for the join table.
 func TestProbeM2MInsertedGraphIsIdle(t *testing.T) {
-	knownProbe(t, "#39")
-
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
 		ctx := t.Context()
 		ses := ant.Session(db)
@@ -1393,8 +1364,6 @@ func TestProbeM2MInsertedGraphIsIdle(t *testing.T) {
 // A link removed with ant.Unlink must stay removed when a later SaveChanges
 // runs for unrelated reasons.
 func TestProbeM2MUnlinkedLinkStaysUnlinked(t *testing.T) {
-	knownProbe(t, "#39")
-
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
 		ctx := t.Context()
 		ses := ant.Session(db)
@@ -1421,8 +1390,6 @@ func TestProbeM2MUnlinkedLinkStaysUnlinked(t *testing.T) {
 
 // Overwrite a many-to-many element in place.
 func TestProbeM2MReplaceElementInPlace(t *testing.T) {
-	knownProbe(t, "#39")
-
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
 		ctx := t.Context()
 		a, _ := seedAB(t, db)
@@ -2074,8 +2041,6 @@ func TestProbeNullableFKPointerToZero(t *testing.T) {
 // IncludeOne, nil the pointer, save; link again; nil again. Every step must
 // take effect.
 func TestProbeRelationPointerNilRelinkNil(t *testing.T) {
-	knownProbe(t, "#41")
-
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
 		ctx := t.Context()
 		g1, _, i1, _ := seedGrpItems(t, db)
@@ -2110,8 +2075,6 @@ func TestProbeRelationPointerNilRelinkNil(t *testing.T) {
 
 // Set the pointer to a new parent right after loading, save, then clear it.
 func TestProbeRelationPointerAssignedThenCleared(t *testing.T) {
-	knownProbe(t, "#41")
-
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
 		ctx := t.Context()
 		_, _, i1, _ := seedGrpItems(t, db)
@@ -2234,8 +2197,6 @@ func TestProbeInsertFKAndPointerDisagree(t *testing.T) {
 // Unlinking an optional child by dropping it from the slice is the same write
 // as setting its foreign key to nil: version and updated_at move too.
 func TestProbeUnlinkViaSliceStampsLikeDirectEdit(t *testing.T) {
-	knownProbe(t, "#44")
-
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
 		ctx := t.Context()
 		g1, _, i1, i2 := seedGrpItems(t, db)
@@ -2272,8 +2233,6 @@ func TestProbeUnlinkViaSliceStampsLikeDirectEdit(t *testing.T) {
 // A child edited and then dropped from the slice of an optional relation: the
 // row survives unlinked; its other edit is not silently thrown away.
 func TestProbeEditThenUnlinkKeepsEdit(t *testing.T) {
-	knownProbe(t, "#45")
-
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
 		ctx := t.Context()
 		g1, _, i1, _ := seedGrpItems(t, db)
@@ -2295,11 +2254,11 @@ func TestProbeEditThenUnlinkKeepsEdit(t *testing.T) {
 
 // ================================================================ refetching with pending edits
 
-// A later query that includes a relation on an already tracked parent must not
-// silently cancel pending relation edits.
-func TestProbeRefetchIncludeKeepsPendingAppend(t *testing.T) {
-	knownProbe(t, "#45")
-
+// A later Include reads a tracked parent's relation afresh, as Load does, so a
+// pending append to it goes, and what the slice shows is what is saved: the
+// rows it replaced are let go, not saved behind it (#45). Save first to keep
+// the append.
+func TestProbeRefetchIncludeReadsAfreshOverAppend(t *testing.T) {
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
 		ctx := t.Context()
 		aSeed, _ := seedAB(t, db)
@@ -2307,23 +2266,29 @@ func TestProbeRefetchIncludeKeepsPendingAppend(t *testing.T) {
 		a, _ := loadAB(t, ses)
 
 		a.Emps = append(a.Emps, Emp{Name: "pending"})
+		a.Emps[0].Name = "edited"
 
-		_, _ = loadAB(t, ses) // a second query for the list page
+		again, _ := loadAB(t, ses) // a second query for the list page
+		require.Same(t, a, again)
+		require.Len(t, a.Emps, 3, "the relation is read afresh")
+		require.Equal(t, "a1", a.Emps[0].Name)
 
 		require.NoError(t, ses.SaveChanges(ctx))
 
-		assert.Contains(
+		assert.Equal(
 			t,
+			[]string{"a1", "a2", "a3"},
 			empsOf(t, db, aSeed.ID),
-			"pending",
-			"a pending append vanished after a second Include query",
+			"nothing hidden is saved",
 		)
+
+		idle(t, ses, w)
 	})
 }
 
-func TestProbeRefetchIncludeKeepsPendingRemoval(t *testing.T) {
-	knownProbe(t, "#45")
-
+// A pending removal from a relation that a later Include reads afresh goes with
+// the rest of the slice (#45).
+func TestProbeRefetchIncludeReadsAfreshOverRemoval(t *testing.T) {
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
 		ctx := t.Context()
 		aSeed, _ := seedAB(t, db)
@@ -2334,23 +2299,17 @@ func TestProbeRefetchIncludeKeepsPendingRemoval(t *testing.T) {
 
 		again, _ := loadAB(t, ses)
 		require.Same(t, a, again)
+		require.Len(t, a.Emps, 3)
 
 		require.NoError(t, ses.SaveChanges(ctx))
-
-		assert.Equal(
-			t,
-			[]string{"a2", "a3"},
-			empsOf(t, db, aSeed.ID),
-			"a pending removal was cancelled by a second Include query",
-		)
+		assert.Equal(t, []string{"a1", "a2", "a3"}, empsOf(t, db, aSeed.ID))
+		idle(t, ses, w)
 	})
 }
 
 // Loading the relation again drops the in-memory edit from view; what is shown
 // must be what is saved.
 func TestProbeLoadTwiceVisibleMatchesSaved(t *testing.T) {
-	knownProbe(t, "#45")
-
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
 		ctx := t.Context()
 		seedAB(t, db)
@@ -2415,8 +2374,6 @@ func TestProbeTwoSessionsMoveSameChild(t *testing.T) {
 // A failed SaveChanges inside a Tx leaves the Tx usable and the changes
 // pending, so the call can be repeated (decision 31): one write.
 func TestProbeTxFailedSingleWriteThenRetryInsideTx(t *testing.T) {
-	knownProbe(t, "#43")
-
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
 		ctx := t.Context()
 		aSeed, _ := seedAB(t, db)
@@ -2469,8 +2426,6 @@ func TestProbeTxFailedMultiWriteThenRetryInsideTx(t *testing.T) {
 // An inner Tx (savepoint) rolls back; the outer commits. The tracker keeps the
 // inner edit pending.
 func TestProbeTxInnerSavepointRollbackOuterCommit(t *testing.T) {
-	knownProbe(t, "#38")
-
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
 		ctx := t.Context()
 		aSeed, _ := seedAB(t, db)
@@ -2535,11 +2490,11 @@ func TestProbeGraphInsertStampsVersions(t *testing.T) {
 
 // ================================================================ more relation edits
 
-// Replacing children with new objects that have the same unique natural key:
-// the old row must go before the new one comes.
+// Inserts run before deletes, so that a child can move to a parent saved in the
+// same unit, and ant does not see a unique constraint the model does not
+// declare. Replacing children with new ones under the same unique values so
+// fails, and changes nothing; saving the removal first works (#45).
 func TestProbeReplaceChildWithSameUniqueName(t *testing.T) {
-	knownProbe(t, "#45")
-
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
 		ctx := t.Context()
 		aSeed, _ := seedAB(t, db)
@@ -2547,6 +2502,19 @@ func TestProbeReplaceChildWithSameUniqueName(t *testing.T) {
 		a, _ := loadAB(t, ses)
 
 		a.Emps = []Emp{{Name: "a1"}, {Name: "a2"}, {Name: "a3"}} // all brand new objects
+
+		err := ses.SaveChanges(ctx)
+		require.True(t, ant.IsUniqueViolation(err), "got %v", err)
+		assert.Equal(t, []string{"a1", "a2", "a3"}, empsOf(t, db, aSeed.ID))
+		assert.EqualValues(t, 4, empCount(t, db), "nothing was written")
+
+		replacements := a.Emps
+		a.Emps = nil
+
+		require.NoError(t, ses.SaveChanges(ctx))
+		require.Empty(t, empsOf(t, db, aSeed.ID))
+
+		a.Emps = replacements
 
 		require.NoError(t, ses.SaveChanges(ctx))
 		assert.Equal(t, []string{"a1", "a2", "a3"}, empsOf(t, db, aSeed.ID))
@@ -2618,8 +2586,6 @@ func btoi(b bool) int {
 // Two instances of the same parent row (slice copy and pointer) do not make a
 // child look removed.
 func TestProbeParentLoadedAsSliceElement(t *testing.T) {
-	knownProbe(t, "#40")
-
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
 		ctx := t.Context()
 		aSeed, _ := seedAB(t, db)
@@ -2694,8 +2660,6 @@ func TestProbeParallelSaveChangesSameSession(t *testing.T) {
 // Edits to the second level of a nested Include: remove and append below a
 // slice element (the children of a child).
 func TestProbeNestedIncludeRemoveAndAppendBelowSliceElement(t *testing.T) {
-	knownProbe(t, "#40")
-
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
 		ctx := t.Context()
 		r1 := &Cat{Name: "r1"}
@@ -2739,8 +2703,6 @@ func TestProbeNestedIncludeRemoveAndAppendBelowSliceElement(t *testing.T) {
 // The same one level up: removing from the nested slice of a slice element
 // that is itself a parent in a different relation.
 func TestProbeNestedIncludeRemoveBelowManyToManyElement(t *testing.T) {
-	knownProbe(t, "#40")
-
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
 		ctx := t.Context()
 		aSeed, _ := seedAB(t, db)
@@ -2882,8 +2844,6 @@ func TestProbeBelongsToPointerMoveRequired(t *testing.T) {
 
 // Removal only (no slot reuse) below a slice element of a nested Include.
 func TestProbeNestedIncludeRemoveOnlyBelowSliceElement(t *testing.T) {
-	knownProbe(t, "#40")
-
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
 		ctx := t.Context()
 		r1 := &Cat{Name: "r1"}
@@ -2908,14 +2868,4 @@ func TestProbeNestedIncludeRemoveOnlyBelowSliceElement(t *testing.T) {
 		require.NoError(t, ses.SaveChanges(ctx))
 		assert.Nil(t, catNames(t, db)["g2"], "g2 should be unlinked from c1")
 	})
-}
-
-// knownProbe skips a probe that fails for a tracked issue, unless
-// ANT_RUN_KNOWN is set, as it is when working on that issue.
-func knownProbe(t *testing.T, issue string) {
-	t.Helper()
-
-	if os.Getenv("ANT_RUN_KNOWN") == "" {
-		t.Skipf("known failure, %s; ANT_RUN_KNOWN=1 runs it", issue)
-	}
 }

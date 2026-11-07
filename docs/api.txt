@@ -114,6 +114,8 @@ ant: func (i *IndexBuilder) Concurrently() *IndexBuilder
 ant: func (i *IndexBuilder) Desc() *IndexBuilder
 ant: func (i *IndexBuilder) Include[V any](field *V) *IndexBuilder
 ant: func (i *IndexBuilder) Name(name string) *IndexBuilder
+ant: func (i *IndexBuilder) NullsFirst() *IndexBuilder
+ant: func (i *IndexBuilder) NullsLast() *IndexBuilder
 ant: func (i *IndexBuilder) Unique() *IndexBuilder
 ant: func (i *IndexBuilder) Using(method string) *IndexBuilder
 ant: func (i *IndexBuilder) Where(condition string) *IndexBuilder
@@ -829,7 +831,9 @@ schema: func (c AddCheck) String() string
 schema: func (c AddCheck) Warning() string
 schema: func (c AddColumn) String() string
 schema: func (c AddColumn) Warning() string
+schema: func (c AddEnumValue) RunsOnline() bool
 schema: func (c AddEnumValue) String() string
+schema: func (c AddEnumValue) Warning() string
 schema: func (c AddForeignKey) String() string
 schema: func (c AddForeignKey) Warning() string
 schema: func (c AddPrimaryKey) String() string
@@ -838,6 +842,8 @@ schema: func (c AddUnique) Warning() string
 schema: func (c AlterColumn) Replaces() bool
 schema: func (c AlterColumn) String() string
 schema: func (c AlterColumn) Warning() string
+schema: func (c AlterSequence) String() string
+schema: func (c AlterSequence) Warning() string
 schema: func (c CreateEnum) String() string
 schema: func (c CreateIndex) RunsOnline() bool
 schema: func (c CreateIndex) String() string
@@ -856,12 +862,15 @@ schema: func (c DropPrimaryKey) String() string
 schema: func (c DropSequence) String() string
 schema: func (c DropTable) String() string
 schema: func (c DropTable) Warning() string
+schema: func (c MoveTable) String() string
 schema: func (c RemoveEnumValue) String() string
 schema: func (c RemoveEnumValue) Warning() string
 schema: func (c RenameColumn) String() string
 schema: func (c RenameConstraint) String() string
 schema: func (c RenameIndex) String() string
 schema: func (c RenameTable) String() string
+schema: func (c ReorderEnum) String() string
+schema: func (c ReorderEnum) Warning() string
 schema: func (c SetColumnComment) String() string
 schema: func (c SetTableComment) String() string
 schema: func (h Hint) Change() Change
@@ -880,10 +889,13 @@ schema: func (s *Schema) Table(ref Ref) *Table
 schema: func (t *Table) Column(name string) *Column
 schema: func (t *Table) Ref() Ref
 schema: func Backfill(d Dialect, p *Plan)
+schema: func CheckNames(d Dialect, c Change) error
+schema: func Comment(text string) string
 schema: func Decode(data []byte) (*Schema, error)
 schema: func Diff(from, to *Schema, renames ...string) (*Plan, error)
 schema: func ForeignKeyName(d Dialect, table string, columns ...string) string
 schema: func IndexName(d Dialect, table string, columns ...string) string
+schema: func NullsOrder(desc, first bool) string
 schema: func Of(d any) (Dialect, error)
 schema: func PrimaryKeyName(d Dialect, table string) string
 schema: func Script(d Dialect, p *Plan) (string, error)
@@ -896,6 +908,7 @@ schema: type AddForeignKey
 schema: type AddPrimaryKey
 schema: type AddUnique
 schema: type AlterColumn
+schema: type AlterSequence
 schema: type Change
 schema: type Check
 schema: type Column
@@ -921,6 +934,7 @@ schema: type Hint
 schema: type Index
 schema: type IndexPart
 schema: type Key
+schema: type MoveTable
 schema: type Online
 schema: type Partition
 schema: type Plan
@@ -931,6 +945,7 @@ schema: type RenameColumn
 schema: type RenameConstraint
 schema: type RenameIndex
 schema: type RenameTable
+schema: type ReorderEnum
 schema: type Schema
 schema: type Sequence
 schema: type SetColumnComment

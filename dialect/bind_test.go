@@ -2,11 +2,14 @@ package dialect_test
 
 import (
 	"database/sql"
+	"database/sql/driver"
 	"reflect"
 	"testing"
 
 	"github.com/skudra-go/ant/dialect"
 	"github.com/skudra-go/ant/dialect/postgres"
+	"github.com/skudra-go/ant/dialect/sqlite"
+	"github.com/skudra-go/ant/qb"
 )
 
 func TestBind(t *testing.T) {
@@ -134,4 +137,52 @@ func TestBindErrors(t *testing.T) {
 			}
 		})
 	}
+}
+
+// temp converts itself only through a pointer, as a Value method with a pointer
+// receiver does, which database/sql would not find on the value it is given.
+type temp struct{ milli int64 }
+
+func (t *temp) Value() (driver.Value, error) { return t.milli, nil }
+
+func TestPointerValuersAreBoundByPointer(t *testing.T) {
+	check := func(t *testing.T, args []any) {
+		t.Helper()
+
+		for _, a := range args {
+			v, ok := a.(driver.Valuer)
+			if !ok {
+				t.Fatalf("%T is not a Valuer", a)
+			}
+
+			if got, err := v.Value(); err != nil || got != int64(7) {
+				t.Errorf("Value() = %v, %v", got, err)
+			}
+		}
+	}
+
+	_, args, err := dialect.Bind(postgres.Dialect, "SELECT $1", []any{temp{7}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	check(t, args)
+
+	_, args, err = postgres.Dialect.Render(&qb.Select{
+		Columns: []qb.Selected{{Value: qb.Param{Value: temp{7}}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	check(t, args)
+
+	_, args, err = sqlite.Dialect.Render(&qb.Select{
+		Columns: []qb.Selected{{Value: qb.Param{Value: qb.Secret{V: temp{7}}}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	check(t, args)
 }

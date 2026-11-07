@@ -117,6 +117,7 @@ func (Post) Configure(b *ant.ModelBuilder[Post]) {
     b.Column(&P.Code).Collation("C").Unique()
 
     b.Index(&P.AuthorID).And(&P.CreatedAt).Desc()  // composite, descending
+    b.Index(&P.Views).Desc().NullsLast()           // NULLS LAST, or NullsFirst()
     b.Index(&P.Slug).Unique()
     b.Index(&P.PublishedAt).Where("deleted_at IS NULL").Name("posts_live_idx")
     b.Index(&P.Tags).Using("gin")
@@ -146,7 +147,7 @@ b.ForeignKey(ant.F(&L.OrderID), ant.F(&L.Region)).        // a key of several co
     References(ant.F(&O.ID), ant.F(&O.Region)).OnDelete(ant.Cascade)
 ```
 
-Migrations create enums and sequences before the tables that use them. A new enum value is one `ALTER TYPE`. Removing a value needs a person, because rows may hold it, so `diff` warns and writes nothing for it. `drift` compares only the enums and sequences models declare, so a type created by hand does not count against you.
+Migrations create enums and sequences before the tables that use them. A new enum value is one `ALTER TYPE`, placed `BEFORE` the value that follows it in the models, so the enum sorts as they list it. PostgreSQL lets a transaction use a value it added only once the value is committed, so a file that adds a value and uses it, in a default, a check, or an index, runs without a transaction, and says so; to keep one, add the value in a migration of its own. Removing a value, or reordering existing ones, needs a person, because rows may hold them and PostgreSQL cannot reorder, so `diff` warns and writes nothing for it. A sequence whose increment or start changes is altered in place, and keeps its current value. `drift` compares only the enums and sequences models declare, so a type created by hand does not count against you.
 
 `ant:"default=0"` is a short form of `.Default("0")`, and `ant:"unique"` of `.Unique()`.
 
@@ -173,7 +174,11 @@ Models on one table merge into one table definition, which is how `b.Discriminat
 ALTER TABLE "users" DROP COLUMN "bio";
 ```
 
-**New required columns work on tables with rows.** A new `NOT NULL` column takes the field's zero value in existing rows, then stops having a default, so the column ends up as the model declares it. Edit the value if zero is wrong.
+**New required columns work on tables with rows.** A new `NOT NULL` column takes the field's zero value in existing rows, then stops having a default, so the column ends up as the model declares it. An enum column takes the enum's first value. Edit the value if zero is wrong.
+
+**Type changes keep defaults and keys working.** A column's default is dropped before its type changes and set again after, since the old one may not cast to the new type, and an identity column is made a plain one, or the other way round, in the order PostgreSQL needs. A foreign key whose columns, or the columns it points at, change type is dropped first and made again last. A column moves from one enum to another through text. A generated column is dropped before a column it reads changes type or goes, and added again after.
+
+**Names.** A name longer than PostgreSQL keeps, 63 bytes, would be cut without a word, and two long names could become one, so `diff` refuses it and says which. ant shortens the names it makes up itself.
 
 ```sql
 -- WARNING: existing rows of users get 0 in age. Change the DEFAULT below to fill them differently.
@@ -188,21 +193,23 @@ go run ./cmd/migrate diff rename_bio --rename users.bio=about
 go run ./cmd/migrate diff rename_table --rename users=people
 ```
 
-Without either, the file warns and shows the statement to use instead, so you can edit it by hand. Constraints and indexes follow a rename by themselves, and are renamed, not rebuilt. The new name must be one the models have and the snapshot does not, in the same schema, so a misspelled `--rename users=peple` stops `diff` with the names it could have meant, and writes nothing.
+Without either, the file warns and shows the statement to use instead, so you can edit it by hand. Constraints and indexes follow a rename by themselves, and are renamed, not rebuilt, and so do the expressions of indexes, checks, and generated columns that name a renamed column. The new name must be one the models have and the snapshot does not, in the same schema, so a misspelled `--rename users=peple` stops `diff` with the names it could have meant, and writes nothing.
+
+Renames go together: table renames first, so a column can be named under its table's old name or its new one, as `--rename users.bio=about --rename users=people`, and two names can swap, as `--rename t.a=b --rename t.b=a`, which goes through a spare name. `--rename sales.orders=archive.orders` moves a table to the schema `archive`, if the models have it. A name with a dot in it is found as it is, or can be quoted, as `--rename '"a.b"=c'`.
 
 **Generated columns keep what depends on them.** PostgreSQL before 17 cannot change a generated column's expression, so a new one means dropping the column and adding it again, and the drop takes its indexes and constraints with it. The file drops them first and makes them again after, along with foreign keys that point at the column, or at a unique index rebuilt with it. Such a file must run whole or not at all, so every index in it is built in its transaction, even with `Concurrently()`, and a warning names each one that asked to be built online. To build one online anyway, give it a migration of its own.
 
 ```sql
 DROP INDEX "badges_label_slug_idx";
 
--- WARNING: badges.slug gets a new expression, so it is dropped and added again, which rewrites the table and rebuilds its indexes and constraints.
+-- WARNING: badges.slug gets a new expression, so it is dropped and added again further down, which rewrites the table and rebuilds its indexes and constraints.
 ALTER TABLE "badges" DROP COLUMN "slug";
 ALTER TABLE "badges" ADD COLUMN "slug" text NOT NULL GENERATED ALWAYS AS (lower(trim(label))) STORED;
 
 CREATE INDEX "badges_label_slug_idx" ON "badges" ("label", "slug");
 ```
 
-A column that stops being generated keeps its values, with `ALTER COLUMN ... DROP EXPRESSION`.
+A column that stops being generated keeps its values, with `ALTER COLUMN ... DROP EXPRESSION`, which runs before the columns it read change.
 
 **Generated SQL is a starting point.** The file is yours. This is the usual reason to edit one: `slug` is required and unique, and the generated file would give every existing post the same empty value.
 

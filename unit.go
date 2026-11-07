@@ -29,6 +29,14 @@ type node struct {
 	forced  bool          // write every field, from MarkModified
 	links   []fkLink      // foreign keys to fill before writing
 	changed []*meta.Field // fields written by UPDATE
+	// scratch says entity is a private copy of the entry's row, as orphan and
+	// vacate make, which the unit may write into as into the entity itself.
+	scratch bool
+	// linked holds the foreign keys of an untracked row put into a loaded
+	// relation, written even if they hold the parent's key already, so a row
+	// that is gone, as one this context deleted, fails rather than vanishing.
+	linked []*meta.Field
+	walked bool // its relations were followed, as InsertOnly's are not
 
 	generated []*meta.Field // filled by the database in this unit
 	stamped   []*meta.Field // filled in Go in this unit
@@ -99,6 +107,9 @@ type unit struct {
 	nodes  map[unsafe.Pointer]*node
 	order  []*node // in discovery order
 	pivots []pivotChange
+	// versions holds the version each versioned row has after a write of this
+	// unit, so that another instance of the row is written over it.
+	versions map[rowID]reflect.Value
 	// dry plans the unit without changing any entity, for HasChanges.
 	dry bool
 }
@@ -168,7 +179,7 @@ func pivotDelete(p *meta.Pivot, local any, foreign []any) *qb.Delete {
 }
 
 func newUnit(s *state) *unit {
-	return &unit{s: s, nodes: map[unsafe.Pointer]*node{}}
+	return &unit{s: s, nodes: map[unsafe.Pointer]*node{}, versions: map[rowID]reflect.Value{}}
 }
 
 func (u *unit) add(model *meta.Model, entity unsafe.Pointer) *node {
@@ -253,8 +264,11 @@ func (u *unit) collect() error {
 // current reports whether n has not been replaced during reconciliation.
 func (u *unit) current(n *node) bool { return u.nodes[n.entity] == n }
 
-// claims finds, by key, the entity that each loaded relation holds, so a row
-// moved to another parent is not mistaken for one removed.
+// claims finds, by key, the entity that each relation of a tracked entity holds,
+// so a row moved to another parent is not mistaken for one removed. A relation
+// counts whether it was loaded or not, and a parent whether it is new or not,
+// so a child moved to a parent added in this save, or to one whose relation was
+// never loaded, is moved there.
 func (u *unit) claims() (map[rowID]unsafe.Pointer, error) {
 	claimed := map[rowID]unsafe.Pointer{}
 
@@ -263,8 +277,8 @@ func (u *unit) claims() (map[rowID]unsafe.Pointer, error) {
 			continue
 		}
 
-		for r := range n.entry.Members {
-			if r.Pivot != nil {
+		for _, r := range n.model.Relations {
+			if r.Kind != meta.Many || r.Pivot != nil || r.Empty(n.entity) {
 				continue
 			}
 
@@ -322,6 +336,14 @@ func (u *unit) reconcile(n *node, claimed map[rowID]unsafe.Pointer) error {
 					remove: true,
 				})
 
+				u.vacate(entry)
+
+				continue
+			}
+
+			// A child the application detached is no longer the tracker's to
+			// delete or unlink, and one it removed is deleted as it asked.
+			if entry == nil || !u.s.tracker.Tracks(entry) || entry.State == track.Deleted {
 				continue
 			}
 
@@ -338,6 +360,28 @@ func (u *unit) reconcile(n *node, claimed map[rowID]unsafe.Pointer) error {
 	return nil
 }
 
+// vacate lets go of the node of a target unlinked from a many-to-many relation
+// whose memory holds another row now, as when its slice element was set to
+// another target: the row itself is not written, and its entry is forgotten
+// once the save commits, as the memory is not its own any longer.
+func (u *unit) vacate(entry *track.Entry) {
+	if entry == nil || entry.Holds(entry.Entity) {
+		return
+	}
+
+	u.drop(entry)
+
+	copied := entry.Scratch()
+	n := &node{
+		model:   entry.Model,
+		entity:  copied,
+		entry:   entry,
+		scratch: true,
+	}
+	u.nodes[copied] = n
+	u.order = append(u.order, n)
+}
+
 // isNew reports whether a related entity the tracker does not know must be
 // inserted rather than linked: it has no key yet, or one the application chose.
 func isNew(model *meta.Model, entity unsafe.Pointer) bool {
@@ -348,6 +392,8 @@ func isNew(model *meta.Model, entity unsafe.Pointer) bool {
 
 // walk follows a node's relations, scheduling new entities and foreign keys.
 func (u *unit) walk(n *node) error {
+	n.walked = true
+
 	for _, r := range n.model.Relations {
 		if r.Pivot != nil && r.Pivot.ReadOnly {
 			continue
@@ -368,9 +414,12 @@ func (u *unit) walk(n *node) error {
 			}
 		}
 
+		// A pointer that held a parent when last loaded or saved, and is empty
+		// now, unlinks; one that was empty then leaves the key to the
+		// application, which may have set it directly.
 		if n.entry != nil && r.Kind == meta.One {
-			if _, loaded := n.entry.Parents[r]; loaded && link.BelongsTo && r.Empty(n.entity) &&
-				nullable(link.Local) {
+			if parent, loaded := n.entry.Parents[r]; loaded && parent != nil && link.BelongsTo &&
+				r.Empty(n.entity) && nullable(link.Local) {
 				u.unlink(n, link.Local)
 			}
 		}
@@ -431,6 +480,11 @@ func (u *unit) follow(n *node, r *meta.Relation, link meta.Link, entity unsafe.P
 
 	switch {
 	case u.unmoved(n, r, link, entity):
+	case r.Kind == meta.Many && r.Pivot == nil && !link.BelongsTo && other.entry == nil &&
+		!other.insert && u.tracksRelation(n, r):
+		other.links = append(other.links, fkLink{n, link.Foreign, link.Local})
+		other.linked = append(other.linked, link.Foreign)
+		u.morph(other, r)
 	case r.Pivot != nil:
 		u.pivots = append(u.pivots, pivotChange{
 			r:      r,
@@ -491,18 +545,39 @@ func (u *unit) unmoved(n *node, r *meta.Relation, link meta.Link, entity unsafe.
 }
 
 // orphan schedules a child removed from its relation, working from a private
-// copy of the snapshot, because its slice element may hold another row by now.
-// As in EF Core, a required child is deleted and an optional one is unlinked.
+// copy, because its slice element may hold another row by now. As in EF Core, a
+// required child is deleted and an optional one is unlinked, which writes its
+// version and UpdatedAt as any update does. Where the element still holds the
+// child, the copy is of what it holds, so an edit made before the child left
+// the slice is saved with the unlink; otherwise the copy is of the snapshot.
 func (u *unit) orphan(link meta.Link, entry *track.Entry) {
 	u.drop(entry)
-	copied := entry.Scratch()
-	n := &node{model: link.Target, entity: copied, entry: entry}
+
+	copied, edited := entry.Scratch(), []*meta.Field(nil)
+
+	if entry.Holds(entry.Entity) {
+		copied, edited = entry.Current(), entry.Changed()
+	}
+
+	n := &node{
+		model:   link.Target,
+		entity:  copied,
+		entry:   entry,
+		scratch: true,
+	}
 	u.nodes[copied] = n
 	u.order = append(u.order, n)
 
 	if nullable(link.Foreign) {
 		link.Foreign.Value(copied).SetZero()
-		n.changed = []*meta.Field{link.Foreign}
+
+		n.changed = append(
+			slices.DeleteFunc(edited, func(f *meta.Field) bool {
+				return f == link.Foreign
+			}),
+			link.Foreign,
+		)
+
 		n.forced = true
 
 		return
@@ -673,6 +748,12 @@ func (n *node) pending(assigned []*meta.Field) []*meta.Field {
 	case n.changed != nil:
 		return n.changed
 	case n.entry == nil:
+		for _, f := range n.linked {
+			if !slices.Contains(assigned, f) {
+				assigned = append(assigned, f)
+			}
+		}
+
 		return assigned
 	case n.forced:
 		return n.model.Updatable()
@@ -711,6 +792,10 @@ func (u *unit) writesAnything() bool {
 			return true
 		}
 
+		if len(n.linked) > 0 {
+			return true
+		}
+
 		for _, l := range n.links {
 			key, ok := l.source.Key(l.parent.entity)
 			if current, set := l.field.Key(n.entity); ok && (!set || current != key) {
@@ -746,7 +831,9 @@ func (u *unit) run(ctx context.Context) error {
 
 	u.s.wrote()
 
-	err = u.s.transact(ctx, count > 1 || u.hooked(), func(to exec.Executor) error {
+	// Inside a transaction, even one write goes in a savepoint, so a failed
+	// save leaves the transaction usable, to be retried as SaveChanges promises.
+	err = u.s.transact(ctx, count > 1 || u.hooked() || u.s.tx != nil, func(to exec.Executor) error {
 		for i := 0; i < len(order); {
 			if batch := u.insertBatch(ctx, order[i:]); len(batch) > 1 {
 				if err := u.createMany(ctx, to, batch); err != nil {
@@ -1302,7 +1389,7 @@ func (u *unit) update(ctx context.Context, to exec.Executor, n *node) error {
 	}
 
 	if updated := n.model.Updated; updated != nil && !slices.Contains(n.changed, updated) {
-		if entity := n.entity; n.entry != nil && entity == n.entry.Entity {
+		if entity := n.entity; n.owns() {
 			n.restore = append(n.restore, prior{updated, copyOf(updated, entity)})
 			setTime(updated, entity, u.s.settings.timestamp())
 
@@ -1310,7 +1397,7 @@ func (u *unit) update(ctx context.Context, to exec.Executor, n *node) error {
 		}
 	}
 
-	where = append(where, n.tokenConditions()...)
+	where = append(where, u.tokenConditions(n)...)
 	u.bumpVersion(n)
 
 	stmt := &qb.Update{Table: n.model.Table, Where: where}
@@ -1322,11 +1409,23 @@ func (u *unit) update(ctx context.Context, to exec.Executor, n *node) error {
 		)
 	}
 
-	return u.writeOne(ctx, to, n, stmt)
+	if err := u.writeOne(ctx, to, n, stmt); err != nil {
+		return err
+	}
+
+	u.wroteVersion(n)
+
+	return nil
 }
 
+// owns reports whether the unit may write into n's entity: the entry's own, or a
+// private copy of its row.
+func (n *node) owns() bool { return n.entry != nil && (n.entity == n.entry.Entity || n.scratch) }
+
 // tokenConditions requires the row to still hold the values this entity loaded.
-func (n *node) tokenConditions() []qb.Cond {
+// The version is the one an earlier write of this unit gave the row, if any, as
+// when another instance of the row was saved first.
+func (u *unit) tokenConditions(n *node) []qb.Cond {
 	if n.entry == nil || n.entry.Original() == nil {
 		return nil
 	}
@@ -1335,6 +1434,13 @@ func (n *node) tokenConditions() []qb.Cond {
 
 	for _, f := range n.model.Tokens() {
 		value := f.Value(n.entry.Original()).Interface()
+
+		if f == n.model.Version {
+			if written, ok := u.versions[n.row()]; ok {
+				value = written.Interface()
+			}
+		}
+
 		if isNull(value) {
 			out = append(out, qb.IsNull{Left: n.model.Col(f)})
 		} else {
@@ -1348,20 +1454,48 @@ func (n *node) tokenConditions() []qb.Cond {
 	return out
 }
 
-// bumpVersion moves the version field on, restoring it if the unit fails.
+// bumpVersion moves the version field on, restoring it if the unit fails. It
+// starts from the version an earlier write of this unit gave the row, if any,
+// as when two instances of one row are both saved.
 func (u *unit) bumpVersion(n *node) {
 	v := n.model.Version
-	if v == nil || n.entry == nil || n.entity != n.entry.Entity {
+	if v == nil || !n.owns() {
 		return
 	}
 
 	n.restore = append(n.restore, prior{v, copyOf(v, n.entity)})
 
 	value := v.Value(n.entity)
+
+	if written, ok := u.versions[n.row()]; ok {
+		value.Set(written)
+	}
+
 	value.SetInt(value.Int() + 1)
 
 	if !slices.Contains(n.changed, v) {
 		n.changed = append(n.changed, v)
+	}
+}
+
+// row returns the identity of n's row, by the key it was loaded with.
+func (n *node) row() rowID {
+	source := n.entity
+
+	if n.entry != nil && n.entry.Original() != nil {
+		source = n.entry.Original()
+	}
+
+	key, _ := n.model.KeyOf(source)
+
+	return rowID{n.model, key}
+}
+
+// wroteVersion records the version n's row holds after n's write, for another
+// instance of the row written later in the unit.
+func (u *unit) wroteVersion(n *node) {
+	if v := n.model.Version; v != nil && n.owns() {
+		u.versions[n.row()] = copyOf(v, n.entity)
 	}
 }
 
@@ -1375,7 +1509,7 @@ func (u *unit) delete(ctx context.Context, to exec.Executor, n *node) error {
 		return fmt.Errorf("%w: %s", ErrReadOnly, n.model.Type.Name())
 	}
 
-	where = append(where, n.tokenConditions()...)
+	where = append(where, u.tokenConditions(n)...)
 
 	if soft := n.model.SoftDelete; soft != nil {
 		deleted := meta.DeletedAt{
@@ -1440,6 +1574,11 @@ func (u *unit) commit() {
 			}
 		case entry == nil && wrote && u.s.settings.tracking && len(n.model.Keys) > 0:
 			undo = append(undo, tracker.Added(n.model, n.entity, u.undoing(n)))
+
+			// Its relations are remembered below, as a loaded entity's are.
+			if added := tracker.Get(n.entity); added != nil && n.insert {
+				n.entry = added
+			}
 		}
 	}
 
@@ -1452,16 +1591,46 @@ func (u *unit) commit() {
 	u.s.record(undo...)
 }
 
-// remember records what a node's loaded relations hold now.
+// remember records what a node's relations hold now: those the tracker saw
+// loaded, those of an entity this unit inserted with its relations, which it
+// knows in full, as EF Core does, and each pointer to a parent that is set, so
+// that clearing it later unlinks. A pointer the tracker knew that is empty now is remembered
+// empty, so that setting it again and clearing it is seen too.
 func (u *unit) remember(n *node) track.Change {
 	entry := n.entry
 	oldMembers, oldParents := entry.Members, entry.Parents
 
 	members := make(map[*meta.Relation]map[any]*track.Entry, len(oldMembers))
+	parents := make(map[*meta.Relation]any, len(oldParents))
 
-	for r := range oldMembers {
+	for _, r := range n.model.Relations {
+		if r.Pivot != nil && r.Pivot.ReadOnly {
+			continue
+		}
+
 		link, err := linkFor(r)
 		if err != nil {
+			continue
+		}
+
+		if r.Kind == meta.One {
+			_, known := oldParents[r]
+			if !known && (!n.walked || r.Empty(n.entity)) {
+				continue
+			}
+
+			var key any
+
+			for _, entity := range r.Related(n.entity) {
+				key, _ = link.Target.KeyOf(entity)
+			}
+
+			parents[r] = key
+
+			continue
+		}
+
+		if _, known := oldMembers[r]; !known && (!n.insert || !n.walked || r.Empty(n.entity)) {
 			continue
 		}
 
@@ -1474,21 +1643,6 @@ func (u *unit) remember(n *node) track.Change {
 		}
 
 		members[r] = current
-	}
-
-	parents := make(map[*meta.Relation]any, len(oldParents))
-
-	for r := range oldParents {
-		link, err := linkFor(r)
-		if err != nil {
-			continue
-		}
-
-		for _, entity := range r.Related(n.entity) {
-			if key, ok := link.Target.KeyOf(entity); ok {
-				parents[r] = key
-			}
-		}
 	}
 
 	return entry.SetLinks(members, parents)

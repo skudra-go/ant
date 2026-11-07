@@ -38,7 +38,7 @@ func indirect(t reflect.Type) bool {
 	}
 
 	switch t.Kind() {
-	case reflect.Pointer, reflect.Slice, reflect.Map:
+	case reflect.Pointer, reflect.Slice, reflect.Map, reflect.Interface:
 		return true
 	case reflect.Struct:
 		for sf := range t.Fields() {
@@ -88,6 +88,16 @@ func deepCopy(v reflect.Value) reflect.Value {
 		for iter := v.MapRange(); iter.Next(); {
 			out.SetMapIndex(iter.Key(), deepCopy(iter.Value()))
 		}
+
+		return out
+	case reflect.Interface:
+		// Such as the maps and slices that JSON decodes into an any.
+		if v.IsNil() {
+			return v
+		}
+
+		out := reflect.New(v.Type()).Elem()
+		out.Set(deepCopy(v.Elem()))
 
 		return out
 	case reflect.Struct:
@@ -151,7 +161,7 @@ func buildComparer(t reflect.Type) comparer {
 	case reflect.TypeFor[bool]():
 		return same[bool]
 	case reflect.TypeFor[float64]():
-		return same[float64]
+		return func(a, b unsafe.Pointer) bool { return sameFloat(*(*float64)(a), *(*float64)(b)) }
 	case reflect.TypeFor[*string]():
 		return samePointer[string]
 	case reflect.TypeFor[*int]():
@@ -180,11 +190,124 @@ func buildComparer(t reflect.Type) comparer {
 	}
 
 	return func(a, b unsafe.Pointer) bool {
-		return reflect.DeepEqual(
-			reflect.NewAt(t, a).Elem().Interface(),
-			reflect.NewAt(t, b).Elem().Interface(),
-		)
+		return sameValue(reflect.NewAt(t, a).Elem(), reflect.NewAt(t, b).Elem())
 	}
+}
+
+// sameFloat reports whether a and b are the same value. NaN is not equal to
+// itself, but a NaN that stays one is no change.
+func sameFloat(a, b float64) bool { return a == b || a != a && b != b }
+
+// sameValue is reflect.DeepEqual as change tracking needs it: a NaN is the same
+// as a NaN, and a time is the same as another at that instant, in any zone, as
+// in a time.Time field. Nil and empty differ, as NULL and empty do.
+func sameValue(a, b reflect.Value) bool {
+	if a.IsValid() != b.IsValid() || a.IsValid() && a.Type() != b.Type() {
+		return false
+	}
+
+	if !a.IsValid() {
+		return true
+	}
+
+	if x, y, ok := times(a, b); ok {
+		return x.Equal(y)
+	}
+
+	switch a.Kind() {
+	case reflect.Float32, reflect.Float64:
+		return sameFloat(a.Float(), b.Float())
+	case reflect.Complex64, reflect.Complex128:
+		x, y := a.Complex(), b.Complex()
+
+		return sameFloat(real(x), real(y)) && sameFloat(imag(x), imag(y))
+	case reflect.Pointer:
+		if a.IsNil() || b.IsNil() || a.UnsafePointer() == b.UnsafePointer() {
+			return a.IsNil() == b.IsNil()
+		}
+
+		return sameValue(a.Elem(), b.Elem())
+	case reflect.Interface:
+		if a.IsNil() || b.IsNil() {
+			return a.IsNil() == b.IsNil()
+		}
+
+		return sameValue(a.Elem(), b.Elem())
+	case reflect.Slice:
+		if a.IsNil() != b.IsNil() || a.Len() != b.Len() {
+			return false
+		}
+
+		// Bytes, as of a named []byte, at once.
+		if a.Type().Elem().Kind() == reflect.Uint8 {
+			return bytes.Equal(a.Bytes(), b.Bytes())
+		}
+
+		fallthrough
+	case reflect.Array:
+		for i := range a.Len() {
+			if !sameValue(a.Index(i), b.Index(i)) {
+				return false
+			}
+		}
+
+		return true
+	case reflect.Map:
+		if a.IsNil() != b.IsNil() || a.Len() != b.Len() {
+			return false
+		}
+
+		for iter := a.MapRange(); iter.Next(); {
+			other := b.MapIndex(iter.Key())
+			if !other.IsValid() || !sameValue(iter.Value(), other) {
+				return false
+			}
+		}
+
+		return true
+	case reflect.Struct:
+		for i := range a.NumField() {
+			if !sameValue(a.Field(i), b.Field(i)) {
+				return false
+			}
+		}
+
+		return true
+	case reflect.Func, reflect.Chan, reflect.UnsafePointer:
+		return a.Pointer() == b.Pointer()
+	case reflect.Bool:
+		return a.Bool() == b.Bool()
+	case reflect.String:
+		return a.String() == b.String()
+	}
+
+	switch {
+	case a.CanInt():
+		return a.Int() == b.Int()
+	case a.CanUint():
+		return a.Uint() == b.Uint()
+	}
+
+	return false
+}
+
+// times returns a and b as times if they are. A time in an unexported field is
+// read through its address, which reflect allows where it forbids Interface; one
+// that has neither is compared field by field.
+func times(a, b reflect.Value) (time.Time, time.Time, bool) {
+	switch {
+	case a.Type() != timeType:
+		return time.Time{}, time.Time{}, false
+	case a.CanInterface() && b.CanInterface():
+		x, _ := reflect.TypeAssert[time.Time](a)
+		y, _ := reflect.TypeAssert[time.Time](b)
+
+		return x, y, true
+	case a.CanAddr() && b.CanAddr():
+		return *(*time.Time)(a.Addr().UnsafePointer()), *(*time.Time)(b.Addr().UnsafePointer()), true
+	}
+
+	return time.Time{}, time.Time{}, false
 }
 
 func equal(f *meta.Field, a, b unsafe.Pointer) bool {

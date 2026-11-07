@@ -331,10 +331,16 @@ func (b *schemaBuilder) index(t *schema.Table, index *meta.Index) (*schema.Index
 	var names []string
 
 	for _, part := range index.Parts {
+		nulls := ""
+
+		if part.NullsFirst != nil {
+			nulls = schema.NullsOrder(part.Desc, *part.NullsFirst)
+		}
+
 		if part.Field != nil {
 			out.Parts = append(
 				out.Parts,
-				schema.IndexPart{Column: part.Field.Column, Desc: part.Desc},
+				schema.IndexPart{Column: part.Field.Column, Desc: part.Desc, Nulls: nulls},
 			)
 
 			names = append(names, part.Field.Column)
@@ -342,7 +348,10 @@ func (b *schemaBuilder) index(t *schema.Table, index *meta.Index) (*schema.Index
 			continue
 		}
 
-		out.Parts = append(out.Parts, schema.IndexPart{Expr: part.Expr, Desc: part.Desc})
+		out.Parts = append(
+			out.Parts,
+			schema.IndexPart{Expr: part.Expr, Desc: part.Desc, Nulls: nulls},
+		)
 	}
 
 	for _, f := range index.Include {

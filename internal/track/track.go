@@ -41,6 +41,7 @@ type Entry struct {
 	snapshot unsafe.Pointer
 	id       identity
 	keyed    bool
+	gone     bool // let go of, as by Detach, until tracked again
 	seq      uint64
 	// columns and links hold the writes to the entry's stored values and to
 	// its relations that a transaction may yet take back.
@@ -107,6 +108,10 @@ func (e *Entry) Scratch() unsafe.Pointer {
 
 	return snapshotOf(e.Model, e.snapshot)
 }
+
+// Current returns a private copy of the entity as it is now, which a caller may
+// change. Relations are left out, as in a snapshot.
+func (e *Entry) Current() unsafe.Pointer { return snapshotOf(e.Model, e.Entity) }
 
 // Saved records a state and snapshot as saved, and returns the change.
 func (e *Entry) Saved(state State) Change { return e.saved(state, nil) }
@@ -724,6 +729,16 @@ func (t *Tracker) Get(entity unsafe.Pointer) *Entry {
 	return t.entries[entity]
 }
 
+// Tracks reports whether e is still tracked, which it is not once detached or
+// forgotten. An entry whose address another took, as when a slice shifted,
+// still is.
+func (t *Tracker) Tracks(e *Entry) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	return !e.gone
+}
+
 // Find returns the first tracked instance with the given key, or nil.
 func (t *Tracker) Find(m *meta.Model, key any) *Entry {
 	t.mu.Lock()
@@ -839,6 +854,8 @@ func (t *Tracker) undoDeletion(id identity, gone []*Entry) Change {
 }
 
 func (t *Tracker) forget(e *Entry) {
+	e.gone = true
+
 	if t.entries[e.Entity] == e {
 		delete(t.entries, e.Entity)
 	}
@@ -864,6 +881,7 @@ func (t *Tracker) restore(e *Entry) {
 	}
 
 	t.entries[e.Entity] = e
+	e.gone = false
 
 	if e.keyed {
 		if _, seen := t.first[e.id]; !seen {
@@ -876,6 +894,10 @@ func (t *Tracker) restore(e *Entry) {
 func (t *Tracker) Clear() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
+	for _, e := range t.entries {
+		e.gone = true
+	}
 
 	clear(t.entries)
 	clear(t.first)

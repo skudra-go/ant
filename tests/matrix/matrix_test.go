@@ -23,32 +23,8 @@ import (
 // guard refuses before any SQL runs, so an entry is checked as a whole: one that
 // matches combinations but sees none fail as it says is fixed, and fails the
 // test, so that the list only holds what is still broken. A combination may
-// match several entries, as a recursive Count on SQL Server does, which fails
-// for one issue or the other by its paging, and its failure goes to the entry
-// whose error it is.
-var known = []*knownFailure{
-	{
-		pattern: regexp.MustCompile(`^TestMatrix/mariadb/.*/offset_3/(Update|Delete)$`),
-		fails: regexp.MustCompile(
-			`^Error 1235 \(42000\): This version of MariaDB doesn't yet support 'LIMIT & IN/ALL/ANY/SOME subquery'$`,
-		),
-		issue: "#22",
-	},
-	{
-		pattern: regexp.MustCompile(`^TestMatrix/sqlserver/(FromCTE|Recursive)/.*/(Count|Exists)$`),
-		fails: regexp.MustCompile(
-			`^ant: not supported by this database: WITH inside a subquery on sqlserver$`,
-		),
-		issue: "#23",
-	},
-	{
-		pattern: regexp.MustCompile(
-			`^TestMatrix/sqlserver/Recursive/.*/(All|First|Include|Count|Exists)$`,
-		),
-		fails: regexp.MustCompile(`^mssql: Incorrect syntax near 'ant_tree'\. \(102\)$`),
-		issue: "#46",
-	},
-}
+// match several entries, and its failure goes to the entry whose error it is.
+var known = []*knownFailure{}
 
 type knownFailure struct {
 	pattern, fails  *regexp.Regexp

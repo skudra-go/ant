@@ -282,6 +282,24 @@ func conditions() []condition {
 			},
 		),
 		atom(
+			"score in nil,5",
+			func() ant.Cond {
+				return ant.In(&A.Score, nil, ptr(5))
+			},
+			func(a *Author) tri {
+				return truth(a.Score == nil || *a.Score == 5)
+			},
+		),
+		atom(
+			"score not in nil,5",
+			func() ant.Cond {
+				return ant.NotIn(&A.Score, nil, ptr(5))
+			},
+			func(a *Author) tri {
+				return truth(a.Score != nil && *a.Score != 5)
+			},
+		),
+		atom(
 			"score<>nil",
 			func() ant.Cond {
 				return ant.Ne(&A.Score, (*int)(nil))
