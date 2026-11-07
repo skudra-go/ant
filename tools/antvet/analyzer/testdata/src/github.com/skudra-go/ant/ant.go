@@ -77,6 +77,18 @@ type Join2[A, B any] struct{}
 func (j *Join2[A, B]) Where(c ...Cond) *Join2[A, B]                  { return j }
 func (j *Join2[A, B]) OrderBy[V any](field *V) *Join2[A, B]          { return j }
 func (j *Join2[A, B]) Select[R any](f func(*A, *B) R) *Projection[R] { return nil }
+func (j *Join2[A, B]) JoinOn[C any](on ...Cond) *Join3[A, B, C]      { return nil }
+
+type Join3[A, B, C any] struct{}
+
+func (j *Join3[A, B, C]) JoinOn[D any](on ...Cond) *Join4[A, B, C, D] { return nil }
+
+type Join4[A, B, C, D any] struct{}
+
+func (j *Join4[A, B, C, D]) Where(c ...Cond) *Join4[A, B, C, D] { return j }
+func (j *Join4[A, B, C, D]) Select[R any](f func(*A, *B, *C, *D) R) *Projection[R] {
+	return nil
+}
 
 func JoinSub[T, J any](q *Query[T], sub *Query[J], on ...Cond) *Join2[T, J]     { return nil }
 func JoinLateral[T, J any](q *Query[T], sub *Query[J], on ...Cond) *Join2[T, J] { return nil }

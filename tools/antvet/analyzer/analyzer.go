@@ -991,7 +991,7 @@ func queryModels(t types.Type) []types.Type {
 	}
 
 	switch named.Obj().Name() {
-	case "Query", "Table", "Join2", "Join3":
+	case "Query", "Table", "Join2", "Join3", "Join4":
 	default:
 		return nil
 	}
@@ -1316,7 +1316,8 @@ func joins(name string) bool {
 }
 
 // isQuery reports whether t is a query, which a function may run or build on,
-// rather than a condition or an expression made of one.
+// rather than a condition or an expression made of one. A grouped query is one,
+// as ant.Project takes it.
 func isQuery(t types.Type) bool {
 	named := antType(t)
 	if named == nil {
@@ -1324,7 +1325,7 @@ func isQuery(t types.Type) bool {
 	}
 
 	switch named.Obj().Name() {
-	case "Query", "Table", "Join2", "Join3", "Projection":
+	case "Query", "Table", "Join2", "Join3", "Join4", "Grouped", "Projection":
 		return true
 	}
 
@@ -1342,14 +1343,32 @@ func builder(t types.Type) bool { return antType(t) != nil }
 // whose models are unknown, such as a grouped query, or a function of one's own,
 // makes the scope unknown. So does an outermost query that does not run where
 // the analyzer can see it, since it may itself be a subquery of something built
-// elsewhere.
+// elsewhere. The walk ends at a statement: what is held in a variable, or built
+// in a statement of its own, is used where the analyzer does not follow it. Only
+// what a function literal returns, as an Include shape does, goes on to the call
+// the literal is given to, since that is the call's query.
 func (c *checker) outerModels(stack []ast.Node) ([]types.Type, bool) {
 	var (
 		out       []types.Type
 		outermost = -1
 	)
 
+walk:
 	for i := len(stack) - 2; i >= 0; i-- {
+		switch stack[i].(type) {
+		case *ast.ReturnStmt:
+			lit := returnedFrom(stack, i)
+			if lit < 0 {
+				break walk
+			}
+
+			i = lit
+
+			continue
+		case ast.Stmt:
+			break walk
+		}
+
 		call, ok := stack[i].(*ast.CallExpr)
 		if !ok || !isArg(call, stack[i+1]) {
 			continue
@@ -1398,6 +1417,23 @@ func (c *checker) outerModels(stack []ast.Node) ([]types.Type, bool) {
 	return out, true
 }
 
+// returnedFrom returns where in stack the function literal is whose return
+// statement is stack[i], or -1 if that returns from a declared function.
+func returnedFrom(stack []ast.Node, i int) int {
+	for j := i - 1; j >= 0; j-- {
+		if _, ok := stack[j].(*ast.FuncLit); ok {
+			return j
+		}
+
+		// Past the blocks, branches, and loops the return sits in.
+		if _, ok := stack[j].(ast.Stmt); !ok {
+			return -1
+		}
+	}
+
+	return -1
+}
+
 // joinsLater reports whether the query goes on to a join, by a method of its
 // chain or of an outer one, or as the query a join function such as ant.JoinSub
 // takes first, since a condition can come before the join that brings its model
@@ -1433,6 +1469,8 @@ func checkFind(pass *analysis.Pass, call *ast.CallExpr) {
 		return
 	}
 
+	// An alias of a model has the key of the model it stands for.
+	model = types.Unalias(model)
 	path := "ID"
 
 	if named, ok := model.(*types.Named); ok {

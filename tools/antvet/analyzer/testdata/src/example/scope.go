@@ -29,11 +29,16 @@ func aggregates(ctx context.Context, users *ant.Table[User], posts *ant.Table[Po
 func wrapped(ctx context.Context, users *ant.Table[User], posts *ant.Table[Post]) {
 	ant.Project[Post](posts.Where(ant.Gt(&P.UserID, 1))).All(ctx)
 	users.Where(ant.Exists(ant.Project[Post](posts.Where(ant.Gt(&U.Age, 18))))).All(ctx)
+	ant.Project[Post](posts.Where(ant.Gt(&P.UserID, 1)).GroupBy(&P.UserID)).All(ctx)
+	users.Where(ant.Exists(ant.Project[Post](posts.Where(ant.Gt(&U.Age, 18)).GroupBy(&P.UserID)))).All(ctx)
 	ant.Merge(users, posts.Where(ant.Gt(&P.UserID, 1)), ant.EqCol(&U.ID, &P.UserID)).
 		WhenMatched(ant.Set(&U.Age, 1)).
 		Exec(ctx)
 
 	ant.Project[Post](posts.Where(ant.Gt(&U.Age, 18))).All(ctx)                                                             // want `condition on User in a query of Post`
+	ant.Project[Post](posts.Where(ant.Gt(&U.Age, 18)).GroupBy(&P.UserID)).All(ctx)                                          // want `condition on User in a query of Post`
+	ant.Project[Post](posts.Where(ant.Gt(&U.Age, 18)).GroupBy(&P.UserID).Having()).All(ctx)                                 // want `condition on User in a query of Post`
+	ant.Project[Post](posts.Where().GroupBy(&U.Age)).All(ctx)                                                               // want `GroupBy on a field of User in a query of Post`
 	ant.Merge(users, posts.Where(ant.Gt(&U.Age, 1)), ant.EqCol(&U.ID, &P.UserID)).WhenMatched(ant.Set(&U.Age, 1)).Exec(ctx) // want `condition on User in a query of Post`
 
 	user := &User{}
@@ -51,6 +56,12 @@ func joined(
 ) {
 	title := func(p *Post, u *User) string { return "" }
 	byUser := func(u *User, p *Post) string { return "" }
+	four := func(p *Post, u *User, d *Doc, c *models.Country) string { return "" }
+
+	posts.Where().LeftJoin(&P.User).JoinOn[Doc]().JoinOn[models.Country]().
+		Where(ant.Eq(&D.Slug, "x"), ant.Eq(&models.Co.Code, "x")).
+		Select(four).
+		All(ctx)
 
 	ant.JoinSub(posts.Where(ant.Eq(&U.Name, "x")), users.Where(), ant.EqCol(&P.UserID, &U.ID)).
 		Select(title).
@@ -75,6 +86,7 @@ func joined(
 		All(ctx)
 
 	ant.JoinSub(posts.Where(), users.Where(ant.Eq(&P.ID, "x")), ant.EqCol(&P.UserID, &U.ID)).Select(title).All(ctx)                // want `condition on Post in a query of User`
+	posts.Where().LeftJoin(&P.User).JoinOn[Doc]().JoinOn[models.Country]().Where(ant.Eq(&Pa.A, int64(1))).Select(four).All(ctx)    // want `condition on Pair in a query of Post and User and Doc and Country`
 	ant.JoinLateral(users.Where(), posts.Where(ant.Eq(&models.Co.Code, "x")), ant.EqCol(&P.UserID, &U.ID)).Select(byUser).All(ctx) // want `condition on Country in a query of Post`
 	posts.Where().LeftJoin(&P.User).Where(ant.Eq(&models.Co.Code, "x")).Select(title).All(ctx)                                     // want `condition on Country in a query of Post and User`
 	posts.Where().LeftJoin(&P.User).OrderBy(&models.Co.Code).Select(title).All(ctx)                                                // want `OrderBy on a field of Country in a query of Post and User`
@@ -96,6 +108,14 @@ func methods(ctx context.Context, users *ant.Table[User], posts *ant.Table[Post]
 		return q.Where(ant.Gt(&U.Age, 18))
 	}).All(ctx)
 
+	// A query built apart inside a shape may end up inside the shape's query,
+	// so it is not judged by the query the shape is given to.
+	users.Where().Include(&U.Posts, func(q *ant.Query[Post]) *ant.Query[Post] {
+		inner := users.Where(ant.Gt(&P.UserID, 1))
+
+		return q.Where(ant.Exists(inner))
+	}).All(ctx)
+
 	posts.Where(ant.Gt(&U.Age, 18)).OrderBy[string](&P.ID).All(ctx)          // want `condition on User in a query of Post`
 	posts.Where().OrderBy[int](&U.Age).All(ctx)                              // want `OrderBy on a field of User in a query of Post`
 	posts.OrderBy(&U.Name).All(ctx)                                          // want `OrderBy on a field of User in a query of Post`
@@ -108,6 +128,15 @@ func methods(ctx context.Context, users *ant.Table[User], posts *ant.Table[Post]
 	posts.Where(ant.Gt(&U.Age, 1)).Update(ctx, ant.Set(&P.UserID, 1))        // want `condition on User in a query of Post`
 	users.Where().Include(&U.Posts, func(q *ant.Query[Post]) *ant.Query[Post] {
 		return q.Where(ant.Eq(&models.Co.Code, "x")) // want `condition on Country in a query of Post`
+	}).All(ctx)
+	users.Where().Include(&U.Posts, func(q *ant.Query[Post]) *ant.Query[Post] {
+		if useCode {
+			return q.Where(ant.Eq(&models.Co.Code, "x")) // want `condition on Country in a query of Post`
+		}
+
+		users.Where(ant.Gt(&P.UserID, 1)).All(ctx) // want `condition on Post in a query of User`
+
+		return q
 	}).All(ctx)
 
 	user := &User{}

@@ -26,6 +26,13 @@ type Post struct {
 // Member is User under another name, as a test package might alias a fixture.
 type Member = User
 
+// CountryAlias and DocAlias stand for models whose keys Configure sets, in
+// another package and in this one.
+type (
+	CountryAlias = models.Country
+	DocAlias     = Doc
+)
+
 // Doc's key is a slug filled in Go.
 type Doc struct { // want Doc:"key Slug"
 	ID   int64
@@ -240,6 +247,8 @@ func keys(
 	fluent *ant.Table[Fluent],
 	early *ant.Table[Early],
 	aliased *ant.Table[Aliased],
+	countryAliases *ant.Table[CountryAlias],
+	docAliases *ant.Table[DocAlias],
 ) {
 	fluent.Find(ctx, "LV")
 	fluent.Find(ctx, 1) // want `Find key is int, and Fluent has a key of type string`
@@ -252,6 +261,12 @@ func keys(
 	helped.Find(ctx, "LV")
 	coded.Find(ctx, int64(7))
 	coded.Find(ctx, "7") // want `Find key is string, and Coded has a key of type int64`
+
+	// An alias has the key of the model it stands for.
+	countryAliases.Find(ctx, "LV")
+	docAliases.Find(ctx, "a-slug")
+	countryAliases.Find(ctx, 1) // want `Find key is int, and Country has a key of type string`
+	docAliases.Find(ctx, 1)     // want `Find key is int, and Doc has a key of type string`
 }
 
 func bad(
