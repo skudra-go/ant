@@ -125,14 +125,27 @@ func (r *renderer) bind(v any) {
 	r.write(r.d.Placeholder(len(r.args)))
 }
 
+// derived runs after a derived table is written, with read saying whether a
+// sure read of the written table came before it. A sure read found inside it
+// counts only as one that may need the wrapper: MySQL 8.0 and 8.4 materialize
+// such a derived table before the write, though the manual says the optimizer
+// may merge one into the outer query. So the subquery is still wrapped where it
+// can be, but not refused where it cannot.
+func (r *renderer) derived(read bool) {
+	if r.read && !read {
+		r.read, r.maybe = false, true
+	}
+}
+
 func (r *renderer) table(t *qb.TableRef) {
 	if w := r.writing; w != nil && strings.EqualFold(t.Name, w.Name) {
 		switch {
-		case strings.EqualFold(t.Schema, w.Schema):
+		case t.Name == w.Name && t.Schema == w.Schema:
 			r.read = true
-		case t.Schema == "" || w.Schema == "":
-			// The same table only if the one with no schema is in the other's,
-			// which the renderer cannot tell.
+		case strings.EqualFold(t.Schema, w.Schema), t.Schema == "" || w.Schema == "":
+			// The same table only if names that differ in case are folded, as
+			// MySQL's lower_case_table_names decides, and if the one with no
+			// schema is in the other's, neither of which the renderer can tell.
 			r.maybe = true
 		}
 	}
@@ -486,9 +499,12 @@ func (r *renderer) selected(s qb.Selected) {
 func (r *renderer) source(s qb.Source) {
 	switch {
 	case s.Sub != nil:
+		read := r.read
+
 		r.write("(")
 		r.selectStmt(s.Sub)
 		r.write(")")
+		r.derived(read)
 	case s.Name != "":
 		// A name may be the written table itself, or a CTE, which may read it.
 		if r.writing != nil && strings.EqualFold(s.Name, r.writing.Name) {
@@ -1293,7 +1309,7 @@ func (r *renderer) in(c qb.In) {
 	case c.Sub == nil:
 		list(r, c.Values, r.expr)
 	case c.Sub.Limit != nil && r.s.WrapLimitedIn:
-		inner := r.inner
+		inner, read := r.inner, r.read
 		r.inner = true
 
 		r.write("SELECT * FROM (")
@@ -1301,6 +1317,7 @@ func (r *renderer) in(c qb.In) {
 		r.write(") AS limited")
 
 		r.inner = inner
+		r.derived(read)
 	default:
 		r.subquery(c.Sub, false)
 	}

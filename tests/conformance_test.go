@@ -1259,6 +1259,70 @@ func TestConformanceWritesReadingTheirTable(t *testing.T) {
 			}
 		})
 
+		// A star over a join that ordering and an offset read cannot be wrapped,
+		// and where its only read of the table is inside a derived table, which
+		// MySQL materializes, the write runs as it is.
+		t.Run("a star whose only read is in a derived table", func(t *testing.T) {
+			app := fresh(t)
+			users, posts := &qb.TableRef{Name: "users"}, &qb.TableRef{Name: "posts"}
+			userID := qb.Column{Table: posts, Name: "user_id"}
+
+			older := &qb.Select{
+				Columns: []qb.Selected{{Value: qb.Column{Table: users, Name: "id"}}},
+				From:    qb.Source{Table: users},
+				Where: []qb.Cond{qb.Compare{
+					Left:  qb.Column{Table: users, Name: "age"},
+					Op:    qb.OpGt,
+					Right: qb.Param{Value: 28},
+				}},
+			}
+
+			query, args, err := target.Dialect.Render(&qb.Delete{
+				Table: users,
+				Where: []qb.Cond{qb.Exists{
+					Select: &qb.Select{
+						Columns: []qb.Selected{{Value: qb.Star{}}},
+						From:    qb.Source{Table: posts},
+						Joins: []qb.Join{{
+							Source: qb.Source{Table: posts, Alias: "p2"},
+							On: []qb.Cond{qb.Compare{
+								Left:  qb.Column{Table: &qb.TableRef{Name: "p2"}, Name: "id"},
+								Op:    qb.OpEq,
+								Right: qb.Column{Table: posts, Name: "id"},
+							}},
+						}},
+						Where: []qb.Cond{
+							qb.Compare{
+								Left:  userID,
+								Op:    qb.OpEq,
+								Right: qb.Column{Table: users, Name: "id"},
+							},
+							qb.In{
+								Left: userID,
+								Sub: &qb.Select{
+									Columns: []qb.Selected{{Value: qb.Column{Name: "id"}}},
+									From:    qb.Source{Sub: older, Alias: "d"},
+								},
+							},
+						},
+						Order:  []qb.Order{{Value: qb.Column{Table: posts, Name: "id"}}},
+						Offset: new(0),
+					},
+				}},
+			})
+			require.NoError(t, err)
+
+			_, err = target.DB.ExecContext(ctx, query, args...)
+			require.NoError(t, err, query)
+
+			require.Equal(
+				t,
+				map[string]int{"alice": 30, "bob": 25},
+				ages(t, app),
+				"carol, older with a post",
+			)
+		})
+
 		t.Run("a correlated read of the same table", func(t *testing.T) {
 			app := fresh(t)
 			younger := ant.SubOf(app.Posts.Where(ant.EqCol(&P.UserID, &U.ID)), &P.UserID)

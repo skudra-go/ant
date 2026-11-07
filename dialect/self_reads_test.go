@@ -781,3 +781,84 @@ func TestSelfReadsAndSchemas(t *testing.T) {
 		}
 	})
 }
+
+// A read MySQL may not need wrapped does not refuse a star the wrapper cannot
+// take: one of a table whose name differs only in case, which is another table
+// unless lower_case_table_names folds them, and one inside a derived table,
+// which MySQL materializes, LIMITed IN's included. The subquery stays as it was.
+func TestSelfReadsThatAreNotSureAreNotRefused(t *testing.T) {
+	users := &qb.TableRef{Name: "users"}
+	posts := &qb.TableRef{Name: "posts"}
+	userID := qb.Column{Table: posts, Name: "user_id"}
+
+	// A star over a join, ordered and offset, so the wrapper cannot name it.
+	starOverJoin := func(where qb.Cond) *qb.Select {
+		return &qb.Select{
+			Columns: []qb.Selected{{Value: qb.Star{}}},
+			From:    qb.Source{Table: posts},
+			Joins: []qb.Join{{
+				Source: qb.Source{Table: &qb.TableRef{Name: "tags"}},
+				On:     []qb.Cond{qb.Fragment{SQL: "1 = 1"}},
+			}},
+			Where:  []qb.Cond{where},
+			Order:  []qb.Order{{Value: qb.Column{Table: posts, Name: "id"}}},
+			Offset: new(1),
+		}
+	}
+
+	ids := func(from qb.Source) *qb.Select {
+		return &qb.Select{Columns: []qb.Selected{{Value: qb.Column{Name: "id"}}}, From: from}
+	}
+
+	cases := map[string]qb.Cond{
+		"a name that differs in case": qb.In{
+			Left: userID,
+			Sub:  ids(qb.Source{Table: &qb.TableRef{Name: "Users"}}),
+		},
+		"a read inside a derived table": qb.In{
+			Left: userID,
+			Sub:  ids(qb.Source{Sub: ids(qb.Source{Table: users}), Alias: "d"}),
+		},
+		"a read inside a LIMITed IN": qb.In{
+			Left: userID,
+			Sub: &qb.Select{
+				Columns: []qb.Selected{{Value: qb.Column{Table: users, Name: "id"}}},
+				From:    qb.Source{Table: users},
+				Limit:   new(5),
+			},
+		},
+	}
+
+	for name, read := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, _, err := mysql.Dialect.Render(&qb.Delete{
+				Table: users,
+				Where: []qb.Cond{qb.Exists{Select: starOverJoin(read)}},
+			})
+			if err != nil {
+				t.Fatalf("%v, want the write left to MySQL", err)
+			}
+
+			if strings.Contains(got, "materialized") {
+				t.Errorf("wrapped a star it cannot: %s", got)
+			}
+		})
+	}
+
+	t.Run("a sure read beside a derived one still refuses", func(t *testing.T) {
+		both := qb.And{
+			Children: []qb.Cond{
+				cases["a read inside a derived table"],
+				qb.In{Left: userID, Sub: ids(qb.Source{Table: users})},
+			},
+		}
+
+		_, _, err := mysql.Dialect.Render(&qb.Delete{
+			Table: users,
+			Where: []qb.Cond{qb.Exists{Select: starOverJoin(both)}},
+		})
+		if !errors.Is(err, ant.ErrUnsupported) {
+			t.Fatalf("got %v, want ErrUnsupported", err)
+		}
+	})
+}
