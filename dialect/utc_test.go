@@ -368,3 +368,62 @@ func TestPointedValuersAreAskedOnce(t *testing.T) {
 		}
 	}
 }
+
+// changing is built on sql.Null of an interface holding a time, and its Value
+// puts text there in its place, counting its calls.
+type changing struct {
+	sql.Null[any]
+	calls *int
+}
+
+func (c *changing) Value() (driver.Value, error) {
+	*c.calls++
+	c.V = "text"
+
+	return "text", nil
+}
+
+// A Valuer whose Value changes what it holds is still asked once: whether ant
+// asks it is settled before it does.
+func TestChangingValuerIsAskedOnce(t *testing.T) {
+	at := time.Date(2026, 1, 2, 15, 4, 5, 0, time.FixedZone("UTC+3", 3*60*60))
+
+	for _, d := range []dialect.Dialect{sqlite.Dialect, sqlserver.Dialect} {
+		binds := map[string]func(v any) (any, error){
+			"rendered": func(v any) (any, error) {
+				_, args, err := d.Render(
+					&qb.Select{Columns: []qb.Selected{{Value: qb.Param{Value: v}}}},
+				)
+
+				return args[0], err
+			},
+			"bound": func(v any) (any, error) {
+				_, args, err := dialect.Bind(d, "SELECT ?", []any{v})
+
+				return args[0], err
+			},
+		}
+
+		for how, bind := range binds {
+			calls := 0
+			c := &changing{Null: sql.Null[any]{V: at, Valid: true}, calls: &calls}
+
+			arg, err := bind(&c)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			got, err := driver.DefaultParameterConverter.ConvertValue(arg)
+			if got != "text" || err != nil || calls != 1 {
+				t.Errorf(
+					"%s, %s: went on as %#v, %v, asked %d times",
+					d.Name(),
+					how,
+					got,
+					err,
+					calls,
+				)
+			}
+		}
+	}
+}
