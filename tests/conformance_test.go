@@ -1190,6 +1190,49 @@ func TestConformanceTimeShapes(t *testing.T) {
 			require.EqualValues(t, 1, *n)
 		})
 
+		// database/sql reads an sql.Null of a pointer, or of an interface, as
+		// what it holds, so those are times too, stored raw or by an update ant
+		// renders, and read back past ant.
+		t.Run("an sql.Null that holds a time stores the same instant", func(t *testing.T) {
+			args := map[string]any{
+				"sql.Null[*time.Time]":  sql.Null[*time.Time]{V: &at, Valid: true},
+				"sql.Null[any]":         sql.Null[any]{V: at, Valid: true},
+				"sql.Null[any] pointer": sql.Null[any]{V: &at, Valid: true},
+			}
+
+			storedAt := func(t *testing.T) time.Time {
+				t.Helper()
+
+				var stored time.Time
+				require.NoError(t, target.DB.QueryRowContext(ctx,
+					"SELECT legacy FROM moments WHERE id = 2").Scan(&stored))
+
+				return stored
+			}
+
+			for name, arg := range args {
+				_, err := ant.Raw[int64](
+					db,
+					"UPDATE moments SET legacy = ? WHERE id = 2",
+					arg,
+				).Exec(ctx)
+				require.NoError(t, err, name)
+				require.True(t, at.Equal(storedAt(t)), "%s, raw: stored %v", name, storedAt(t))
+
+				_, err = ant.Raw[int64](
+					db,
+					"UPDATE moments SET legacy = NULL WHERE id = 2",
+				).Exec(ctx)
+				require.NoError(t, err)
+
+				_, err = db.Moments.WithDeleted().
+					Where(ant.Eq(&Mo.ID, int64(2))).
+					Update(ctx, ant.SetExpr(&Mo.Legacy, ant.SQL[sql.NullTime]("?", arg)))
+				require.NoError(t, err, name)
+				require.True(t, at.Equal(storedAt(t)), "%s, rendered: stored %v", name, storedAt(t))
+			}
+		})
+
 		t.Run("the stored clock is the same, past ant", func(t *testing.T) {
 			var stored time.Time
 			require.NoError(t, target.DB.QueryRowContext(ctx,

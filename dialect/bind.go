@@ -65,9 +65,10 @@ func bind(d Dialect, query string, args []any) (string, []any, error) {
 }
 
 // utc returns v with its time in UTC, for a database whose columns drop the
-// zone, wherever the time is held: directly, behind a pointer, in sql.Null or
-// sql.NullTime or a type built on one, such as ant.DeletedAt, or in a qb.Secret,
-// which stays one. Anything else, and NULL, comes back as it was.
+// zone, wherever the time is held: directly, behind a pointer, in sql.NullTime
+// or an sql.Null that holds one, or a type built on either, such as
+// ant.DeletedAt, or in a qb.Secret, which stays one. Anything else, and NULL,
+// comes back as it was.
 func utc(v any) any {
 	switch t := v.(type) {
 	case time.Time:
@@ -85,7 +86,7 @@ func utc(v any) any {
 	case driver.Valuer:
 		// database/sql treats a nil pointer as NULL without calling Value.
 		rv := reflect.ValueOf(t)
-		if rv.Kind() == reflect.Pointer && rv.IsNil() || !holdsTime(rv.Type(), nil) {
+		if rv.Kind() == reflect.Pointer && rv.IsNil() || !givesTime(rv, nil) {
 			return v
 		}
 
@@ -135,7 +136,7 @@ func utc(v any) any {
 		// A Valuer at the end was asked already, so what it gave goes on, NULL
 		// and errors included, rather than having it asked again. The chain may
 		// end in an interface, so the Valuer's own type is the one to judge.
-		if _, ok := elem.(driver.Valuer); ok && holdsTime(reflect.TypeOf(elem), nil) {
+		if _, ok := elem.(driver.Valuer); ok && givesTime(reflect.ValueOf(elem), nil) {
 			return out
 		}
 
@@ -155,22 +156,39 @@ type failed struct{ err error }
 func (f failed) Value() (driver.Value, error) { return nil, f.err }
 
 var (
+	timeType   = reflect.TypeFor[time.Time]()
 	nullTime   = reflect.TypeFor[sql.NullTime]()
-	nullOfTime = reflect.TypeFor[sql.Null[time.Time]]()
+	valuerType = reflect.TypeFor[driver.Valuer]()
 )
 
-// holdsTime reports whether a Valuer of type t gives a time: sql.NullTime,
-// sql.Null[time.Time], or a struct built on one, such as ant.DeletedAt. Other
+// givesTime reports whether the Valuer v gives a time: sql.NullTime, an sql.Null
+// of a time or of a pointer to one, an sql.Null of an interface that holds a
+// time now, or a struct built on one of these, such as ant.DeletedAt. Other
 // Valuers, such as JSON or an encrypted value, are left to database/sql, so
 // their Value runs once.
-func holdsTime(t reflect.Type, seen []reflect.Type) bool {
-	for t.Kind() == reflect.Pointer {
-		t = t.Elem()
+func givesTime(v reflect.Value, seen []reflect.Type) bool {
+	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
+		if v.IsNil() {
+			return false
+		}
+
+		v = v.Elem()
 	}
 
+	t := v.Type()
+
 	switch {
-	case t == nullTime || t == nullOfTime:
+	case t == nullTime:
 		return true
+	case t.PkgPath() == "database/sql" && strings.HasPrefix(t.Name(), "Null["):
+		// sql.Null gives what it holds once Valid, as database/sql converts it,
+		// following pointers. What an interface holds is known only now.
+		held := v.FieldByName("V")
+		if held.Kind() != reflect.Interface {
+			return pointsToTime(held.Type())
+		}
+
+		return v.FieldByName("Valid").Bool() && holdsTime(held, seen)
 	case t.Kind() != reflect.Struct || slices.Contains(seen, t):
 		return false // a type that embeds itself holds no time either
 	}
@@ -178,12 +196,41 @@ func holdsTime(t reflect.Type, seen []reflect.Type) bool {
 	seen = append(seen, t)
 
 	for i := range t.NumField() {
-		if f := t.Field(i); f.Anonymous && holdsTime(f.Type, seen) {
+		if t.Field(i).Anonymous && givesTime(v.Field(i), seen) {
 			return true
 		}
 	}
 
 	return false
+}
+
+// holdsTime reports whether v, past pointers and interfaces, is a time or a
+// Valuer that gives one.
+func holdsTime(v reflect.Value, seen []reflect.Type) bool {
+	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
+		if v.IsNil() {
+			return false
+		}
+
+		v = v.Elem()
+
+		// Judged by its type, which a value read through an unexported field
+		// can still give.
+		if v.Type().Implements(valuerType) {
+			return givesTime(v, seen)
+		}
+	}
+
+	return v.Type() == timeType
+}
+
+// pointsToTime reports whether t is a time or a pointer, however deep, to one.
+func pointsToTime(t reflect.Type) bool {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+
+	return t == timeType
 }
 
 func bindNamed(d Dialect, query string, named map[string]any) (string, []any, error) {

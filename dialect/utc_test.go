@@ -22,6 +22,16 @@ type pointerDeleted struct{ at time.Time }
 
 func (s *pointerDeleted) Value() (driver.Value, error) { return s.at, nil }
 
+// pointedNull is built on sql.Null of a *time.Time.
+type pointedNull struct{ sql.Null[*time.Time] }
+
+// hiddenNull is built on an sql.Null of an interface under an unexported name,
+// which reflect may read but not hand out.
+type (
+	nullAny    = sql.Null[any]
+	hiddenNull struct{ nullAny }
+)
+
 // looped embeds a pointer to itself, which database/sql accepts.
 type looped struct{ *looped }
 
@@ -84,6 +94,38 @@ func TestTimesBindInUTC(t *testing.T) {
 		{"sql.Null", sql.Null[time.Time]{V: at, Valid: true}, utc},
 		{"invalid sql.Null is NULL", sql.Null[time.Time]{V: at}, nil},
 		{"sql.NullTime", sql.NullTime{Time: at, Valid: true}, utc},
+		{"sql.Null of a *time.Time", sql.Null[*time.Time]{V: &at, Valid: true}, utc},
+		{"sql.Null of a **time.Time", sql.Null[**time.Time]{V: &pointed, Valid: true}, utc},
+		{"invalid sql.Null of a *time.Time is NULL", sql.Null[*time.Time]{V: &at}, nil},
+		{"a pointer to sql.Null of a *time.Time", &sql.Null[*time.Time]{V: &at, Valid: true}, utc},
+		{"sql.Null of an interface holding a time", sql.Null[any]{V: at, Valid: true}, utc},
+		{"sql.Null of an interface holding a *time.Time", sql.Null[any]{V: &at, Valid: true}, utc},
+		{
+			"sql.Null of an interface holding sql.NullTime",
+			sql.Null[any]{V: sql.NullTime{Time: at, Valid: true}, Valid: true},
+			utc,
+		},
+		{
+			"sql.Null of an interface holding no time",
+			sql.Null[any]{V: 42, Valid: true},
+			sql.Null[any]{V: 42, Valid: true},
+		},
+		{
+			"sql.Null of an interface holding another Valuer",
+			sql.Null[any]{V: other, Valid: true},
+			sql.Null[any]{V: other, Valid: true},
+		},
+		{"invalid sql.Null of an interface", sql.Null[any]{V: at}, sql.Null[any]{V: at}},
+		{
+			"a type built on sql.Null of a *time.Time",
+			pointedNull{sql.Null[*time.Time]{V: &at, Valid: true}},
+			utc,
+		},
+		{
+			"a type built on sql.Null of an interface, unexported",
+			hiddenNull{nullAny{V: at, Valid: true}},
+			utc,
+		},
 		{"a type built on sql.Null", deleted{sql.Null[time.Time]{V: at, Valid: true}}, utc},
 		{"a nil pointer Valuer", nilDeleted, nilDeleted},
 		{"a secret keeps its cover", qb.Secret{V: at}, qb.Secret{V: utc}},
