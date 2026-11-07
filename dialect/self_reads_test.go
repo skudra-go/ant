@@ -50,7 +50,7 @@ func TestSelfReadsAreWrappedOnMySQL(t *testing.T) {
 			"IN the same table",
 			update(qb.In{Left: id, Sub: ofUsers}),
 			"UPDATE `users` SET `age` = ? WHERE `users`.`id` IN (" + wrap +
-				"SELECT `users`.`id` FROM `users`) AS materialized)",
+				"SELECT `users`.`id` FROM `users`) AS materialized(`ant_c1`))",
 		},
 		{
 			"IN another table",
@@ -62,13 +62,13 @@ func TestSelfReadsAreWrappedOnMySQL(t *testing.T) {
 			update(qb.In{Left: id, Sub: sel(userID, posts, qb.In{Left: userID, Sub: ofUsers})}),
 			"UPDATE `users` SET `age` = ? WHERE `users`.`id` IN (" + wrap +
 				"SELECT `posts`.`user_id` FROM `posts` WHERE `posts`.`user_id` IN " +
-				"(SELECT `users`.`id` FROM `users`)) AS materialized)",
+				"(SELECT `users`.`id` FROM `users`)) AS materialized(`ant_c1`))",
 		},
 		{
 			"EXISTS",
 			&qb.Delete{Table: users, Where: []qb.Cond{qb.Exists{Select: ofUsers, Negate: true}}},
 			"DELETE FROM `users` WHERE NOT EXISTS (" + wrap +
-				"SELECT `users`.`id` FROM `users`) AS materialized)",
+				"SELECT `users`.`id` FROM `users`) AS materialized(`ant_c1`))",
 		},
 		{
 			"a value in SET",
@@ -76,13 +76,13 @@ func TestSelfReadsAreWrappedOnMySQL(t *testing.T) {
 				Table: users,
 				Set:   []qb.Assignment{{Column: "age", Value: qb.Subquery{Select: ofUsers}}},
 			},
-			"UPDATE `users` SET `age` = (" + wrap + "SELECT `users`.`id` FROM `users`) AS materialized)",
+			"UPDATE `users` SET `age` = (" + wrap + "SELECT `users`.`id` FROM `users`) AS materialized(`ant_c1`))",
 		},
 		{
 			"a read the table's other spelling names",
 			update(qb.In{Left: id, Sub: sel(id, &qb.TableRef{Schema: "app", Name: "Users"})}),
 			"UPDATE `users` SET `age` = ? WHERE `users`.`id` IN (" + wrap +
-				"SELECT `users`.`id` FROM `app`.`Users`) AS materialized)",
+				"SELECT `users`.`id` FROM `app`.`Users`) AS materialized(`ant_c1`))",
 		},
 		{
 			"raw SQL that names the table",
@@ -93,7 +93,7 @@ func TestSelfReadsAreWrappedOnMySQL(t *testing.T) {
 				},
 			),
 			"UPDATE `users` SET `age` = ? WHERE `users`.`id` IN (" + wrap +
-				"SELECT `posts`.`user_id` FROM `posts` WHERE (user_id IN (SELECT id FROM USERS))) AS materialized)",
+				"SELECT `posts`.`user_id` FROM `posts` WHERE (user_id IN (SELECT id FROM USERS))) AS materialized(`ant_c1`))",
 		},
 		{
 			"raw SQL that quotes the table",
@@ -109,7 +109,7 @@ func TestSelfReadsAreWrappedOnMySQL(t *testing.T) {
 			),
 			"UPDATE `users` SET `age` = ? WHERE `users`.`id` IN (" + wrap +
 				"SELECT `posts`.`user_id` FROM `posts` WHERE (user_id IN (SELECT id FROM `Users`))) " +
-				"AS materialized)",
+				"AS materialized(`ant_c1`))",
 		},
 		{
 			"raw SQL that names the table outside ASCII",
@@ -129,7 +129,7 @@ func TestSelfReadsAreWrappedOnMySQL(t *testing.T) {
 			},
 			"UPDATE `Øl` SET `age` = ? WHERE `users`.`id` IN (" + wrap +
 				"SELECT `posts`.`user_id` FROM `posts` WHERE (user_id IN (SELECT id FROM øl))) " +
-				"AS materialized)",
+				"AS materialized(`ant_c1`))",
 		},
 		{
 			"raw SQL that only holds the name in a literal, a comment, or a longer name",
@@ -156,7 +156,7 @@ func TestSelfReadsAreWrappedOnMySQL(t *testing.T) {
 			}),
 			"UPDATE `users` SET `age` = ? WHERE `users`.`id` IN (" + wrap +
 				"SELECT `posts`.`user_id` FROM `posts` WHERE `posts`.`user_id` IN " +
-				"(SELECT `users`.`id` FROM `users`)) AS materialized)",
+				"(SELECT `users`.`id` FROM `users`)) AS materialized(`ant_c1`))",
 		},
 		{
 			"a limited subquery is a derived table already",
@@ -178,7 +178,7 @@ func TestSelfReadsAreWrappedOnMySQL(t *testing.T) {
 				"(SELECT `posts`.`user_id` FROM `posts`)",
 		},
 		{
-			"columns of one name get names of their own",
+			"columns of one name keep it, as the derived table names its own",
 			update(qb.In{
 				Left: qb.Row{Values: []qb.Expr{id, id}},
 				Sub: &qb.Select{
@@ -196,8 +196,8 @@ func TestSelfReadsAreWrappedOnMySQL(t *testing.T) {
 				},
 			}),
 			"UPDATE `users` SET `age` = ? WHERE (`users`.`id`, `users`.`id`) IN (" + wrap +
-				"SELECT `users`.`id` AS `ant_c1`, `posts`.`id` AS `ant_c2` FROM `users` JOIN `posts` ON " +
-				"`posts`.`user_id` = `users`.`id`) AS materialized)",
+				"SELECT `users`.`id`, `posts`.`id` FROM `users` JOIN `posts` ON " +
+				"`posts`.`user_id` = `users`.`id`) AS materialized(`ant_c1`, `ant_c2`))",
 		},
 		{
 			"a source named like the table",
@@ -209,7 +209,7 @@ func TestSelfReadsAreWrappedOnMySQL(t *testing.T) {
 				},
 			}),
 			"UPDATE `users` SET `age` = ? WHERE `users`.`id` IN (" + wrap +
-				"SELECT `id` FROM `users`) AS materialized)",
+				"SELECT `id` FROM `users`) AS materialized(`ant_c1`))",
 		},
 		{
 			"a column's own name stays, for HAVING to use",
@@ -238,7 +238,7 @@ func TestSelfReadsAreWrappedOnMySQL(t *testing.T) {
 				}},
 			},
 			"UPDATE `users` SET `age` = (" + wrap + "SELECT MAX(`users`.`age`) AS `oldest` FROM `users` " +
-				"HAVING `oldest` > ?) AS materialized)",
+				"HAVING `oldest` > ?) AS materialized(`ant_c1`))",
 		},
 		{
 			"a star in EXISTS becomes 1, which names nothing twice",
@@ -258,7 +258,7 @@ func TestSelfReadsAreWrappedOnMySQL(t *testing.T) {
 				}},
 			},
 			"DELETE FROM `users` WHERE EXISTS (" + wrap + "SELECT 1 FROM `users` JOIN `posts` ON " +
-				"`posts`.`user_id` = `users`.`id`) AS materialized)",
+				"`posts`.`user_id` = `users`.`id`) AS materialized(`ant_c1`))",
 		},
 		{
 			"DISTINCT does not change whether a row exists",
@@ -272,7 +272,7 @@ func TestSelfReadsAreWrappedOnMySQL(t *testing.T) {
 					},
 				}},
 			},
-			"DELETE FROM `users` WHERE EXISTS (" + wrap + "SELECT DISTINCT 1 FROM `users`) AS materialized)",
+			"DELETE FROM `users` WHERE EXISTS (" + wrap + "SELECT DISTINCT 1 FROM `users`) AS materialized(`ant_c1`))",
 		},
 		{
 			"a star that ordering reads stays, on one table",
@@ -291,7 +291,7 @@ func TestSelfReadsAreWrappedOnMySQL(t *testing.T) {
 				"SELECT * FROM `users` ORDER BY `users`.`age` LIMIT ?) AS materialized)",
 		},
 		{
-			"a generated name skips one the query has",
+			"a column named like one the derived table gives keeps its name",
 			update(qb.In{
 				Left: id,
 				Sub: &qb.Select{
@@ -303,10 +303,10 @@ func TestSelfReadsAreWrappedOnMySQL(t *testing.T) {
 				},
 			}),
 			"UPDATE `users` SET `age` = ? WHERE `users`.`id` IN (" + wrap +
-				"SELECT MAX(`users`.`id`) AS `ant_c2`, `users`.`ant_c1` FROM `users`) AS materialized)",
+				"SELECT MAX(`users`.`id`), `users`.`ant_c1` FROM `users`) AS materialized(`ant_c1`, `ant_c2`))",
 		},
 		{
-			"of columns given one name with AS, the first keeps it",
+			"columns given one name with AS keep it",
 			update(qb.In{
 				Left: qb.Row{Values: []qb.Expr{id, id}},
 				Sub: &qb.Select{
@@ -324,14 +324,14 @@ func TestSelfReadsAreWrappedOnMySQL(t *testing.T) {
 				},
 			}),
 			"UPDATE `users` SET `age` = ? WHERE (`users`.`id`, `users`.`id`) IN (" + wrap +
-				"SELECT `users`.`id` AS `x`, `posts`.`id` AS `ant_c1` FROM `users` JOIN `posts` ON " +
-				"`posts`.`user_id` = `users`.`id`) AS materialized)",
+				"SELECT `users`.`id` AS `x`, `posts`.`id` AS `x` FROM `users` JOIN `posts` ON " +
+				"`posts`.`user_id` = `users`.`id`) AS materialized(`ant_c1`, `ant_c2`))",
 		},
 		{
 			// MySQL reads ORDER BY ant_c1 as the select list's column of that
-			// name, so a name given to an expression must not be one the query
-			// refers to, in its own terms or in raw SQL.
-			"a generated name skips one the query refers to",
+			// name, so the subquery's select list is left as it was, and what it
+			// refers to, in its own terms or in raw SQL, keeps its meaning.
+			"what the subquery refers to by name keeps its meaning",
 			&qb.Update{
 				Table: users,
 				Set: []qb.Assignment{{
@@ -350,8 +350,23 @@ func TestSelfReadsAreWrappedOnMySQL(t *testing.T) {
 					},
 				}},
 			},
-			"UPDATE `users` SET `age` = (" + wrap + "SELECT ABS(`users`.`age`) AS `ant_c3` FROM `users` " +
-				"ORDER BY `ant_c1`, ant_c2) AS materialized)",
+			"UPDATE `users` SET `age` = (" + wrap + "SELECT ABS(`users`.`age`) FROM `users` " +
+				"ORDER BY `ant_c1`, ant_c2) AS materialized(`ant_c1`))",
+		},
+		{
+			"raw expressions in the select list, alike, stay as they are",
+			update(qb.In{
+				Left: qb.Row{Values: []qb.Expr{id, id}},
+				Sub: &qb.Select{
+					Columns: []qb.Selected{
+						{Value: qb.Fragment{SQL: "MAX(id)"}},
+						{Value: qb.Fragment{SQL: "MAX(id)"}},
+					},
+					From: qb.Source{Table: users},
+				},
+			}),
+			"UPDATE `users` SET `age` = ? WHERE (`users`.`id`, `users`.`id`) IN (" + wrap +
+				"SELECT MAX(id), MAX(id) FROM `users`) AS materialized(`ant_c1`, `ant_c2`))",
 		},
 		{
 			"a SELECT reads freely",

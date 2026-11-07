@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/skudra-go/ant/internal/errs"
 	"github.com/skudra-go/ant/qb"
@@ -955,16 +954,15 @@ func (r *renderer) subquery(s *qb.Select, exists bool) {
 		return
 	}
 
-	// Written again inside the wrapper, with the columns a derived table needs:
-	// unique names, which IN, EXISTS, and a value ignore, as they read by
-	// position.
+	// Written again inside the wrapper, which names its columns itself, as IN,
+	// EXISTS, and a value read them by position.
 	text := r.sql.String()
 	r.sql.Reset()
 	r.sql.WriteString(text[:start])
 	r.args = r.args[:args]
 	r.replay = r.lazies
 
-	derived := derivable(s, exists, sqlWords(text[start:]))
+	derived, columns := derivable(s, exists)
 	if derived == nil && r.err == nil {
 		r.err = fmt.Errorf(
 			"%w: a SELECT * beside other columns, or over a join or a set, that reads the table being written, on %s",
@@ -981,108 +979,59 @@ func (r *renderer) subquery(s *qb.Select, exists bool) {
 	r.selectStmt(derived)
 	r.write(") AS materialized")
 
+	if columns > 0 {
+		r.write("(")
+
+		for i := range columns {
+			if i > 0 {
+				r.write(", ")
+			}
+
+			r.quote(fmt.Sprintf("ant_c%d", i+1))
+		}
+
+		r.write(")")
+	}
+
 	r.inner, r.replay, r.lazies = false, nil, nil
 }
 
-// derivable returns s with columns a derived table takes, or nil if it cannot
-// tell them: each with a name of its own. A column that is not named, as an
-// expression is not, gets one, and so does a column named like another, except
-// the first of them given that name with AS, which keeps it for what refers to
-// it. A name it gets is one that taken, the words of the query's SQL, does not
-// hold, since MySQL reads a name in ORDER BY, GROUP BY, or HAVING as the column
-// of the select list called so before the table's column of that name. The
-// columns of EXISTS matter only to what reads them, so SELECT * there, which
-// could name a column twice, becomes SELECT 1 unless grouping, ordering, an
-// offset, or a set reads the columns. A star that stays, beside other columns or
-// over a join or a set, may hold two columns of one name, which a derived table
-// refuses, so that is nil.
-func derivable(s *qb.Select, exists bool, taken map[string]bool) *qb.Select {
-	out := *s
-
+// derivable returns s as a derived table takes it, and how many columns it has,
+// for the derived table to name them itself. So the subquery keeps its own
+// names, two columns of one name and raw SQL included, and what refers to a
+// column by name, as ORDER BY and HAVING can, still finds the same one. A star
+// cannot be counted. In EXISTS its columns matter only to what reads them, so
+// SELECT * there becomes SELECT 1 unless grouping, ordering, an offset, or a set
+// reads the columns. A star over one table is left as it is, with the table's
+// names, which are unique. One beside other columns, or over a join or a set,
+// may name a column twice, which a derived table refuses, so that is nil.
+func derivable(s *qb.Select, exists bool) (*qb.Select, int) {
 	star := func(c qb.Selected) bool {
 		_, ok := c.Value.(qb.Star)
 
 		return ok
 	}
 
-	if slices.ContainsFunc(s.Columns, star) {
-		simple := exists && len(s.GroupBy) == 0 && len(s.Having) == 0 && len(s.Order) == 0 &&
-			s.Offset == nil && len(s.Sets) == 0 && !slices.ContainsFunc(s.Columns, func(c qb.Selected) bool {
-			return !star(c)
-		})
-
-		switch {
-		case simple:
-			out.Columns = []qb.Selected{{Value: qb.Fragment{SQL: "1"}}}
-
-			return &out
-		case len(s.Columns) > 1 || len(s.Joins) > 0 || len(s.Sets) > 0:
-			return nil
-		}
-
-		return s
+	if !slices.ContainsFunc(s.Columns, star) {
+		return s, len(s.Columns)
 	}
 
-	natural := func(c qb.Selected) string {
-		if c.Alias != "" {
-			return strings.ToLower(c.Alias)
-		}
+	simple := exists && len(s.GroupBy) == 0 && len(s.Having) == 0 && len(s.Order) == 0 &&
+		s.Offset == nil && len(s.Sets) == 0 && !slices.ContainsFunc(s.Columns, func(c qb.Selected) bool {
+		return !star(c)
+	})
 
-		if column, ok := c.Value.(qb.Column); ok {
-			return strings.ToLower(column.Name)
-		}
+	switch {
+	case simple:
+		out := *s
+		out.Columns = []qb.Selected{{Value: qb.Fragment{SQL: "1"}}}
 
-		return ""
+		return &out, 1
+	case len(s.Columns) > 1 || len(s.Joins) > 0 || len(s.Sets) > 0:
+		return nil, 0
 	}
 
-	seen := map[string]int{}
-
-	for _, c := range s.Columns {
-		seen[natural(c)]++
-	}
-
-	out.Columns = slices.Clone(s.Columns)
-	kept := map[string]bool{}
-	next := 0
-
-	for i, c := range out.Columns {
-		switch name := natural(c); {
-		case name != "" && seen[name] == 1:
-			continue
-		case name != "" && c.Alias != "" && !kept[name]:
-			kept[name] = true
-
-			continue
-		}
-
-		for {
-			next++
-
-			alias := fmt.Sprintf("ant_c%d", next)
-			if seen[alias] == 0 && !taken[alias] {
-				seen[alias]++
-				out.Columns[i].Alias = alias
-
-				break
-			}
-		}
-	}
-
-	return &out
-}
-
-// sqlWords returns the words of SQL in lower case: every name it may refer to,
-// quoted or not, along with its keywords and the like.
-func sqlWords(sql string) map[string]bool {
-	words := map[string]bool{}
-
-	for _, w := range strings.FieldsFunc(sql, func(c rune) bool {
-		return c != '_' && c != '$' && !unicode.IsLetter(c) && !unicode.IsDigit(c)
-	}) {
-		words[strings.ToLower(w)] = true
-	}
-
-	return words
+	return s, 0
 }
 
 func (r *renderer) merge(s *qb.Merge) {

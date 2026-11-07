@@ -1113,6 +1113,18 @@ func TestConformanceWritesReadingTheirTable(t *testing.T) {
 			require.Equal(t, 35, ages(t, app)["bob"])
 		})
 
+		// The derived table names its columns, so a raw expression in the
+		// subquery's select list stays as it is.
+		t.Run("a raw value from the same table", func(t *testing.T) {
+			app := fresh(t)
+			oldest := ant.SubExpr(app.Users.Query(), ant.SQL[int]("MAX(age)")).Expr()
+			n, err := app.Users.Where(ant.Eq(&U.Name, "bob")).
+				Update(ctx, ant.SetExpr(&U.Age, oldest))
+			require.NoError(t, err)
+			require.EqualValues(t, 1, n)
+			require.Equal(t, 35, ages(t, app)["bob"])
+		})
+
 		t.Run("a read through another table's subquery", func(t *testing.T) {
 			app := fresh(t)
 			byOlder := app.Posts.Where(
