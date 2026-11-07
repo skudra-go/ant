@@ -220,11 +220,7 @@ func (t *Table[T]) DeleteByID[K comparable](ctx context.Context, key K) error {
 	}
 
 	if v, ok := meta.KeyValue(key); ok {
-		undo := t.state.tracker.ForgetRow(model, v)
-
-		if t.state.tx != nil {
-			t.state.onRollback(undo)
-		}
+		t.state.record(t.state.tracker.ForgetRow(model, v))
 	}
 
 	return nil
@@ -302,11 +298,7 @@ func (t *Table[T]) Reload(ctx context.Context, e *T) error {
 	if entry != nil {
 		// In a transaction, a rollback takes the read back with the rows it
 		// read: the values, and the state and snapshot.
-		undo := t.state.tracker.Reloaded(entry, unsafe.Pointer(&before))
-
-		if t.state.tx != nil {
-			t.state.onRollback(undo)
-		}
+		t.state.record(t.state.tracker.Reloaded(entry, unsafe.Pointer(&before)))
 	}
 
 	return nil

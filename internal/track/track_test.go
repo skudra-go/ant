@@ -111,7 +111,7 @@ func TestSavedAndUndo(t *testing.T) {
 		t.Error("a saved value still counts as changed")
 	}
 
-	undo()
+	undo.Undo()
 
 	if got := changed(e); len(got) != 1 || got[0] != "Name" {
 		t.Errorf("after undo: %v", got)
@@ -256,15 +256,15 @@ func TestUndoWaitsForTheClaim(t *testing.T) {
 
 	var ran []int
 
-	tr.Undo(func() { ran = append(ran, 1) })
+	tr.Settle(func() { ran = append(ran, 1) })
 
 	if len(ran) != 1 {
 		t.Fatalf("on a free tracker the work runs at once, ran %v", ran)
 	}
 
 	c := tr.TryClaim()
-	tr.Undo(func() { ran = append(ran, 2) })
-	tr.Undo(func() { ran = append(ran, 3) })
+	tr.Settle(func() { ran = append(ran, 2) })
+	tr.Settle(func() { ran = append(ran, 3) })
 
 	if len(ran) != 1 {
 		t.Fatalf("while held the work waits, ran %v", ran)
@@ -304,7 +304,7 @@ func TestUndoUnderContention(t *testing.T) {
 					tr.Release(c)
 				}
 
-				tr.Undo(func() { ran.Add(1) })
+				tr.Settle(func() { ran.Add(1) })
 			}
 		})
 	}
@@ -345,7 +345,7 @@ func TestUndoAfterALaterChange(t *testing.T) {
 
 	t.Run("in time, it restores", func(t *testing.T) {
 		undo := e.Saved(Unchanged)
-		undo()
+		undo.Undo()
 
 		if e.State != Added {
 			t.Fatalf("state %s", e.State)
@@ -355,8 +355,8 @@ func TestUndoAfterALaterChange(t *testing.T) {
 	t.Run("newest first, each finds the entry as it left it", func(t *testing.T) {
 		saved := e.Saved(Unchanged)
 		links := e.SetLinks(nil, nil)
-		links()
-		saved()
+		links.Undo()
+		saved.Undo()
 
 		if e.State != Added {
 			t.Fatalf("state %s", e.State)
@@ -365,8 +365,8 @@ func TestUndoAfterALaterChange(t *testing.T) {
 
 	t.Run("too late, the newer write stands", func(t *testing.T) {
 		undo := e.Saved(Unchanged)
-		e.Saved(Unchanged) // a newer save, by another operation
-		undo()
+		e.Saved(Unchanged).Keep() // a newer save, by another operation, that commits
+		undo.Undo()
 
 		if e.State != Modified {
 			t.Fatalf("state %s, want Modified", e.State)
@@ -378,7 +378,7 @@ func TestUndoAfterALaterChange(t *testing.T) {
 		undo := e.Saved(Unchanged)
 		e.SetMembers(nil, nil)
 		e.SetParent(nil, int64(1))
-		undo()
+		undo.Undo()
 
 		if e.State != Added {
 			t.Fatalf("state %s, want Added", e.State)
@@ -391,7 +391,7 @@ func TestUndoAfterALaterChange(t *testing.T) {
 
 		undo := e.SetLinks(map[*meta.Relation]map[any]*Entry{nil: {}}, nil)
 		e.SetMembers(nil, map[any]*Entry{})
-		undo()
+		undo.Undo()
 
 		if e.Members != nil {
 			t.Fatal("the rollback left the relations as a later load had them")
@@ -410,8 +410,8 @@ func TestUndoAfterALaterChange(t *testing.T) {
 		bio := "edited after the reload"
 		r.Bio = &bio
 
-		reloaded()
-		saved()
+		reloaded.Undo()
+		saved.Undo()
 
 		switch {
 		case e.State != Added:
@@ -434,7 +434,7 @@ func TestRestoreKeepsANewerEntry(t *testing.T) {
 
 	newer := tr.Track(m, unsafe.Pointer(r), Added)
 
-	undo()
+	undo.Undo()
 
 	if tr.Get(unsafe.Pointer(r)) != newer {
 		t.Fatal("the forgotten entry took the address back")
@@ -451,7 +451,7 @@ func TestRemovalOutlivesRollback(t *testing.T) {
 		e := tr.Track(m, unsafe.Pointer(r), Added)
 		undo := tr.Saved(e, Unchanged)
 		tr.Track(m, unsafe.Pointer(r), Deleted)
-		undo()
+		undo.Undo()
 
 		if tr.Get(unsafe.Pointer(r)) != nil {
 			t.Fatalf("still tracked as %s", e.State)
@@ -464,7 +464,7 @@ func TestRemovalOutlivesRollback(t *testing.T) {
 		e := tr.Track(m, unsafe.Pointer(r), Modified)
 		undo := tr.Saved(e, Unchanged)
 		tr.Track(m, unsafe.Pointer(r), Deleted)
-		undo()
+		undo.Undo()
 
 		if e.State != Deleted {
 			t.Fatalf("state %s, want Deleted", e.State)
@@ -476,7 +476,7 @@ func TestRemovalOutlivesRollback(t *testing.T) {
 		r := &row{ID: 3}
 		e := tr.Track(m, unsafe.Pointer(r), Added)
 		undo := tr.Saved(e, Unchanged)
-		undo()
+		undo.Undo()
 
 		if e.State != Added {
 			t.Fatalf("state %s, want Added", e.State)
@@ -488,7 +488,7 @@ func TestRemovalOutlivesRollback(t *testing.T) {
 func TestPanickingUndoLetsGo(t *testing.T) {
 	tr := New()
 	c := tr.TryClaim()
-	tr.Undo(func() { panic("broken undo") })
+	tr.Settle(func() { panic("broken undo") })
 
 	func() {
 		defer func() { _ = recover() }()
@@ -531,7 +531,7 @@ func TestDeletionUndoLeavesANewerDeletionAlone(t *testing.T) {
 		tr.Track(m, unsafe.Pointer(a), Unchanged)
 
 		undo := tr.ForgetRow(m, int64(1))
-		undo()
+		undo.Undo()
 
 		if tr.Find(m, int64(1)) == nil {
 			t.Error("the row was not tracked again")
@@ -546,14 +546,14 @@ func TestDeletionUndoLeavesANewerDeletionAlone(t *testing.T) {
 		tr := New()
 		a := fresh()
 
-		for _, older := range []func(e *Entry) func(){
-			func(*Entry) func() { return tr.ForgetRow(m, int64(1)) },
+		for _, older := range []func(e *Entry) Change{
+			func(*Entry) Change { return tr.ForgetRow(m, int64(1)) },
 			tr.Deleted,
 		} {
 			undo := older(tr.Track(m, unsafe.Pointer(a), Unchanged))
 
-			tr.ForgetRow(m, int64(1)) // deleted again, by an operation with no undo
-			undo()
+			tr.ForgetRow(m, int64(1)).Keep() // deleted again, by an operation that commits
+			undo.Undo()
 
 			if tr.Find(m, int64(1)) != nil || tr.Get(unsafe.Pointer(a)) != nil {
 				t.Error("a late undo tracked a row that was deleted since")
@@ -570,14 +570,14 @@ func TestDeletionUndoLeavesANewerDeletionAlone(t *testing.T) {
 		tr.Track(m, unsafe.Pointer(b), Unchanged)
 		second := tr.ForgetRow(m, int64(1))
 
-		second()
+		second.Undo()
 
 		if got := tr.Find(m, int64(1)); got == nil || got.Entity != unsafe.Pointer(b) {
 			t.Fatal("the newer deletion was not taken back")
 		}
 
 		tr.Remove(unsafe.Pointer(b))
-		first()
+		first.Undo()
 
 		if got := tr.Find(m, int64(1)); got == nil || got.Entity != unsafe.Pointer(a) {
 			t.Error("the older deletion was not taken back after it")
@@ -625,7 +625,7 @@ func TestLinksUndoKeepsANewerSave(t *testing.T) {
 		undo := owner.SetLinks(links(map[any]*Entry{2: b}, 20))
 		owner.SetMembers(&r, map[any]*Entry{2: b, 3: c}) // a load does not count
 
-		undo()
+		undo.Undo()
 
 		if !reflect.DeepEqual(owner.Members[&r], map[any]*Entry{1: a}) || owner.Parents[&r] != 10 {
 			t.Errorf("got %v and %v", owner.Members[&r], owner.Parents)
@@ -638,9 +638,9 @@ func TestLinksUndoKeepsANewerSave(t *testing.T) {
 		// The older save drops 1, adds 2, and moves the parent; the newer one
 		// adds 3 and leaves the rest.
 		undo := owner.SetLinks(links(map[any]*Entry{2: b}, 20))
-		owner.SetLinks(links(map[any]*Entry{2: b, 3: c}, 20))
+		owner.SetLinks(links(map[any]*Entry{2: b, 3: c}, 20)).Keep()
 
-		undo()
+		undo.Undo()
 
 		if want := map[any]*Entry{1: a, 3: c}; !reflect.DeepEqual(owner.Members[&r], want) {
 			t.Errorf("members %v, want %v", owner.Members[&r], want)
@@ -655,9 +655,9 @@ func TestLinksUndoKeepsANewerSave(t *testing.T) {
 		owner.SetLinks(links(map[any]*Entry{1: a}, 10))
 
 		undo := owner.SetLinks(links(map[any]*Entry{1: a, 2: b}, 20))
-		owner.SetLinks(links(map[any]*Entry{1: a, 2: c}, 30))
+		owner.SetLinks(links(map[any]*Entry{1: a, 2: c}, 30)).Keep()
 
-		undo()
+		undo.Undo()
 
 		if want := map[any]*Entry{1: a, 2: c}; !reflect.DeepEqual(owner.Members[&r], want) {
 			t.Errorf("members %v, want %v", owner.Members[&r], want)
@@ -667,4 +667,165 @@ func TestLinksUndoKeepsANewerSave(t *testing.T) {
 			t.Errorf("parent %v, want the newer save's 30", owner.Parents[&r])
 		}
 	})
+}
+
+// Two transactions may each save an entry and roll back, in either order: a
+// rollback whose write has a newer one after it waits for that one, and puts
+// back what it replaced once the newer one rolls back too, or answers as late
+// if the newer one commits.
+func TestOverlappingRollbacks(t *testing.T) {
+	m := meta.OfType(reflect.TypeFor[row]())
+
+	cases := []struct {
+		name   string
+		settle func(older, newer Change)
+		want   State
+	}{
+		{
+			"the newer rolls back first",
+			func(older, newer Change) { newer.Undo(); older.Undo() },
+			Added,
+		},
+		{
+			"the older rolls back first",
+			func(older, newer Change) { older.Undo(); newer.Undo() },
+			Added,
+		},
+		{
+			"the older rolls back, the newer commits",
+			func(older, newer Change) { older.Undo(); newer.Keep() },
+			Modified,
+		},
+		{
+			"the newer commits, the older rolls back",
+			func(older, newer Change) { newer.Keep(); older.Undo() },
+			Modified,
+		},
+		{
+			"the older commits, the newer rolls back",
+			func(older, newer Change) { older.Keep(); newer.Undo() },
+			Unchanged,
+		},
+		{"both commit", func(older, newer Change) { older.Keep(); newer.Keep() }, Unchanged},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			e := New().Track(m, unsafe.Pointer(&row{ID: 1}), Added)
+			older := e.Saved(Unchanged)
+			newer := e.Saved(Unchanged)
+
+			tt.settle(older, newer)
+
+			if e.State != tt.want {
+				t.Errorf("state %s, want %s", e.State, tt.want)
+			}
+
+			if len(e.columns.writes) != 0 {
+				t.Errorf("%d writes still held after both settled", len(e.columns.writes))
+			}
+		})
+	}
+
+	t.Run("relations, both rolled back, oldest last", func(t *testing.T) {
+		var r meta.Relation
+
+		a, b := &Entry{}, &Entry{}
+		e := New().Track(m, unsafe.Pointer(&row{ID: 2}), Unchanged)
+		e.Members = map[*meta.Relation]map[any]*Entry{&r: {}}
+
+		older := e.SetLinks(map[*meta.Relation]map[any]*Entry{&r: {1: a}}, nil)
+		newer := e.SetLinks(map[*meta.Relation]map[any]*Entry{&r: {1: a, 2: b}}, nil)
+
+		older.Undo()
+		newer.Undo()
+
+		if len(e.Members[&r]) != 0 {
+			t.Errorf("members %v, want none, as both saves rolled back", e.Members[&r])
+		}
+	})
+}
+
+// Writes that commit are let go, so an entry saved again and again holds none.
+func TestKeptWritesAreLetGo(t *testing.T) {
+	e := New().Track(meta.OfType(reflect.TypeFor[row]()), unsafe.Pointer(&row{ID: 1}), Unchanged)
+
+	open := e.Saved(Unchanged)
+
+	for range 100 {
+		e.Saved(Unchanged).Keep()
+		e.SetLinks(nil, nil).Keep()
+	}
+
+	if len(e.columns.writes) != 2 || len(e.links.writes) != 0 {
+		t.Errorf(
+			"held %d and %d writes, want the open one and the newest kept one",
+			len(e.columns.writes),
+			len(e.links.writes),
+		)
+	}
+
+	open.Keep()
+
+	if len(e.columns.writes) != 0 {
+		t.Errorf("held %d writes once all were kept", len(e.columns.writes))
+	}
+}
+
+// A deletion's count goes once no change that needs it is open, whether the
+// deletions committed or rolled back.
+func TestDeletionCountsAreRetired(t *testing.T) {
+	m := meta.Of[row]()
+
+	t.Run("committed", func(t *testing.T) {
+		tr := New()
+		tr.Track(m, unsafe.Pointer(fresh()), Unchanged)
+		tr.ForgetRow(m, int64(1)).Keep()
+
+		if len(tr.deletions) != 0 {
+			t.Errorf("counted %d rows after the deletion committed", len(tr.deletions))
+		}
+	})
+
+	t.Run("an older one rolled back after a newer one committed", func(t *testing.T) {
+		tr := New()
+		tr.Track(m, unsafe.Pointer(fresh()), Unchanged)
+		older := tr.ForgetRow(m, int64(1))
+		tr.ForgetRow(m, int64(1)).Keep()
+
+		if len(tr.deletions) != 1 {
+			t.Fatal("the count went while a rollback could still need it")
+		}
+
+		older.Undo()
+
+		if len(tr.deletions) != 0 || tr.Find(m, int64(1)) != nil {
+			t.Error("the count stayed, or the row came back though deleted again")
+		}
+	})
+}
+
+// A panic in OnTrack, which the application gives, leaves the tracker usable.
+func TestAddedPanicInOnTrackLeavesTheTrackerUnlocked(t *testing.T) {
+	tr, m := New(), meta.Of[row]()
+	tr.OnTrack = func(*Entry) { panic("the application's callback") }
+
+	func() {
+		defer func() { _ = recover() }()
+
+		tr.Added(m, unsafe.Pointer(fresh()))
+	}()
+
+	done := make(chan struct{})
+
+	go func() {
+		tr.Len()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the tracker stayed locked after the panic")
+	}
 }

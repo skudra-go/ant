@@ -393,6 +393,62 @@ func TestConcurrentUse(t *testing.T) {
 			require.EqualValues(t, 1, n)
 		})
 
+		// Two transactions insert the same new entity and both roll back, the
+		// older one first, while the newer one holds the tracker. The older
+		// rollback waits for the newer write, and once that rolls back too, the
+		// entity is new again, so the next save inserts it once.
+		t.Run("two late rollbacks of one insert leave it pending", func(t *testing.T) {
+			eve := &User{Name: "Eve", Email: "eve.twice@example.com"}
+			require.NoError(t, ant.Add(db, eve))
+
+			saved, abort := make(chan struct{}), make(chan struct{})
+			finished := make(chan error, 1)
+
+			go func() {
+				finished <- db.Tx(ctx, func(tx *AppDB) error {
+					if err := tx.SaveChanges(ctx); err != nil {
+						return err
+					}
+
+					close(saved)
+					<-abort
+
+					return errors.New("roll back")
+				})
+			}()
+
+			select {
+			case <-saved:
+			case err := <-finished:
+				t.Fatalf("the first transaction ended before it saved: %v", err)
+			}
+
+			err := h.while(
+				t,
+				func(held context.Context) error {
+					return db.Tx(ctx, func(tx *AppDB) error {
+						if err := tx.Users.Insert(held, eve); err != nil {
+							return err
+						}
+
+						return errors.New("roll back too")
+					})
+				},
+				func() {
+					close(abort)
+					require.ErrorContains(t, <-finished, "roll back")
+				},
+			)
+			require.ErrorContains(t, err, "roll back too")
+
+			require.Equal(t, ant.Added, ant.Entry(db, eve).State(), "neither insert stayed")
+			require.NoError(t, db.SaveChanges(ctx))
+
+			n, err := db.Users.Where(ant.Eq(&U.Email, eve.Email)).Count(ctx)
+			require.NoError(t, err)
+			require.EqualValues(t, 1, n)
+		})
+
 		// A rollback reversed late, after another operation deleted the row
 		// again, leaves the row untracked: it is gone, so Find reads it afresh
 		// rather than returning the entity the transaction deleted.

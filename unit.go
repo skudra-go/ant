@@ -1321,7 +1321,7 @@ func (u *unit) writeOne(ctx context.Context, to exec.Executor, n *node, stmt qb.
 func (u *unit) commit() {
 	tracker := u.s.tracker
 
-	var undo []func()
+	var undo []track.Change
 
 	for _, n := range u.order {
 		switch entry := n.entry; {
@@ -1357,13 +1357,11 @@ func (u *unit) commit() {
 		}
 	}
 
-	if u.s.tx != nil {
-		u.s.onRollback(undo...)
-	}
+	u.s.record(undo...)
 }
 
 // remember records what a node's loaded relations hold now.
-func (u *unit) remember(n *node) (undo func()) {
+func (u *unit) remember(n *node) track.Change {
 	entry := n.entry
 	oldMembers, oldParents := entry.Members, entry.Parents
 

@@ -19,32 +19,80 @@ type txState struct {
 	tx      *sql.Tx
 	done    bool
 	depth   int                     // nested savepoints so far, for naming
-	undo    []undoStep              // tracker changes to reverse on rollback
+	undo    []undoStep              // tracker changes to settle when it ends
 	pending []func(context.Context) // observers to run after commit
 }
 
-// undoStep reverses one tracker change. A session made inside a transaction has
-// a tracker of its own, so each step names the tracker it changes.
+// undoStep is one tracker change the transaction settles: undone if it rolls
+// back, kept if it commits. A session made inside a transaction has a tracker of
+// its own, so each step names the tracker it changes.
 type undoStep struct {
 	tracker *track.Tracker
-	undo    func()
+	change  track.Change
 }
 
-// onRollback records tracker changes for the transaction to reverse if it rolls
-// back.
-func (s *state) onRollback(undo ...func()) {
-	for _, f := range undo {
-		s.tx.undo = append(s.tx.undo, undoStep{s.tracker, f})
+// record hands tracker changes to the transaction, which settles them when it
+// ends. A change made outside a transaction stands at once, and is kept.
+func (s *state) record(changes ...track.Change) {
+	for _, c := range changes {
+		if s.tx == nil {
+			c.Keep()
+
+			continue
+		}
+
+		s.tx.undo = append(s.tx.undo, undoStep{s.tracker, c})
 	}
 }
 
-// committed runs what was waiting for the commit.
+// committed keeps the tracker changes the transaction made and runs what was
+// waiting for the commit.
 func (t *txState) committed(ctx context.Context) {
+	steps := t.undo
+	t.undo = nil
+
+	settle(ctx, steps, track.Change.Keep)
+
 	for _, f := range t.pending {
 		f(ctx)
 	}
 
 	t.pending = nil
+}
+
+// settle runs each step's change, by tracker, in the order given. It writes to
+// tracked entries, so each tracker's run while it is claimed: at once if ctx's
+// operation holds it, and otherwise through Tracker.Settle, which never waits.
+func settle(ctx context.Context, steps []undoStep, run func(track.Change)) {
+	var trackers []*track.Tracker
+
+	for _, step := range steps {
+		if !slices.Contains(trackers, step.tracker) {
+			trackers = append(trackers, step.tracker)
+		}
+	}
+
+	for _, tracker := range trackers {
+		var work []track.Change
+
+		for _, step := range steps {
+			if step.tracker == tracker {
+				work = append(work, step.change)
+			}
+		}
+
+		do := func() {
+			for _, c := range work {
+				run(c)
+			}
+		}
+
+		if holding(ctx, tracker) {
+			do()
+		} else {
+			tracker.Settle(do)
+		}
+	}
 }
 
 // txOptions holds what TxOption configures.
@@ -174,44 +222,13 @@ func (s *state) savepoint(ctx context.Context, body func() error) error {
 	return err
 }
 
-// rollbackTo reverses tracker changes back to mark, newest first. They write to
-// tracked entries, so each tracker's run while it is claimed: at once if ctx's
-// operation holds it, and otherwise through Tracker.Undo, which never waits.
+// rollbackTo undoes the tracker changes made since mark, newest first.
 func (t *txState) rollbackTo(ctx context.Context, mark int) {
 	steps := slices.Clone(t.undo[mark:])
 	t.undo = t.undo[:mark]
 
 	slices.Reverse(steps)
-
-	var trackers []*track.Tracker
-
-	for _, step := range steps {
-		if !slices.Contains(trackers, step.tracker) {
-			trackers = append(trackers, step.tracker)
-		}
-	}
-
-	for _, tracker := range trackers {
-		var work []func()
-
-		for _, step := range steps {
-			if step.tracker == tracker {
-				work = append(work, step.undo)
-			}
-		}
-
-		undo := func() {
-			for _, f := range work {
-				f()
-			}
-		}
-
-		if holding(ctx, tracker) {
-			undo()
-		} else {
-			tracker.Undo(undo)
-		}
-	}
+	settle(ctx, steps, track.Change.Undo)
 }
 
 // abort forgets everything the transaction did.
