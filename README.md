@@ -110,7 +110,7 @@ Thank you to everyone who has filed an issue, fixed a bug or improved the docs:
 
 ## About
 
-ant was started by [@borderss](https://github.com/borderss), an engineer in Latvia who got tired of choosing between Go ORMs that are generic and Go ORMs that are type-safe, and decided to build one that is both. *Skudra* is Latvian for ant, which is where [skudra.net](https://skudra.net) gets its name.
+*Skudra* means *ant* in Latvian, which is where [skudra.net](https://skudra.net) gets its name :)
 
 ## License
 
