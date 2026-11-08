@@ -27,6 +27,13 @@ type AccountDB struct {
 
 var Ac = ant.Fields[Account]()
 
+// AccountRow is a source row for Merge.
+type AccountRow struct {
+	ID int64
+}
+
+var Ar = ant.Fields[AccountRow]()
+
 func TestFieldRoles(t *testing.T) {
 	ddl := `CREATE TABLE accounts (
 		id BIGSERIAL PRIMARY KEY,
@@ -98,6 +105,54 @@ func TestFieldRoles(t *testing.T) {
 			_, err := db.Accounts.Where(ant.Eq(&Ac.ID, account.ID)).
 				Update(ctx, ant.Set(&Ac.Password, "new"))
 			require.NoError(t, err)
+		})
+
+		// Fields ant never updates are refused by name in an explicit write too,
+		// before anything runs, rather than changed behind the tag's back.
+		t.Run("an explicit write refuses immutable and readonly fields", func(t *testing.T) {
+			byID := db.Accounts.Where(ant.Eq(&Ac.ID, account.ID))
+
+			_, err := byID.Update(ctx, ant.Set(&Ac.Created, "rewritten"))
+			require.ErrorContains(t, err, "Account.Created is immutable")
+
+			_, err = byID.Update(ctx, ant.Set(&Ac.Slug, "rewritten"))
+			require.ErrorContains(t, err, "Account.Slug is readonly")
+
+			_, err = db.Accounts.UpdateMany(ctx, []*Account{account}, ant.F(&Ac.Created))
+			require.ErrorContains(t, err, "Account.Created is immutable")
+
+			_, err = db.Accounts.Upsert(
+				ctx,
+				&Account{ID: account.ID, Email: "A@X", Created: "x"},
+				ant.OnConflict(&Ac.ID).DoUpdate(ant.F(&Ac.Created)),
+			)
+			require.ErrorContains(t, err, "Account.Created is immutable")
+
+			_, err = db.Accounts.Upsert(
+				ctx,
+				&Account{ID: account.ID, Email: "A@X", Created: "x"},
+				ant.OnConflict(&Ac.ID).Set(ant.Set(&Ac.Fee, 9)),
+			)
+			require.ErrorContains(t, err, "Account.Fee is immutable")
+
+			source := ant.Values(db, AccountRow{ID: account.ID})
+
+			_, err = ant.Merge(&db.Accounts, source, ant.EqCol(&Ac.ID, &Ar.ID)).
+				WhenMatched(ant.Set(&Ac.Created, "rewritten")).
+				Exec(ctx)
+			require.ErrorContains(t, err, "Account.Created is immutable")
+
+			require.Equal(t, "now", stored().Created)
+		})
+
+		t.Run("an upsert leaves immutable fields out of its update", func(t *testing.T) {
+			_, err := db.Accounts.Upsert(
+				ctx,
+				&Account{ID: account.ID, Email: "A@X", Created: "upserted"},
+				ant.OnConflict(&Ac.ID),
+			)
+			require.NoError(t, err)
+			require.Equal(t, "now", stored().Created)
 		})
 
 		t.Run(
