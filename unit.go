@@ -756,7 +756,11 @@ func (n *node) pending(assigned []*meta.Field) []*meta.Field {
 
 		return assigned
 	case n.forced:
-		return n.model.Updatable()
+		// A forced entity has no snapshot, so its UpdatedAt cannot be told from
+		// one the application set: leave it out, and update stamps it.
+		return slices.DeleteFunc(n.model.Updatable(), func(f *meta.Field) bool {
+			return f == n.model.Updated
+		})
 	}
 
 	return n.entry.Changed()

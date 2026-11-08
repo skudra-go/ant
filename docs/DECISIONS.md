@@ -542,6 +542,10 @@ A list longer than the parameters one statement takes goes on PostgreSQL as one 
 
 Some limits are `database/sql`'s or a driver's, and are documented in `docs/databases.md` rather than worked around: an `sql.Null[uint64]` above `math.MaxInt64`, `NULL` into a named `[]byte`, and an `INTERVAL` into a `time.Duration`.
 
+## 96. A forced update stamps UpdatedAt
+
+`MarkModified`, and `TrackGraph` deciding `Modified`, write every updatable field, since there is no snapshot to compare with. `UpdatedAt` was one of them, so it counted as set by the application and was saved as the struct held it: the zero time, for a struct decoded from a request body (#60). A forced update now leaves `UpdatedAt` to ant, which stamps it as on any other update. An application that wants its own value there writes it with a bulk `Update`, where the one the write gives wins (decision 89).
+
 ## 99. A retried attempt leaves nothing in the tracker
 
 `Attempts` runs `f` again after a deadlock or serialization failure, on the same tracker. The rollback put the tracker back as the save found it, but the entities the failed attempt loaded stayed tracked with its edits, so the next attempt's tracked read got the edited instance and changed it again, and an entity it added stayed pending beside the one the next attempt added (#63). Before a retry, the tracker now forgets every entry that began during the failed attempt, which `f` loads or adds again. What was tracked before the transaction stays, with any change made to it, since ant cannot tell the attempt's edits from earlier ones without copying every entity at each attempt; `f` should load what it changes. Doing this on every rollback, not only before a retry, was rejected: a failed transaction's entities stay pending so that `SaveChanges` can be repeated (decision 79).

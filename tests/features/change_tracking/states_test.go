@@ -90,6 +90,45 @@ func TestStates(t *testing.T) {
 			require.Equal(t, "renamed", stored(t, db, user.ID).Name)
 		})
 
+		// A struct from a request body has no UpdatedAt, so a forced update
+		// stamps it, as any update does, rather than saving the zero time.
+		t.Run("MarkModified stamps UpdatedAt", func(t *testing.T) {
+			user := newUser("stamped")
+			require.NoError(t, ant.Session(db).Users.Insert(ctx, user))
+
+			session := ant.Session(db)
+			body := &User{Name: "from a body", Email: user.Email, Age: 21}
+			body.ID = user.ID
+			require.NoError(t, ant.MarkModified(ctx, session, body))
+			require.NoError(t, session.SaveChanges(ctx))
+
+			got := stored(t, db, user.ID)
+			require.Equal(t, "from a body", got.Name)
+			require.False(t, got.UpdatedAt.IsZero())
+			require.False(t, got.UpdatedAt.Before(user.UpdatedAt))
+			require.False(t, body.UpdatedAt.IsZero(), "the entity holds the stamp too")
+			require.True(t, got.CreatedAt.Equal(user.CreatedAt), "CreatedAt is never updated")
+		})
+
+		t.Run("TrackGraph Modified stamps UpdatedAt", func(t *testing.T) {
+			user := newUser("graphed")
+			require.NoError(t, ant.Session(db).Users.Insert(ctx, user))
+
+			session := ant.Session(db)
+			body := &User{Name: "graph body", Email: user.Email, Age: 22}
+			body.ID = user.ID
+
+			require.NoError(t, ant.TrackGraph(ctx, session, body, func(ant.GraphNode) ant.State {
+				return ant.Modified
+			}))
+
+			require.NoError(t, session.SaveChanges(ctx))
+
+			got := stored(t, db, user.ID)
+			require.Equal(t, "graph body", got.Name)
+			require.False(t, got.UpdatedAt.IsZero())
+		})
+
 		t.Run("Detach forgets changes", func(t *testing.T) {
 			session := ant.Session(db)
 			user := newUser("detached")
