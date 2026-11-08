@@ -853,6 +853,40 @@ func (t *Tracker) undoDeletion(id identity, gone []*Entry) Change {
 	return Change{undo: settle(c.Undo), keep: settle(c.Keep)}
 }
 
+// Mark returns how far the tracker has counted its entries, for ForgetSince.
+func (t *Tracker) Mark() uint64 {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	return t.seq
+}
+
+// ForgetSince stops tracking every entry that began after mark, as a retried
+// transaction needs: its failed attempt loaded and added them, and the next
+// attempt does so again.
+func (t *Tracker) ForgetSince(mark uint64) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	var gone []*Entry
+
+	for _, e := range t.entries {
+		if e.seq > mark {
+			gone = append(gone, e)
+		}
+	}
+
+	for _, e := range t.first {
+		if e.seq > mark && !slices.Contains(gone, e) {
+			gone = append(gone, e)
+		}
+	}
+
+	for _, e := range gone {
+		t.forget(e)
+	}
+}
+
 func (t *Tracker) forget(e *Entry) {
 	e.gone = true
 

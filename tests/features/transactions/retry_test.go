@@ -70,6 +70,114 @@ func TestRetry(t *testing.T) {
 			require.True(t, ant.IsRetryable(serializationFailure(t, db)))
 		})
 
+		// A retried attempt starts from what was tracked before the transaction,
+		// so a tracked read gets the row afresh rather than the instance the
+		// failed attempt changed.
+		t.Run("a retry reads rows afresh", func(t *testing.T) {
+			row := user("retried")
+			row.Age = 20
+			require.NoError(t, db.Users.Insert(ctx, row))
+
+			session := ant.Session(db)
+			runs := 0
+			err := session.Tx(
+				ctx,
+				func(tx *AppDB) error {
+					runs++
+
+					u, err := tx.Users.Find(ctx, row.ID)
+					if err != nil {
+						return err
+					}
+
+					u.Age += 10
+
+					if err := tx.SaveChanges(ctx); err != nil {
+						return err
+					}
+
+					if runs == 1 {
+						return conflict{}
+					}
+
+					return nil
+				},
+				ant.Attempts(3),
+			)
+			require.NoError(t, err)
+			require.Equal(t, 2, runs)
+
+			got, err := db.Users.NoTracking().Find(ctx, row.ID)
+			require.NoError(t, err)
+			require.Equal(t, 30, got.Age, "the second attempt's edit, once")
+			require.False(t, fixture.HasChanges(t, session))
+		})
+
+		t.Run("a retry inserts an added entity once", func(t *testing.T) {
+			session := ant.Session(db)
+			runs := 0
+			err := session.Tx(
+				ctx,
+				func(tx *AppDB) error {
+					runs++
+
+					if err := ant.Add(ctx, tx, user("added-once")); err != nil {
+						return err
+					}
+
+					if err := tx.SaveChanges(ctx); err != nil {
+						return err
+					}
+
+					if runs == 1 {
+						return conflict{}
+					}
+
+					return nil
+				},
+				ant.Attempts(3),
+			)
+			require.NoError(t, err)
+
+			count, err := db.Users.Where(ant.Eq(&U.Email, "added-once@example.com")).Count(ctx)
+			require.NoError(t, err)
+			require.EqualValues(t, 1, count)
+			require.False(t, fixture.HasChanges(t, session))
+		})
+
+		// What was tracked before the transaction stays tracked, with its own
+		// pending change, through a retry.
+		t.Run("a retry keeps what was tracked before", func(t *testing.T) {
+			row := user("tracked-before")
+			require.NoError(t, db.Users.Insert(ctx, row))
+
+			session := ant.Session(db)
+			before, err := session.Users.Find(ctx, row.ID)
+			require.NoError(t, err)
+
+			before.Name = "renamed before"
+			runs := 0
+			err = session.Tx(
+				ctx,
+				func(tx *AppDB) error {
+					runs++
+
+					if runs == 1 {
+						return conflict{}
+					}
+
+					return nil
+				},
+				ant.Attempts(3),
+			)
+			require.NoError(t, err)
+			require.Equal(t, ant.Modified, fixture.Entry(t, session, before).State())
+
+			again, err := session.Users.Find(ctx, row.ID)
+			require.NoError(t, err)
+			require.Same(t, before, again)
+		})
+
 		t.Run("an ordinary error is not retried", func(t *testing.T) {
 			runs := 0
 			err := db.Tx(
@@ -86,6 +194,12 @@ func TestRetry(t *testing.T) {
 		})
 	})
 }
+
+// conflict is an error IsRetryable takes for a serialization failure.
+type conflict struct{}
+
+func (conflict) Error() string    { return "serialization failure" }
+func (conflict) SQLState() string { return "40001" }
 
 // serializationFailure forces one conflict between two transactions.
 func serializationFailure(t *testing.T, db *AppDB) error {
