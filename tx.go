@@ -345,7 +345,10 @@ func (t *txState) abort(ctx context.Context) {
 
 // Attempts retries a transaction that fails from a deadlock or serialization
 // conflict, up to n runs in all, waiting a little longer each time. f must be safe
-// to run again, so it should not change anything outside the database.
+// to run again, so it should not change anything outside the database. Before a
+// retry, the tracker forgets what the failed attempt loaded or added, so the next
+// attempt reads its rows afresh; what was tracked before the transaction stays,
+// with any change made to it, so f should load what it changes.
 func Attempts(n int) TxOption { return func(o *txOptions) { o.attempts = n } }
 
 // Tx runs f in a transaction, passing a context of the same type bound to it.
@@ -380,10 +383,17 @@ func (c *Context) Tx[DB any](ctx context.Context, f func(tx *DB) error, options 
 	}
 
 	for attempt := 1; ; attempt++ {
+		mark := s.tracker.Mark()
+
 		err := runTx(ctx, s, o, f)
 		if err == nil || attempt >= o.attempts || !IsRetryable(err) {
 			return err
 		}
+
+		// f runs again, and loads and adds what it needs again, so what this
+		// attempt brought into the tracker goes: kept, the next attempt would
+		// read the instances it changed, and insert what it added twice.
+		s.tracker.ForgetSince(mark)
 
 		if waited := backoff(ctx, attempt); waited != nil {
 			return errors.Join(err, waited)
