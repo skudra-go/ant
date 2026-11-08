@@ -117,7 +117,7 @@ func (c *Conflict) clause(model *meta.Model) (*qb.Conflict, error) {
 		return out, nil
 	}
 
-	if err := managedVersion(model, c.update, c.set); err != nil {
+	if err := managedColumns(model, c.update, c.set); err != nil {
 		return nil, err
 	}
 
@@ -150,21 +150,39 @@ func (c *Conflict) clause(model *meta.Model) (*qb.Conflict, error) {
 	return out, nil
 }
 
-// managedVersion refuses a write that names the version column, which ant moves
-// on by itself.
-func managedVersion(model *meta.Model, columns []string, set []qb.Assignment) error {
-	v := model.Version
-	if v == nil {
-		return nil
+// managedColumns refuses an update that names a column ant keeps itself: the
+// version, which ant moves on, and fields that updates never write, which are
+// immutable, readonly, or computed. Without this, an explicit assignment would
+// change what the tag says stays put.
+func managedColumns(model *meta.Model, columns []string, set []qb.Assignment) error {
+	named := slices.Clone(columns)
+
+	for _, a := range set {
+		named = append(named, a.Column)
 	}
 
-	if slices.Contains(columns, v.Column) ||
-		slices.ContainsFunc(set, func(a qb.Assignment) bool { return a.Column == v.Column }) {
-		return fmt.Errorf(
-			"ant: %s.%s is a version, which ant moves on by itself; leave it out",
-			model.Type.Name(),
-			v.Name,
-		)
+	for _, column := range named {
+		f := model.Column(column)
+		if f == nil {
+			continue
+		}
+
+		var why string
+
+		switch {
+		case f == model.Version:
+			why = "a version, which ant moves on by itself"
+		case f.Immutable:
+			why = "immutable, written on insert only"
+		case f.ReadOnly:
+			why = "readonly, filled by the database"
+		case f.Computed:
+			why = "computed, never written"
+		default:
+			continue
+		}
+
+		return fmt.Errorf("ant: %s.%s is %s; leave it out", model.Type.Name(), f.Name, why)
 	}
 
 	return nil
@@ -768,6 +786,10 @@ func (t *Table[T]) UpdateMany(
 		}
 
 		columns = append(columns, ref.field.Column)
+	}
+
+	if err := managedColumns(model, columns, nil); err != nil {
+		return 0, err
 	}
 
 	if err := assignedTwice(model, "assignments", columns); err != nil {

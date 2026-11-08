@@ -781,7 +781,7 @@ func (q *Query[T]) update(a []Assignment) (*qb.Update, *Query[T], error) {
 		return nil, nil, fmt.Errorf("%w: %s", ErrReadOnly, model.Type.Name())
 	}
 
-	if err := managedVersion(model, nil, set); err != nil {
+	if err := managedColumns(model, nil, set); err != nil {
 		return nil, nil, err
 	}
 

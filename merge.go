@@ -205,7 +205,7 @@ func maintained(
 	for i, a := range out {
 		switch {
 		case a.Matched && len(a.Set) > 0:
-			if err := managedVersion(model, nil, a.Set); err != nil {
+			if err := managedColumns(model, nil, a.Set); err != nil {
 				return nil, err
 			}
 
