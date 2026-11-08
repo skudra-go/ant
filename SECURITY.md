@@ -20,4 +20,4 @@ You should hear back within a week. Once a fix is released, we publish an adviso
 
 ## Using ant safely
 
-Values are always bound as parameters, and column names come from struct fields. The raw SQL APIs (`ant.Raw`, `ant.SQL`, `ant.FromRaw` and friends) are the exception: never build their SQL from user input. The [security reference](https://github.com/skudra-go/ant-docs/blob/main/docs/reference/security.mdx) covers this and the known limits.
+Values are always bound as parameters, and column names come from struct fields. The raw SQL APIs (`ant.Raw`, `ant.SQL`, `ant.FromRaw` and friends) are the exception: never build their SQL from user input. The [security reference](https://skudra.net/reference/security) covers this and the known limits.

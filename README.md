@@ -10,6 +10,12 @@
 </p>
 
 <p align="center">
+  <a href="https://skudra.net">Documentation</a> ·
+  <a href="https://skudra.net/quick-start">Quick start</a> ·
+  <a href="https://github.com/skudra-go/ant-examples">Examples</a>
+</p>
+
+<p align="center">
   <a href="https://github.com/skudra-go/ant/actions/workflows/pr-ci.yml"><img src="https://github.com/skudra-go/ant/actions/workflows/pr-ci.yml/badge.svg?branch=main" alt="CI"></a>
   <a href="https://pkg.go.dev/github.com/skudra-go/ant"><img src="https://pkg.go.dev/badge/github.com/skudra-go/ant.svg" alt="Go Reference"></a>
   <img src="https://img.shields.io/badge/go-1.27%2B-00ADD8" alt="Go 1.27+">
@@ -85,7 +91,7 @@ PostgreSQL gets every feature first. [docs/databases.md](docs/databases.md) list
 
 ## Learn more
 
-- [Documentation](https://github.com/skudra-go/ant-docs): guides, recipes and reference
+- [Documentation](https://skudra.net): guides, recipes and reference
 - [Feature examples](tests/features/): a short test for every feature, edge cases included
 - [ant-examples](https://github.com/skudra-go/ant-examples): small projects built on ant
 - [Roadmap](docs/ROADMAP.md) and [design decisions](docs/DECISIONS.md)
