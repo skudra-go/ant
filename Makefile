@@ -4,10 +4,19 @@ ALL_DATABASES := postgres,mysql,mariadb,sqlite,sqlserver
 INTEGRATION := go test -count=1 ./tests/...
 MODULES := . tools/antvet tools/antfmt tools/compare contrib/otel
 
-.PHONY: bench test lint fmt db-up db-down test-integration test-pg test-mysql test-mariadb test-sqlite test-mssql
+.PHONY: build tidy bench test lint fmt db-up db-down test-integration test-pg test-mysql test-mariadb test-sqlite test-mssql
+
+build:
+	@for module in $(MODULES); do (cd $$module && go build ./...) || exit 1; done
+
+tidy:
+	@for module in $(MODULES); do (cd $$module && go mod tidy) || exit 1; done
+
+# TESTFLAGS passes flags through, as CI does with make test TESTFLAGS="-v -race".
+TESTFLAGS ?=
 
 test:
-	go test ./...
+	go test $(TESTFLAGS) ./...
 
 bench:
 	go test -run '^$$' -bench . -benchtime 2s ./tests/benchmarks/

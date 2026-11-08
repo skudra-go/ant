@@ -1,0 +1,65 @@
+name: Bug report
+description: Something in ant does not work as documented.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. For a security problem, don't use this form: see [SECURITY.md](https://github.com/skudra-go/ant/blob/main/SECURITY.md).
+
+  - type: input
+    id: go-version
+    attributes:
+      label: Go version
+      description: Output of `go version`.
+      placeholder: go version go1.27.1 linux/amd64
+    validations:
+      required: true
+
+  - type: input
+    id: ant-version
+    attributes:
+      label: ant version
+      description: The version or commit in your go.mod.
+      placeholder: v0.1.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: dialect
+    attributes:
+      label: Database
+      options:
+        - PostgreSQL
+        - MySQL
+        - MariaDB
+        - SQLite
+        - SQL Server
+        - Not database specific
+    validations:
+      required: true
+
+  - type: input
+    id: database-version
+    attributes:
+      label: Database and driver version
+      placeholder: PostgreSQL 17.2, pgx v5.12.0
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Code that reproduces it
+      description: The smallest model and query that show the problem. A failing test is ideal.
+      render: go
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and what happened
+      description: Include the error, and the SQL from `q.ToSQL()` or `Debug` if it is relevant.
+    validations:
+      required: true

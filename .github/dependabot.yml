@@ -1,0 +1,25 @@
+version: 2
+
+updates:
+  - package-ecosystem: gomod
+    directories:
+      - /
+      - /tools/antvet
+      - /tools/antfmt
+      - /tools/compare
+      - /contrib/otel
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      go-modules:
+        patterns: ["*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci

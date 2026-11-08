@@ -1,6 +1,6 @@
 # Decisions
 
-This file records where the implementation brief was ambiguous or needed refining, and what was chosen. Where the brief left a choice open, the option closest to EF Core was taken.
+This file records where the implementation brief (`task.md`, removed from the repository after v1.0 and still in its history) was ambiguous or needed refining, and what was chosen. Where the brief left a choice open, the option closest to EF Core was taken.
 
 The signatures were compiled with Go 1.27.3 against a stub on 2026-10-31.
 

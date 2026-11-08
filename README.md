@@ -1,19 +1,31 @@
-# ant
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.svg">
+    <img src="docs/assets/logo.svg" alt="ant" width="220">
+  </picture>
+</p>
 
-![status: pre-alpha](https://img.shields.io/badge/status-pre--alpha-lightgrey)
+<p align="center">
+  A typed ORM for Go. Plain structs, compiler-checked queries, no code generation.
+</p>
 
-ant is a Go ORM for Go 1.27 and later, in which models are plain structs and queries are checked by the compiler, with no code generation step. You declare a typed database context in the style of Entity Framework Core, reference columns through field pointers such as `&U.Age` instead of strings, and get change tracking through `SaveChanges`. Errors stay explicit and appear at terminal calls. ant targets PostgreSQL, MySQL, MariaDB, SQLite, and SQL Server on top of `database/sql`.
+<p align="center">
+  <a href="https://github.com/skudra-go/ant/actions/workflows/pr-ci.yml"><img src="https://github.com/skudra-go/ant/actions/workflows/pr-ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="https://pkg.go.dev/github.com/skudra-go/ant"><img src="https://pkg.go.dev/badge/github.com/skudra-go/ant.svg" alt="Go Reference"></a>
+  <img src="https://img.shields.io/badge/go-1.27%2B-00ADD8" alt="Go 1.27+">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
+</p>
 
-ant is in development, and has not been released. Models, relations, change tracking, transactions, global filters, soft deletes, bulk writes, interceptors, and migrations are in place on PostgreSQL. MySQL, MariaDB, SQLite, and SQL Server run the same queries and writes, without migrations yet: [databases](docs/databases.md) has the details. The [roadmap](docs/ROADMAP.md) shows the current state, the [feature examples](tests/features/) show how everything is used, the [recipes](docs/recipes/) cover common jobs, and [ant-examples](https://github.com/skudra-go/ant-examples) has small projects that use it.
+---
 
-## A taste
+Columns are field pointers, not strings. Write `ant.Gt(&U.Age, 18)` and the compiler checks both the column and the value. Rename a field and every query follows.
 
 ```go
 type User struct {
-    ant.Base               // ID, CreatedAt, UpdatedAt
-    Name  string
-    Age   int
-    Posts []Post           // 1:N via Post.UserID
+    ant.Base // ID, CreatedAt, UpdatedAt
+    Name     string
+    Age      int
+    Posts    []Post // 1:N through Post.UserID
 }
 
 type Post struct {
@@ -28,48 +40,62 @@ type AppDB struct {
     Posts ant.Table[Post]
 }
 
-var U = ant.Fields[User]() // field probe: &U.Age identifies the age column
+var U = ant.Fields[User]()
+
 db, err := ant.Open[AppDB](ctx, postgres.Dialect, dsn)
-alice := &User{Name: "Alice", Age: 30}
-err = db.Users.Insert(ctx, alice)
-user, err := db.Users.Find(ctx, alice.ID)
-user.Age++
-err = db.SaveChanges(ctx) // UPDATE users SET age = $1, ... WHERE id = $2
 
 adults, err := db.Users.
-    Where(ant.Gt(&U.Age, 18)). // ant.Gt(&U.Age, "18") does not compile
-    Include(&U.Posts).         // batched, no N+1
+    Where(ant.Gt(&U.Age, 18)). // ant.Gt(&U.Age, "18") won't compile
+    Include(&U.Posts).         // one batched query, not one per user
     All(ctx)
+
+adults[0].Age++
+err = db.SaveChanges(ctx) // writes only the columns that changed
 ```
 
-## Documentation
-
-- [The problem](docs/01-problem.md): what ant is meant to fix, with before and after code.
-- [Existing solutions](docs/02-existing-solutions.md): an assessment of eleven Go database libraries, with a comparison table.
-- [Vision](docs/03-vision.md): design decisions, the target API, how field probes work, known limits, and non-goals.
-- [Migrations](docs/migrations.md): generating and applying schema changes, adopting an existing database, and leaving ant's tooling.
-- [Decisions](docs/DECISIONS.md): refinements to the original brief and the reasons for them.
-- [Roadmap](docs/ROADMAP.md): every planned feature by phase, and what is not planned.
-- [Reference](docs/reference/): feature catalogs of EF Core, Eloquent, and Go libraries.
-- [Feature examples](tests/features/): one small test per feature, showing how to use it and how it behaves at the edges.
-
-## Development
-
-Requires Go 1.27 or later, Docker, `make`, and [staticcheck](https://staticcheck.dev/).
+## Install
 
 ```sh
-make test              # unit tests, no database needed
-make fmt               # lay the code out, in every module
-make lint              # go vet, staticcheck, and fail on anything fmt would change
-make db-up DATABASES=postgres  # start PostgreSQL, or leave DATABASES out for all
-make test-pg           # run the API tests and feature examples on PostgreSQL
-make bench             # compare ant with plain database/sql
-make test-integration  # run them on all five databases
-make db-down           # stop the databases and discard their data
+go get github.com/skudra-go/ant
+go get github.com/jackc/pgx/v5/stdlib  # or the driver for your database
 ```
 
-Tests for features that do not exist yet fail with `ErrNotImplemented`.
+Requires Go 1.27 or later, for generic methods.
+
+## Features
+
+- **Typed queries:** conditions, joins, projections, aggregates, subqueries, CTEs and window functions, all checked by the compiler
+- **Plain structs:** your types are the models, with conventions you can override in `Configure`
+- **Relations:** 1:1, 1:N and many-to-many, loaded explicitly with `Include`, in batches. Nothing loads behind your back
+- **Change tracking:** load, edit, `SaveChanges`. Only the columns that changed are written
+- **Writes:** insert, update, delete, upserts, `MERGE` and bulk writes, with a guard against unfiltered updates and deletes
+- **Transactions:** savepoints, isolation levels, retries and read replicas
+- **Lifecycle:** soft deletes, timestamps, global filters, hooks, validation and optimistic concurrency
+- **Migrations:** plain SQL generated from your structs, with drift checks. No down migrations, and no lock-in
+- **Tooling:** a `go vet` analyzer, query logging, metrics, OpenTelemetry, and test fixtures and factories in `anttest`
+
+## Databases
+
+| | PostgreSQL | MySQL | MariaDB | SQLite | SQL Server |
+| --- | :---: | :---: | :---: | :---: | :---: |
+| Queries and writes | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Migrations | ✅ | | | | |
+
+PostgreSQL gets every feature first. [docs/databases.md](docs/databases.md) lists what each database lacks.
+
+## Learn more
+
+- [Documentation](https://github.com/skudra-go/ant-docs): guides, recipes and reference
+- [Feature examples](tests/features/): a short test for every feature, edge cases included
+- [ant-examples](https://github.com/skudra-go/ant-examples): small projects built on ant
+- [Roadmap](docs/ROADMAP.md) and [design decisions](docs/DECISIONS.md)
+
+ant is pre-1.0, so the API can still change between releases.
+
+## Contributing
+
+Issues and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first. Report vulnerabilities as [SECURITY.md](SECURITY.md) describes.
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE).
+[MIT](LICENSE)
