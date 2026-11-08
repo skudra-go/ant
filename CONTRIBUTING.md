@@ -52,6 +52,7 @@ make fmt                       # lay out the code; lint fails on anything this w
 make lint                      # go vet, antvet, staticcheck and golangci-lint
 make test                      # unit tests; database tests skip
 make tidy                      # go mod tidy in every module
+make deps                      # govulncheck, and a list of outdated dependencies
 
 make db-up DATABASES=postgres  # start PostgreSQL in Docker
 make test-pg                   # API tests and feature examples on PostgreSQL

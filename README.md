@@ -91,7 +91,7 @@ PostgreSQL gets every feature first. [docs/databases.md](docs/databases.md) list
 
 ## Learn more
 
-- [Documentation](https://skudra.net): guides, recipes and reference
+- [Documentation](https://skudra.net): guides, recipes and reference.
 - [Feature examples](tests/features/): a short test for every feature, edge cases included
 - [ant-examples](https://github.com/skudra-go/ant-examples): small projects built on ant
 - [Roadmap](docs/ROADMAP.md) and [design decisions](docs/DECISIONS.md)
@@ -101,6 +101,16 @@ ant is pre-1.0, so the API can still change between releases.
 ## Contributing
 
 Issues and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first. Report vulnerabilities as [SECURITY.md](SECURITY.md) describes.
+
+Thank you to everyone who has filed an issue, fixed a bug or improved the docs:
+
+<a href="https://github.com/skudra-go/ant/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=skudra-go/ant" alt="Contributors">
+</a>
+
+## About
+
+ant was started by [@borderss](https://github.com/borderss), an engineer in Latvia who got tired of choosing between Go ORMs that are generic and Go ORMs that are type-safe, and decided to build one that is both. *Skudra* is Latvian for ant, which is where [skudra.net](https://skudra.net) gets its name.
 
 ## License
 

@@ -28,6 +28,24 @@ jobs:
       - run: make build
       - run: make lint
 
+  # Runs on every build, between Dependabot's weekly runs: fails on a
+  # vulnerability the code reaches, and lists outdated direct dependencies in
+  # the run summary. Not required, so a new advisory does not block unrelated PRs.
+  deps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - shell: bash
+        run: |
+          make deps | tee deps.txt
+          {
+            echo "### Outdated direct dependencies"
+            grep -E ' -> ' deps.txt || echo "None."
+          } >> "$GITHUB_STEP_SUMMARY"
+
   # Unit tests, plus every database test on PostgreSQL, under the race detector.
   test:
     runs-on: ubuntu-latest
