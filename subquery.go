@@ -209,8 +209,9 @@ func FromFunc[T any](h Handle, call string, args ...any) *Query[T] {
 }
 
 // Values reads rows held in memory as if they were a table, for joining against a
-// list or using it in a subquery. Each value takes the column's type, so this
-// needs a dialect with migration support. Results are not tracked.
+// list or using it in a subquery. It works on every dialect: PostgreSQL casts
+// each value to its column's type, and the others write the rows as they are.
+// Results are not tracked.
 //
 //	wanted := ant.Values(db, Wanted{ID: 1, Limit: 5}, Wanted{ID: 2, Limit: 9})
 //	ant.JoinSub(db.Users.Query(), wanted, ant.EqCol(&U.ID, &W.ID))
