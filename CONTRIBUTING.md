@@ -28,7 +28,7 @@ git pull --rebase origin main
 git push --force-with-lease
 ```
 
-Don't merge `main` into your branch. The merge commit blocks the pull request.
+Don't merge `main` into your branch. Rebasing keeps the branch linear, so each commit can be reviewed on its own.
 
 ## Commit messages
 
