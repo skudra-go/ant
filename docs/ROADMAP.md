@@ -1,6 +1,6 @@
 # Roadmap
 
-The full list of features ant plans to implement, derived from the [reference catalogs](reference/). Overlapping features from different libraries are merged into one line. Anything not scheduled is listed under [Not planned](#not-planned).
+The full list of features ant plans to implement, derived from feature catalogs of EF Core, Eloquent, and the Go libraries. Overlapping features from different libraries are merged into one line. Anything not scheduled is listed under [Not planned](#not-planned).
 
 API names are targets and may change until the v1.0 freeze. Features with no public API yet have none listed.
 
@@ -181,7 +181,7 @@ API names are targets and may change until the v1.0 freeze. Features with no pub
 - [x] Change detection runs at `SaveChanges`, so no manual call is needed
 - [x] Custom value comparers for slices and maps: `b.Comparer`
 - [ ] Relationship fixup across loaded entities
-  - Skipped: It conflicts with [the rule](03-vision.md) that a field that was not loaded stays empty, which is what makes a nil slice mean "not loaded". With fixup, a field would fill in or not depending on what else ran earlier, which makes bugs that come and go. Elements of a `[]T` relation are values, so ant could not share one entity between two parents anyway. Use `Include`, which says what you want.
+  - Skipped: It conflicts with the rule that a field that was not loaded stays empty, which is what makes a nil slice mean "not loaded". With fixup, a field would fill in or not depending on what else ran earlier, which makes bugs that come and go. Elements of a `[]T` relation are values, so ant could not share one entity between two parents anyway. Use `Include`, which says what you want.
 - [x] Change relations through navigations or foreign keys
 - [x] Temporary keys are not needed: Go zero keys mark new entities, and parents are inserted first
 - [x] Tracker debug output: `db.DebugTracked(ctx)`
@@ -234,7 +234,7 @@ API names are targets and may change until the v1.0 freeze. Features with no pub
 - [x] Database error classification: `ant.IsUniqueViolation`, `IsForeignKeyViolation`, `IsNotNullViolation`, `IsCheckViolation`, `IsRetryable`
 - [x] Dialect capability flags with clear errors: `dialect.Supports`, `ant.ErrUnsupported`
 - [x] Third-party dialects: public `Dialect` and statement AST
-  - The AST moved from `internal/qb` to the public `qb` package, so a dialect outside this module can render it. `docs/compatibility.md` keeps it outside the stability promise until such a dialect exists.
+  - The AST moved from `internal/qb` to the public `qb` package, so a dialect outside this module can render it. The [compatibility policy](https://skudra.net/reference/compatibility) keeps it outside the stability promise until such a dialect exists.
 
 **Exit criteria:** the entire integration suite passes on all five databases with no per-dialect test skips other than documented capability differences.
 
@@ -315,7 +315,7 @@ API names are targets and may change until the v1.0 freeze. Features with no pub
 - [x] Encoded cursors: `page.Next`
 - [x] Prepared statement cache: pgx caches statements per connection
 - [ ] Reuse of rendered SQL for repeated query shapes
-  - Skipped: Measured, and not worth it. Rendering a typical query takes about 7 µs, against hundreds for the round trip, and a cache key built from the same AST would cost about what it saves. pgx already caches prepared statements per connection. See [benchmarks](benchmarks.md).
+  - Skipped: Measured, and not worth it. Rendering a typical query takes about 7 µs, against hundreds for the round trip, and a cache key built from the same AST would cost about what it saves. pgx already caches prepared statements per connection. See [benchmarks](https://skudra.net/reference/benchmarks).
 
 **Exit criteria:** feature tests pass on all five databases or return a documented capability error. Paging and chunking are tested with at least 100,000 rows.
 
@@ -431,7 +431,7 @@ API names are targets and may change until the v1.0 freeze. Features with no pub
 - [x] Array columns on PostgreSQL: `postgres.Array[T]`
 - [x] Primitive collections stored as JSON: `ant.JSON[[]string]`
 - [x] Encrypted fields with key rotation: `secure.Value[T]`
-  - A field type rather than `.Encrypt`, so a value cannot be read as plain text by mistake. See [encrypted fields](recipes/encryption.md).
+  - A field type rather than `.Encrypt`, so a value cannot be read as plain text by mistake. See [encrypted fields](https://skudra.net/recipes/encrypted-fields).
 - [x] Default values in the database: `ant:"default"`
 - [x] Computed columns, stored or virtual: `ant:"readonly"`
 - [x] Generated values on insert: `ant:"default"`, `ant:"readonly"`
@@ -513,9 +513,9 @@ API names are targets and may change until the v1.0 freeze. Features with no pub
 - [x] Force primary: `ant.OnPrimary(ctx)`
 - [x] Retries: `ant.WithRetry(ant.Retry{...})`
 - [x] Deadlock and serialization retry for `Tx`: `ant.Attempts(5)`
-- [x] Commit failure guidance: [recipe](recipes/commit-failures.md)
+- [x] Commit failure guidance: [recipe](https://skudra.net/recipes/commit-failures)
 - [x] Multiple contexts over one pool: `ant.Session(db)`
-- [x] Multi-database routing: [recipe](recipes/multiple-databases.md)
+- [x] Multi-database routing: [recipe](https://skudra.net/recipes/several-databases)
 - [x] Advisory locks through raw SQL or `postgres` helpers
 
 ### Developer tooling
@@ -598,7 +598,7 @@ The model is defined in [decision 11](DECISIONS.md#11-migration-model).
 - [x] Replaceable SQL generation: `migrate.Config{Render: fn}`
 - [x] Automatic index on foreign keys, removed with `.NoIndex()`
 
-The guide is [migrations.md](migrations.md). Everything here works on PostgreSQL. Other dialects implement `schema.Dialect`, and return `schema.ErrUnsupported` until then, so the exit criterion for all five databases waits on v0.4.
+The guide is [migrations](https://skudra.net/migrations/overview). Everything here works on PostgreSQL. Other dialects implement `schema.Dialect`, and return `schema.ErrUnsupported` until then, so the exit criterion for all five databases waits on v0.4.
 
 **Exit criteria:** a model change produces SQL with no database connection, and that SQL applies cleanly on all five databases. `check` fails CI on drift between models and the snapshot. Replacing `migrate.Source` is covered by a test.
 
@@ -618,16 +618,16 @@ The guide is [migrations.md](migrations.md). Everything here works on PostgreSQL
 - [x] Factory build and create
 - [x] Factory callbacks
 - [x] Transactional test isolation: `anttest.Isolate(t, db)`
-- [x] Testing guide: [testing](testing.md)
+- [x] Testing guide: [testing](https://skudra.net/testing)
 - [ ] Reverse engineering structs from a database: `migrate scaffold`
-  - Skipped: Owner decision. A database does not say which integer is an enum, what a relation should be called, or what belongs together, so the output needs reading line by line anyway. Instead, [adopting a database](migrations.md#adopting-an-existing-database) gives an AI assistant a prompt, and `drift` checks the result until nothing differs.
+  - Skipped: Owner decision. A database does not say which integer is an enum, what a relation should be called, or what belongs together, so the output needs reading line by line anyway. Instead, [adopting a database](https://skudra.net/migrations/adopting) gives an AI assistant a prompt, and `drift` checks the result until nothing differs.
 - [x] Model inspection command: `migrate inspect`
 - [x] Database summary command: `migrate db-show`
-- [x] Documentation site: `mkdocs.yml`
-  - The configuration builds every page in `docs/` with `--strict`. Publishing it needs a home, which is the owner's call.
+- [x] Documentation site: [skudra.net](https://skudra.net), built from [ant-docs](https://github.com/skudra-go/ant-docs)
+  - Docusaurus, with every Go sample type-checked against ant.
 - [ ] Runnable examples for every public API
   - Skipped: Partly done, and left open on purpose. `example_test.go` has runnable examples for the core calls, and `tests/features/` shows every feature against a real database, but most calls need a server, which `go test` examples cannot assume. An example for each of the 900 lines in `docs/api.txt` would mostly repeat those tests.
-- [x] Recipe guides: [`docs/recipes/`](recipes/)
+- [x] Recipe guides: [recipes](https://skudra.net/recipes/auditing)
   - Also partitioning, several databases, and commit failures.
 
 **Exit criteria:** the analyzer runs under `go vet -vettool`. Every exported identifier has an example or a guide link. Fixtures and factories are used by ant's own integration suite.
@@ -636,7 +636,7 @@ The guide is [migrations.md](migrations.md). Everything here works on PostgreSQL
 
 ### Performance
 
-- [x] Benchmarks against GORM, Bun, and `database/sql`: [benchmarks](benchmarks.md)
+- [x] Benchmarks against GORM, Bun, and `database/sql`: [benchmarks](https://skudra.net/reference/benchmarks)
   - Plain `database/sql` stands in for sqlc, whose generated code is the same query string and `Scan`. Adding sqlc itself would need a code generation step in this repository to measure the same thing.
 - [x] Allocation budget for query building and scanning
 - [x] Probe resolution benchmark
@@ -645,10 +645,10 @@ The guide is [migrations.md](migrations.md). Everything here works on PostgreSQL
 
 - [ ] Public API freeze
   - Skipped: Left to the owner. `docs/api.txt` records the candidate, and `tests/api` fails on any change to it, so freezing is a matter of declaring it. The call should come after using it for real, since `Session` options, `exec.Wrap`, and `anttest.Isolate` all changed in this work.
-- [x] Security review: [SECURITY.md](SECURITY.md)
+- [x] Security review: [security](https://skudra.net/reference/security)
   - Done in-house, with known limits listed on that page. An outside review is still worth having before 1.0.
-- [x] Upgrade guide: [upgrading](upgrading.md)
-- [x] Compatibility policy: [compatibility](compatibility.md)
+- [x] Upgrade guide: each GitHub release lists its breaking changes
+- [x] Compatibility policy: [compatibility](https://skudra.net/reference/compatibility)
 
 **Exit criteria:** benchmarks are published and reproducible. The security review has no open high-severity findings. The API has no breaking change for one release candidate.
 

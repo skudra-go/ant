@@ -1,0 +1,36 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # A draft, so the notes can be edited before publishing. A tag with a
+      # suffix, such as v1.2.0-rc.1, is marked as a pre-release.
+      - name: Draft the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          flags=(--draft --generate-notes --verify-tag --title "$TAG")
+          if [[ "$TAG" == *-* ]]; then
+            flags+=(--prerelease)
+          fi
+          gh release create "$TAG" "${flags[@]}"
+
+      # Asks the module proxy for the new version, so go get and pkg.go.dev see
+      # it straight away.
+      - name: Refresh the Go module proxy
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          curl -fsS --retry 5 --retry-delay 10 --retry-all-errors \
+            "https://proxy.golang.org/github.com/${GITHUB_REPOSITORY,,}/@v/${TAG}.info"
