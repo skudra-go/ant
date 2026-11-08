@@ -1,7 +1,8 @@
 // Package otel traces ant's statements with OpenTelemetry. It is a module of its
 // own, so that ant itself has no such dependency.
 //
-//	db, err := ant.Open[AppDB](ctx, postgres.Dialect, dsn, ant.WithInterceptor(otel.New(tracer)))
+//	db, err := ant.Open[AppDB](ctx, mysql.Dialect, dsn,
+//		ant.WithInterceptor(otel.New(tracer, otel.WithDialect(mysql.Dialect))))
 //
 // Each statement becomes a span under the caller's, named after the kind of
 // statement, with its SQL in db.query.text. Values are never recorded.
@@ -12,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/skudra-go/ant"
+	"github.com/skudra-go/ant/dialect"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -25,8 +27,52 @@ type Tracer struct {
 	system string
 }
 
-// New returns an interceptor for tracer.
-func New(tracer trace.Tracer) *Tracer { return &Tracer{tracer: tracer, system: "postgresql"} }
+// New returns an interceptor for tracer. Spans say db.system is postgresql
+// unless an option names the database.
+func New(tracer trace.Tracer, options ...Option) *Tracer {
+	t := &Tracer{tracer: tracer, system: "postgresql"}
+
+	for _, o := range options {
+		o(t)
+	}
+
+	return t
+}
+
+// Option configures a Tracer.
+type Option func(*Tracer)
+
+// WithDialect sets db.system from the dialect the context uses, in
+// OpenTelemetry's spelling: postgresql, mysql, mariadb, sqlite, or mssql. A
+// dialect ant does not ship gives its own name, and a nil one changes nothing.
+//
+//	otel.New(tracer, otel.WithDialect(mysql.Dialect))
+func WithDialect(d dialect.Dialect) Option {
+	return func(t *Tracer) {
+		if d == nil {
+			return
+		}
+
+		name := d.Name()
+		if system, ok := systems[name]; ok {
+			name = system
+		}
+
+		t.system = name
+	}
+}
+
+// WithSystem sets db.system as given.
+func WithSystem(system string) Option { return func(t *Tracer) { t.system = system } }
+
+// systems maps ant's dialect names to OpenTelemetry's db.system values.
+var systems = map[string]string{
+	"postgres":  "postgresql",
+	"mysql":     "mysql",
+	"mariadb":   "mariadb",
+	"sqlite":    "sqlite",
+	"sqlserver": "mssql",
+}
 
 // Before implements ant.Interceptor.
 func (t *Tracer) Before(ctx context.Context, s *ant.Statement) (context.Context, error) {
