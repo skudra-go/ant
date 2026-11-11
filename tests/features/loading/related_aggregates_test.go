@@ -38,8 +38,8 @@ type PressDB struct {
 }
 
 var (
-	W = ant.Fields[Writer]()
-	A = ant.Fields[Article]()
+	Writers  = ant.Fields[Writer]()
+	Articles = ant.Fields[Article]()
 )
 
 func TestRelatedAggregates(t *testing.T) {
@@ -55,10 +55,11 @@ func TestRelatedAggregates(t *testing.T) {
 			&Article{WriterID: ann.ID, Views: 10, Live: true},
 			&Article{WriterID: ann.ID, Views: 30}))
 
-		query := db.Writers.OrderBy(&W.Name)
+		query := db.Writers.OrderBy(&Writers.Name)
 
 		t.Run("count", func(t *testing.T) {
-			got, err := query.With(&W.ArticleCount, ant.CountRelated(&W.Articles)).All(ctx)
+			got, err := query.With(&Writers.ArticleCount, ant.CountRelated(&Writers.Articles)).
+				All(ctx)
 			require.NoError(t, err)
 			require.EqualValues(t, 2, got[0].ArticleCount)
 			require.Zero(t, got[1].ArticleCount)
@@ -66,8 +67,8 @@ func TestRelatedAggregates(t *testing.T) {
 
 		t.Run("count with a condition", func(t *testing.T) {
 			got, err := query.With(
-				&W.LiveCount,
-				ant.CountRelated(&W.Articles, ant.Eq(&A.Live, true)),
+				&Writers.LiveCount,
+				ant.CountRelated(&Writers.Articles, ant.Eq(&Articles.Live, true)),
 			).
 				All(ctx)
 			require.NoError(t, err)
@@ -75,7 +76,8 @@ func TestRelatedAggregates(t *testing.T) {
 		})
 
 		t.Run("sum is zero with no rows", func(t *testing.T) {
-			got, err := query.With(&W.TotalViews, ant.SumRelated(&W.Articles, &A.Views)).All(ctx)
+			got, err := query.With(&Writers.TotalViews, ant.SumRelated(&Writers.Articles, &Articles.Views)).
+				All(ctx)
 			require.NoError(t, err)
 			require.Equal(t, 40, got[0].TotalViews)
 			require.Zero(t, got[1].TotalViews)
@@ -83,9 +85,9 @@ func TestRelatedAggregates(t *testing.T) {
 
 		t.Run("min, max, and avg are NULL with no rows", func(t *testing.T) {
 			got, err := query.
-				With(&W.AverageViews, ant.AvgRelated(&W.Articles, &A.Views)).
-				With(&W.MostViews, ant.MaxRelated(&W.Articles, &A.Views)).
-				With(&W.FewestViews, ant.MinRelated(&W.Articles, &A.Views)).
+				With(&Writers.AverageViews, ant.AvgRelated(&Writers.Articles, &Articles.Views)).
+				With(&Writers.MostViews, ant.MaxRelated(&Writers.Articles, &Articles.Views)).
+				With(&Writers.FewestViews, ant.MinRelated(&Writers.Articles, &Articles.Views)).
 				All(ctx)
 			require.NoError(t, err)
 			require.EqualValues(t, 20, got[0].AverageViews.V)

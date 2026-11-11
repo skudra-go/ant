@@ -47,7 +47,7 @@ func TestSessionPerWorker(t *testing.T) {
 				// A new session each round, as a new request would have.
 				session := ant.Session(db, ant.WithTracking(true))
 
-				a, err := session.Accounts.Include(&A.Payments, byID).Find(ctx, account.ID)
+				a, err := session.Accounts.Include(&Accounts.Payments, byID).Find(ctx, account.ID)
 				if err != nil {
 					return err
 				}
@@ -77,8 +77,8 @@ func TestSessionPerWorker(t *testing.T) {
 		})
 		noErrors(t, errs)
 
-		accounts, err := db.Accounts.Include(&A.Payments).
-			Where(ant.Like(&A.Owner, "session-%")).
+		accounts, err := db.Accounts.Include(&Accounts.Payments).
+			Where(ant.Like(&Accounts.Owner, "session-%")).
 			All(ctx)
 		require.NoError(t, err)
 		require.Len(t, accounts, n)
@@ -176,7 +176,8 @@ func TestTransfers(t *testing.T) {
 				err := db.Tx(
 					ctx,
 					func(tx *BankDB) error {
-						q := tx.Accounts.Where(ant.In(&A.ID, from.ID, to.ID)).OrderBy(&A.ID)
+						q := tx.Accounts.Where(ant.In(&Accounts.ID, from.ID, to.ID)).
+							OrderBy(&Accounts.ID)
 
 						if locks {
 							q = q.ForUpdate()
@@ -190,8 +191,8 @@ func TestTransfers(t *testing.T) {
 							id     int64
 							amount int64
 						}{{from.ID, -amount}, {to.ID, amount}} {
-							changed, err := tx.Accounts.Where(ant.Eq(&A.ID, step.id)).
-								Update(ctx, ant.Inc(&A.Balance, step.amount))
+							changed, err := tx.Accounts.Where(ant.Eq(&Accounts.ID, step.id)).
+								Update(ctx, ant.Inc(&Accounts.Balance, step.amount))
 							if err != nil {
 								return err
 							}
@@ -223,7 +224,7 @@ func TestTransfers(t *testing.T) {
 		require.Equal(t, before, total(t, db), "money was made or lost")
 		require.Positive(t, moved.Load())
 
-		stored, err := db.Accounts.Include(&A.Payments).OrderBy(&A.ID).All(ctx)
+		stored, err := db.Accounts.Include(&Accounts.Payments).OrderBy(&Accounts.ID).All(ctx)
 		require.NoError(t, err)
 
 		for _, a := range stored {
@@ -262,7 +263,7 @@ func TestUpsertRace(t *testing.T) {
 				_, err := db.Counters.Upsert(
 					ctx,
 					&Counter{Name: "hits", Hits: 1},
-					ant.OnConflict(&C.Name).Set(ant.Inc(&C.Hits, int64(1))),
+					ant.OnConflict(&Counters.Name).Set(ant.Inc(&Counters.Hits, int64(1))),
 				)
 				if err != nil {
 					return fmt.Errorf("upsert %d: %w", i, err)
@@ -271,7 +272,9 @@ func TestUpsertRace(t *testing.T) {
 				_, err = db.Counters.InsertMany(
 					ctx,
 					[]*Counter{{Name: fmt.Sprintf("bulk-%d", i), Hits: 1}},
-					ant.WithConflict(ant.OnConflict(&C.Name).Set(ant.Inc(&C.Hits, int64(1)))),
+					ant.WithConflict(
+						ant.OnConflict(&Counters.Name).Set(ant.Inc(&Counters.Hits, int64(1))),
+					),
 				)
 				if err != nil {
 					return fmt.Errorf("insert many %d: %w", i, err)
@@ -282,7 +285,7 @@ func TestUpsertRace(t *testing.T) {
 		})
 		noErrors(t, errs)
 
-		counters, err := db.Counters.OrderBy(&C.Name).All(ctx)
+		counters, err := db.Counters.OrderBy(&Counters.Name).All(ctx)
 		require.NoError(t, err)
 		require.Len(t, counters, rounds+1)
 
@@ -304,7 +307,7 @@ type hit struct {
 	N    int64
 }
 
-var H = ant.Fields[hit]()
+var Hits = ant.Fields[hit]()
 
 // Workers that all MERGE one counter, as an upsert, each add one hit: the first
 // inserts the row, and the rest update it. PostgreSQL documents that a MERGE
@@ -338,9 +341,9 @@ func TestMergeRace(t *testing.T) {
 		errs := workers(n, func(int) error {
 			for range rounds {
 				for {
-					_, err := ant.Merge(&db.Counters, ant.Values(db, hit{"merged", 1}), ant.EqCol(&C.Name, &H.Name)).
-						WhenMatched(ant.Inc(&C.Hits, int64(1))).
-						WhenNotMatched(ant.Into(&C.Name, &H.Name), ant.Into(&C.Hits, &H.N)).
+					_, err := ant.Merge(&db.Counters, ant.Values(db, hit{"merged", 1}), ant.EqCol(&Counters.Name, &Hits.Name)).
+						WhenMatched(ant.Inc(&Counters.Hits, int64(1))).
+						WhenNotMatched(ant.Into(&Counters.Name, &Hits.Name), ant.Into(&Counters.Hits, &Hits.N)).
 						Exec(ctx)
 					if ant.IsUniqueViolation(err) {
 						violations.Add(1)
@@ -387,7 +390,7 @@ func TestFirstOrCreateRace(t *testing.T) {
 					got, isNew, err := tx.Counters.FirstOrCreate(
 						ctx,
 						&Counter{Name: name, Hits: int64(w)},
-						ant.Eq(&C.Name, name),
+						ant.Eq(&Counters.Name, name),
 					)
 					if err != nil {
 						return err
@@ -428,7 +431,7 @@ func TestSessionRollbacks(t *testing.T) {
 		errs := workers(8, func(w int) error {
 			session := ant.Session(db, ant.WithTracking(true))
 
-			a, err := session.Accounts.Include(&A.Payments).Find(ctx, accounts[w].ID)
+			a, err := session.Accounts.Include(&Accounts.Payments).Find(ctx, accounts[w].ID)
 			if err != nil {
 				return err
 			}
@@ -465,7 +468,7 @@ func TestSessionRollbacks(t *testing.T) {
 		})
 		noErrors(t, errs)
 
-		stored, err := db.Accounts.Include(&A.Payments).OrderBy(&A.ID).All(ctx)
+		stored, err := db.Accounts.Include(&Accounts.Payments).OrderBy(&Accounts.ID).All(ctx)
 		require.NoError(t, err)
 
 		for _, a := range stored {
@@ -495,8 +498,8 @@ func TestSerializableRetries(t *testing.T) {
 							return err
 						}
 
-						_, err = tx.Accounts.Where(ant.Eq(&A.ID, a.ID)).
-							Update(ctx, ant.Set(&A.Balance, a.Balance+1))
+						_, err = tx.Accounts.Where(ant.Eq(&Accounts.ID, a.ID)).
+							Update(ctx, ant.Set(&Accounts.Balance, a.Balance+1))
 
 						return err
 					},
@@ -519,4 +522,4 @@ func TestSerializableRetries(t *testing.T) {
 }
 
 // byID orders included payments, oldest first.
-func byID(q *ant.Query[Payment]) *ant.Query[Payment] { return q.OrderBy(&P.ID) }
+func byID(q *ant.Query[Payment]) *ant.Query[Payment] { return q.OrderBy(&Payments.ID) }

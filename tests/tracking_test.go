@@ -60,7 +60,7 @@ func TestNoTrackingIsNotSaved(t *testing.T) {
 	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
 		app := openApp(t, target)
 		seedUsers(t, app, "Alice", 30)
-		user, err := app.Users.NoTracking().Where(ant.Eq(&U.Name, "Alice")).First(t.Context())
+		user, err := app.Users.NoTracking().Where(ant.Eq(&Users.Name, "Alice")).First(t.Context())
 		require.NoError(t, err)
 
 		user.Age = 99

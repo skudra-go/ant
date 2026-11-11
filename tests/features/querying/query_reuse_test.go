@@ -14,13 +14,13 @@ func TestQueryReuse(t *testing.T) {
 	fixture.Run(t, func(t *testing.T, db *fixture.AppDB) {
 		fixture.Seed(t, db)
 		ctx := t.Context()
-		adults := db.Users.Where(ant.Gt(&U.Age, 18)).OrderBy(&U.Name)
+		adults := db.Users.Where(ant.Gt(&Users.Age, 18)).OrderBy(&Users.Name)
 
-		alice, err := adults.Where(ant.Eq(&U.Name, "Alice")).All(ctx)
+		alice, err := adults.Where(ant.Eq(&Users.Name, "Alice")).All(ctx)
 		require.NoError(t, err)
 		require.Equal(t, []string{"Alice"}, fixture.Names(alice))
 
-		carol, err := adults.Where(ant.Eq(&U.Name, "Carol")).All(ctx)
+		carol, err := adults.Where(ant.Eq(&Users.Name, "Carol")).All(ctx)
 		require.NoError(t, err)
 		require.Equal(t, []string{"Carol"}, fixture.Names(carol))
 

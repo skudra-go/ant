@@ -31,11 +31,11 @@ type Projection[R any] struct {
 // Project selects only the mapped expressions, and scans them into R. Use it
 // instead of Select to avoid fetching whole rows:
 //
-//	var S = ant.Fields[Summary]()
+//	var Summaries = ant.Fields[Summary]()
 //
-//	ant.Project[Summary](db.Posts.Join(&P.User),
-//		ant.Into(&S.Author, &U.Name),
-//		ant.Into(&S.Title, &P.Title))
+//	ant.Project[Summary](db.Posts.Join(&Posts.User),
+//		ant.Into(&Summaries.Author, &Users.Name),
+//		ant.Into(&Summaries.Title, &Posts.Title))
 func Project[R any](q Selectable, mappings ...Mapping) *Projection[R] {
 	p := &Projection[R]{builder: q.base().cloned()}
 	model := configure[R]()

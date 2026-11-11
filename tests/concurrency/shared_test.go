@@ -117,7 +117,7 @@ func reads(db *BankDB, b *bank) []func(ctx context.Context, i int) error {
 
 	return []func(ctx context.Context, i int) error{
 		func(ctx context.Context, _ int) error { // All
-			got, err := db.Accounts.OrderBy(&A.ID).All(ctx)
+			got, err := db.Accounts.OrderBy(&Accounts.ID).All(ctx)
 			if err != nil {
 				return err
 			}
@@ -137,7 +137,7 @@ func reads(db *BankDB, b *bank) []func(ctx context.Context, i int) error {
 		func(ctx context.Context, i int) error { // Where and Single
 			want := b.accounts[i%n]
 
-			got, err := db.Accounts.Where(ant.Eq(&A.Owner, want.Owner)).Single(ctx)
+			got, err := db.Accounts.Where(ant.Eq(&Accounts.Owner, want.Owner)).Single(ctx)
 			if err != nil {
 				return err
 			}
@@ -150,7 +150,7 @@ func reads(db *BankDB, b *bank) []func(ctx context.Context, i int) error {
 				return err
 			}
 
-			found, err := db.Payments.Where(ant.Eq(&P.Note, "seed")).Exists(ctx)
+			found, err := db.Payments.Where(ant.Eq(&Payments.Note, "seed")).Exists(ctx)
 			if err != nil {
 				return err
 			}
@@ -162,7 +162,7 @@ func reads(db *BankDB, b *bank) []func(ctx context.Context, i int) error {
 			return nil
 		},
 		func(ctx context.Context, i int) error { // Page
-			page, err := db.Accounts.OrderBy(&A.ID).Page(ctx, i%3+1, 4)
+			page, err := db.Accounts.OrderBy(&Accounts.ID).Page(ctx, i%3+1, 4)
 			if err != nil {
 				return err
 			}
@@ -185,7 +185,7 @@ func reads(db *BankDB, b *bank) []func(ctx context.Context, i int) error {
 			cursor := ""
 
 			for {
-				page, err := db.Accounts.OrderBy(&A.ID).After(ctx, cursor, 5)
+				page, err := db.Accounts.OrderBy(&Accounts.ID).After(ctx, cursor, 5)
 				if err != nil {
 					return err
 				}
@@ -202,7 +202,7 @@ func reads(db *BankDB, b *bank) []func(ctx context.Context, i int) error {
 		func(ctx context.Context, _ int) error { // Chunk
 			var all []*Account
 
-			err := db.Accounts.OrderBy(&A.ID).Chunk(ctx, 5, func(batch []*Account) error {
+			err := db.Accounts.OrderBy(&Accounts.ID).Chunk(ctx, 5, func(batch []*Account) error {
 				all = append(all, batch...)
 
 				return nil
@@ -227,7 +227,7 @@ func reads(db *BankDB, b *bank) []func(ctx context.Context, i int) error {
 			return b.checkAll(all, n)
 		},
 		func(ctx context.Context, _ int) error { // Include
-			got, err := db.Accounts.Include(&A.Payments).OrderBy(&A.ID).All(ctx)
+			got, err := db.Accounts.Include(&Accounts.Payments).OrderBy(&Accounts.ID).All(ctx)
 			if err != nil {
 				return err
 			}
@@ -244,10 +244,10 @@ func reads(db *BankDB, b *bank) []func(ctx context.Context, i int) error {
 			want := b.accounts[i%n]
 
 			for _, q := range []*ant.Query[Payment]{
-				db.Payments.IncludeOne(&P.Account),
-				db.Payments.IncludeJoined(&P.Account),
+				db.Payments.IncludeOne(&Payments.Account),
+				db.Payments.IncludeJoined(&Payments.Account),
 			} {
-				got, err := q.Where(ant.Eq(&P.AccountID, want.ID)).All(ctx)
+				got, err := q.Where(ant.Eq(&Payments.AccountID, want.ID)).All(ctx)
 				if err != nil {
 					return err
 				}
@@ -273,14 +273,14 @@ func reads(db *BankDB, b *bank) []func(ctx context.Context, i int) error {
 			want := b.accounts[i%n]
 			own := &Account{ID: want.ID, Owner: want.Owner, Balance: want.Balance}
 
-			if err := db.Accounts.Load(ctx, &A.Payments, own, own); err != nil {
+			if err := db.Accounts.Load(ctx, &Accounts.Payments, own, own); err != nil {
 				return err
 			}
 
 			return b.check(own)
 		},
 		func(ctx context.Context, _ int) error { // aggregates and Pluck
-			sum, err := ant.SumOf(ctx, db.Payments.Query(), &P.Amount)
+			sum, err := ant.SumOf(ctx, db.Payments.Query(), &Payments.Amount)
 			if err != nil {
 				return err
 			}
@@ -293,7 +293,7 @@ func reads(db *BankDB, b *bank) []func(ctx context.Context, i int) error {
 				}
 			}
 
-			owners, err := ant.Pluck(ctx, db.Accounts.OrderBy(&A.ID), &A.Owner)
+			owners, err := ant.Pluck(ctx, db.Accounts.OrderBy(&Accounts.ID), &Accounts.Owner)
 			if err != nil {
 				return err
 			}
@@ -323,8 +323,8 @@ func reads(db *BankDB, b *bank) []func(ctx context.Context, i int) error {
 				Amount int64
 			}
 
-			got, err := db.Payments.Join(&P.Account).
-				Where(ant.Eq(&P.AccountID, want.ID)).
+			got, err := db.Payments.Join(&Payments.Account).
+				Where(ant.Eq(&Payments.AccountID, want.ID)).
 				Select(func(p *Payment, a *Account) row { return row{a.Owner, p.Amount} }).
 				All(ctx)
 			if err != nil {
@@ -369,7 +369,7 @@ func TestSharedBaseQuery(t *testing.T) {
 		b := seedBank(t, db, 12)
 		ctx := t.Context()
 
-		base := db.Accounts.Where(ant.Gt(&A.Balance, int64(0))).Include(&A.Payments)
+		base := db.Accounts.Where(ant.Gt(&Accounts.Balance, int64(0))).Include(&Accounts.Payments)
 		text, args, err := base.ToSQL()
 		require.NoError(t, err)
 
@@ -377,12 +377,12 @@ func TestSharedBaseQuery(t *testing.T) {
 			for i := range 10 {
 				want := b.accounts[(w+i)%len(b.accounts)]
 
-				q := base.Where(ant.Eq(&A.ID, want.ID))
+				q := base.Where(ant.Eq(&Accounts.ID, want.ID))
 
 				if w%2 == 0 {
-					q = q.OrderBy(&A.Owner).Limit(5)
+					q = q.OrderBy(&Accounts.Owner).Limit(5)
 				} else {
-					q = q.OrderByDesc(&A.ID).Tag(fmt.Sprintf("worker %d", w))
+					q = q.OrderByDesc(&Accounts.ID).Tag(fmt.Sprintf("worker %d", w))
 				}
 
 				got, err := q.All(ctx)
@@ -430,13 +430,13 @@ func TestEntitiesAreNotShared(t *testing.T) {
 				case 0:
 					got, err = db.Accounts.Find(ctx, id)
 				case 1:
-					got, err = db.Accounts.Query().NoTrackingResolved().Include(&A.Payments).
-						Where(ant.Eq(&A.ID, id)).First(ctx)
+					got, err = db.Accounts.Query().NoTrackingResolved().Include(&Accounts.Payments).
+						Where(ant.Eq(&Accounts.ID, id)).First(ctx)
 				default:
 					var payments []*Payment
 
-					payments, err = db.Payments.IncludeJoined(&P.Account).
-						Where(ant.Eq(&P.AccountID, id)).All(ctx)
+					payments, err = db.Payments.IncludeJoined(&Payments.Account).
+						Where(ant.Eq(&Payments.AccountID, id)).All(ctx)
 					if err == nil {
 						got = payments[0].Account
 					}
@@ -491,8 +491,8 @@ func TestSharedContextWrites(t *testing.T) {
 					return errors.New("insert gave no key")
 				}
 
-				changed, err := db.Accounts.Where(ant.Eq(&A.ID, account.ID)).
-					Update(ctx, ant.Inc(&A.Balance, int64(i+1)))
+				changed, err := db.Accounts.Where(ant.Eq(&Accounts.ID, account.ID)).
+					Update(ctx, ant.Inc(&Accounts.Balance, int64(i+1)))
 				if err != nil {
 					return err
 				}
@@ -512,8 +512,8 @@ func TestSharedContextWrites(t *testing.T) {
 			}
 
 			gone, err := db.Payments.Where(
-				ant.Eq(&P.AccountID, account.ID),
-				ant.Eq(&P.Note, "bulk"),
+				ant.Eq(&Payments.AccountID, account.ID),
+				ant.Eq(&Payments.Note, "bulk"),
 			).Delete(ctx)
 			if err != nil {
 				return err
@@ -527,7 +527,7 @@ func TestSharedContextWrites(t *testing.T) {
 		})
 		noErrors(t, errs)
 
-		accounts, err := db.Accounts.Include(&A.Payments).All(ctx)
+		accounts, err := db.Accounts.Include(&Accounts.Payments).All(ctx)
 		require.NoError(t, err)
 		require.Len(t, accounts, n)
 
@@ -564,14 +564,15 @@ func TestSmallPool(t *testing.T) {
 					switch w % 4 {
 					case 0:
 						return db.Tx(ctx, func(tx *BankDB) error {
-							_, err := tx.Payments.Where(ant.Eq(&P.Note, "nothing")).Delete(ctx)
+							_, err := tx.Payments.Where(ant.Eq(&Payments.Note, "nothing")).
+								Delete(ctx)
 
 							return err
 						})
 					case 1:
 						session := ant.Session(db, ant.WithTracking(true))
 
-						a, err := session.Accounts.Include(&A.Payments).
+						a, err := session.Accounts.Include(&Accounts.Payments).
 							Find(ctx, b.accounts[w%6].ID)
 						if err != nil {
 							return err
@@ -596,16 +597,16 @@ func TestSmallPool(t *testing.T) {
 
 						return session.SaveChanges(ctx)
 					case 2:
-						return db.Accounts.OrderBy(&A.ID).
+						return db.Accounts.OrderBy(&Accounts.ID).
 							Chunk(ctx, 2, func(batch []*Account) error {
-								_, err := db.Payments.Where(ant.Eq(&P.AccountID, batch[0].ID)).
+								_, err := db.Payments.Where(ant.Eq(&Payments.AccountID, batch[0].ID)).
 									Count(ctx)
 
 								return err
 							})
 					default:
-						_, err := db.Accounts.Where(ant.Eq(&A.ID, b.accounts[0].ID)).
-							Update(ctx, ant.Inc(&A.Balance, int64(0)))
+						_, err := db.Accounts.Where(ant.Eq(&Accounts.ID, b.accounts[0].ID)).
+							Update(ctx, ant.Inc(&Accounts.Balance, int64(0)))
 
 						return err
 					}
@@ -688,8 +689,8 @@ func TestCancelledRequests(t *testing.T) {
 		// A transaction that reported a commit left both of its rows. One that
 		// failed may still have committed, if it was cancelled as the commit
 		// went out, but never left one row without the other.
-		accounts, err := db.Accounts.Where(ant.Like(&A.Owner, "cancel-%")).
-			Include(&A.Payments).All(t.Context())
+		accounts, err := db.Accounts.Where(ant.Like(&Accounts.Owner, "cancel-%")).
+			Include(&Accounts.Payments).All(t.Context())
 		require.NoError(t, err)
 
 		owners := map[string]bool{}
@@ -734,7 +735,9 @@ func TestSessionsMadeAtOnce(t *testing.T) {
 				return err
 			}
 
-			again, err := session.Accounts.Include(&A.Payments).Where(ant.Eq(&A.ID, id)).First(ctx)
+			again, err := session.Accounts.Include(&Accounts.Payments).
+				Where(ant.Eq(&Accounts.ID, id)).
+				First(ctx)
 			if err != nil {
 				return err
 			}

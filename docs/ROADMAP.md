@@ -25,8 +25,8 @@ API names are targets and may change until the v1.0 freeze. Features with no pub
 ### Keys and identity
 
 - [x] `ID` primary key by convention
-- [x] Explicit primary key: `b.Key(&U.Email)`
-- [x] Application-assigned integer keys: `b.Key(&T.ID).NotGenerated()`
+- [x] Explicit primary key: `b.Key(&Users.Email)`
+- [x] Application-assigned integer keys: `b.Key(&Tickets.ID).NotGenerated()`
 - [x] Database-generated integer keys
 - [x] Explicit key values on insert
 - [x] String and UUID keys supplied by the application
@@ -34,18 +34,18 @@ API names are targets and may change until the v1.0 freeze. Features with no pub
 ### Querying
 
 - [x] Query from a table: `db.Users.Where(...)`
-- [x] Equality: `ant.Eq(&U.Age, 18)`
+- [x] Equality: `ant.Eq(&Users.Age, 18)`
 - [x] Inequality: `ant.Ne`
 - [x] Comparisons: `ant.Gt`, `ant.Gte`, `ant.Lt`, `ant.Lte`
-- [x] Set membership: `ant.In(&U.Age, 18, 21)`
+- [x] Set membership: `ant.In(&Users.Age, 18, 21)`
 - [x] Negated membership: `ant.NotIn`
-- [x] Range: `ant.Between(&U.Age, 18, 65)`
-- [x] Pattern match: `ant.Like(&P.Title, "Draft%")`
-- [x] Null checks: `ant.IsNull(&U.Bio)`, `ant.IsNotNull`
+- [x] Range: `ant.Between(&Users.Age, 18, 65)`
+- [x] Pattern match: `ant.Like(&Posts.Title, "Draft%")`
+- [x] Null checks: `ant.IsNull(&Users.Bio)`, `ant.IsNotNull`
 - [x] Nil pointer in `ant.Eq` renders `IS NULL`
 - [x] Logical grouping: `ant.And`, `ant.Or`, `ant.Not`
-- [x] Column comparison: `ant.EqCol(&U.ID, &P.UserID)`
-- [x] Ordering: `q.OrderBy(&U.Name)`
+- [x] Column comparison: `ant.EqCol(&Users.ID, &Posts.UserID)`
+- [x] Ordering: `q.OrderBy(&Users.Name)`
 - [x] Descending and secondary ordering: `q.OrderByDesc`, `q.ThenBy`, `q.ThenByDesc`
 - [x] Limit and offset: `q.Limit(10)`, `q.Offset(20)`
 - [x] All rows: `q.All(ctx)`
@@ -66,7 +66,7 @@ API names are targets and may change until the v1.0 freeze. Features with no pub
 
 - [x] Insert one or several: `db.Users.Insert(ctx, u1, u2)`
 - [x] Generated key copied back to the struct
-- [x] Bulk update: `q.Update(ctx, ant.Set(&P.Published, true))`
+- [x] Bulk update: `q.Update(ctx, ant.Set(&Posts.Published, true))`
 - [x] Bulk delete: `q.Delete(ctx)`
 - [x] Rows affected returned from bulk operations
 - [x] Block update and delete with no condition: `ant.ErrNoCondition`, overridden by `q.Unfiltered()`
@@ -112,45 +112,45 @@ API names are targets and may change until the v1.0 freeze. Features with no pub
 - [x] Many-to-one by convention: `Post.User`
 - [x] One-to-one by convention
 - [x] Self-referencing relations
-- [x] Explicit relation configuration: `b.HasMany(&U.Posts).ForeignKey(&P.UserID)`
+- [x] Explicit relation configuration: `b.HasMany(&Users.Posts).ForeignKey(&Posts.UserID)`
 - [x] Explicit one relation: `b.HasOne`, `b.BelongsTo`
-- [x] Relation to a non-primary key: `.References(&U.Email)`
+- [x] Relation to a non-primary key: `.References(&Users.Email)`
 - [x] Delete behavior: `.OnDelete(ant.Cascade)`, `ant.SetNull`, `ant.Restrict`, `ant.NoAction`
 - [x] Update behavior: `.OnUpdate(...)`
 - [x] Default model for a missing relation is a nil pointer
 
 ### Querying
 
-- [x] Join through a relation: `q.Join(&P.User)`
-- [x] Left join through a relation: `q.LeftJoin(&P.User)`
+- [x] Join through a relation: `q.Join(&Posts.User)`
+- [x] Left join through a relation: `q.LeftJoin(&Posts.User)`
 - [x] Multi-table joins: `Join3`, `Join4`
 - [x] Ad hoc join on a condition: `q.JoinOn[J](conds...)`
-- [x] Join with `USING`: `q.JoinUsing[J](&U.ID)`
+- [x] Join with `USING`: `q.JoinUsing[J](&Users.ID)`
 - [x] Right, full, and cross join variants: `q.RightJoinOn`, `q.FullJoinOn`, `q.CrossJoin`
-- [x] Filter by relation existence: `ant.Has(&U.Posts, conds...)`, `ant.HasOne`
-- [x] Filter by relation absence: `ant.HasNone(&U.Posts, conds...)`
+- [x] Filter by relation existence: `ant.Has(&Users.Posts, conds...)`, `ant.HasOne`
+- [x] Filter by relation absence: `ant.HasNone(&Users.Posts, conds...)`
 - [x] Projection with `Select`: `j.Select(func(*Post, *User) R)`
 - [x] Single-table projection: `ant.Project[R](q, mappings...)`
-- [x] Selected columns: `q.Column(&U.ID).Column(&U.Name)`
+- [x] Selected columns: `q.Column(&Users.ID).Column(&Users.Name)`
 - [x] Column-level projection API that prunes the `SELECT` list: `ant.Into`, `ant.IntoExpr`
-- [x] Omit columns: `q.Omit(&U.Bio)`
+- [x] Omit columns: `q.Omit(&Users.Bio)`
 - [x] Distinct: `q.Distinct()`
 
 ### Loading
 
-- [x] Batched 1:N loading: `q.Include(&U.Posts)`
-- [x] Batched N:1 and 1:1 loading: `q.IncludeOne(&P.User)`
+- [x] Batched 1:N loading: `q.Include(&Users.Posts)`
+- [x] Batched N:1 and 1:1 loading: `q.IncludeOne(&Posts.User)`
 - [x] Nested loading: `Include` inside the shape function
-- [x] Filtered include: `q.Include(&U.Posts, func(q) { return q.Where(...) })`
+- [x] Filtered include: `q.Include(&Users.Posts, func(q) { return q.Where(...) })`
 - [x] Ordered and limited include, per parent
 - [x] Selected columns in an include
-- [x] Load into existing entities: `db.Users.Load(ctx, &U.Posts, users...)`, `LoadOne`
+- [x] Load into existing entities: `db.Users.Load(ctx, &Users.Posts, users...)`, `LoadOne`
 - [x] Load only if missing: `db.Users.LoadMissing`
-- [x] Single-query loading through a join: `q.IncludeJoined(&P.User)`
-- [x] Relation counts: `q.With(&U.PostCount, ant.CountRelated(&U.Posts))`
+- [x] Single-query loading through a join: `q.IncludeJoined(&Posts.User)`
+- [x] Relation counts: `q.With(&Users.PostCount, ant.CountRelated(&Users.Posts))`
 - [x] Relation aggregates: `ant.SumRelated`, `MinRelated`, `MaxRelated`, `AvgRelated`
 - [x] Check whether a relation was loaded: a nil slice is not loaded, and an empty slice is
-- [x] Query the related rows of one entity: `ant.Related(db, user, &U.Posts)`, `ant.RelatedOne`
+- [x] Query the related rows of one entity: `ant.Related(db, user, &Users.Posts)`, `ant.RelatedOne`
 
 **Exit criteria:** `tests/relations_test.go` passes on PostgreSQL. A query test asserts `Include` runs exactly one extra statement per relation.
 
@@ -174,8 +174,8 @@ API names are targets and may change until the v1.0 freeze. Features with no pub
 - [x] Mark for delete: `ant.Remove(ctx, db, user)`
 - [x] Clear the tracker: `db.ClearTracked(ctx)`
 - [x] Query state: `entry, err := ant.Entry(ctx, db, user)`, then `entry.State()`
-- [x] Inspect dirty fields: `entry.Changed()`, `ant.IsDirty(entry, &U.Age)`
-- [x] Original values: `ant.Original(entry, &U.Age)`
+- [x] Inspect dirty fields: `entry.Changed()`, `ant.IsDirty(entry, &Users.Age)`
+- [x] Original values: `ant.Original(entry, &Users.Age)`
 - [x] Has pending changes: `db.HasChanges(ctx)`
 - [x] List tracked entities: `ant.Tracked[User](ctx, db)`
 - [x] Change detection runs at `SaveChanges`, so no manual call is needed
@@ -242,13 +242,13 @@ API names are targets and may change until the v1.0 freeze. Features with no pub
 
 ### Querying
 
-- [x] Aggregates: `q.Count(ctx)`, `ant.SumOf(ctx, q, &P.Views)`, `AvgOf`, `MinOf`, `MaxOf`
+- [x] Aggregates: `q.Count(ctx)`, `ant.SumOf(ctx, q, &Posts.Views)`, `AvgOf`, `MinOf`, `MaxOf`
 - [x] Exists: `q.Exists(ctx)`, `q.DoesNotExist(ctx)`
-- [x] Single column values: `ant.Pluck(ctx, q, &U.Name)`
-- [x] Group by: `q.GroupBy(&P.UserID)`, `ant.Then(g, &P.Kind)`, `q.GroupByExpr(e)`
+- [x] Single column values: `ant.Pluck(ctx, q, &Users.Name)`
+- [x] Group by: `q.GroupBy(&Posts.UserID)`, `ant.Then(g, &Posts.Kind)`, `q.GroupByExpr(e)`
 - [x] Having: `g.Having(...)`
-- [x] Group by with typed keys and aggregates: `ant.Project`, `ant.Count()`, `ant.Sum(&P.Views)`
-- [x] Subquery in a condition: `ant.InSub(&U.ID, ant.SubOf(q, &P.UserID))`, `ant.NotInSub`
+- [x] Group by with typed keys and aggregates: `ant.Project`, `ant.Count()`, `ant.Sum(&Posts.Views)`
+- [x] Subquery in a condition: `ant.InSub(&Users.ID, ant.SubOf(q, &Posts.UserID))`, `ant.NotInSub`
 - [x] Exists condition: `ant.Exists(q)`, `ant.NotExists(q)`
 - [x] Scalar subquery in a projection: `ant.SubExpr(q, e).Expr()`
 - [x] Subquery ordering
@@ -257,7 +257,7 @@ API names are targets and may change until the v1.0 freeze. Features with no pub
 - [x] Lateral joins: `ant.JoinLateral`, `ant.LeftJoinLateral`
 - [x] Unions: `a.Union(b)`, `UnionAll`, `Intersect`, `Except`
 - [x] Common table expressions: `q.FromCTE(name, sub)`
-- [x] Recursive common table expressions: `q.Recursive(&F.Children)`, `q.RecursiveOne(&F.Parent)`
+- [x] Recursive common table expressions: `q.Recursive(&Folders.Children)`, `q.RecursiveOne(&Folders.Parent)`
 - [x] Window functions: `ant.RowNumber().Over(w)`, `Rank`, `DenseRank`, `Lag`, `Lead`, `ant.PartitionBy`, `ant.OrderedBy`
 - [x] `CASE` expressions: `ant.Case[V]().When(c, v).Else(v)`
 - [x] `VALUES` lists: `ant.Values`
@@ -265,12 +265,12 @@ API names are targets and may change until the v1.0 freeze. Features with no pub
 - [x] Any, all, and none across columns: `ant.AnyOf`, `AllOf`, `NoneOf`
 - [x] Date part conditions: `ant.DatePart`, `ant.Today`, `ant.Past`, `ant.Future`
 - [x] Case-insensitive match: `ant.ILike`
-- [x] Explicit collation: `ant.Collate(&U.Name, "C")`
+- [x] Explicit collation: `ant.Collate(&Users.Name, "C")`
 - [x] Database function mapping: `ant.Func[R](name, args...)`
 - [x] Table-valued functions: `ant.FromFunc`
 - [x] Random ordering: `q.OrderByRandom()`
 - [x] Clear ordering: `q.ClearOrder()`
-- [x] Newest and oldest helpers: `q.Latest(&U.CreatedAt)`, `q.Oldest`
+- [x] Newest and oldest helpers: `q.Latest(&Users.CreatedAt)`, `q.Oldest`
 - [x] Raw fragments in typed queries: `ant.SQL[V](sql, args...)`
 - [x] Raw where, having, order, and group fragments: `ant.SQLCond`, `ant.SQL[V]`
 - [x] Compose typed queries over raw SQL: `ant.FromRaw[T](db, sql)`
@@ -278,25 +278,25 @@ API names are targets and may change until the v1.0 freeze. Features with no pub
 - [x] Optimizer and index hints: `q.Hint(...)`
   - PostgreSQL itself ignores hints: it needs the `pg_hint_plan` extension. On MySQL and MariaDB the hint goes after `SELECT`.
 - [x] Query comments: `q.Tag("name")`
-- [x] Column-to-column update expressions: `ant.SetExpr(&U.Age, ant.Col(&U.Age).Plus(1))`
+- [x] Column-to-column update expressions: `ant.SetExpr(&Users.Age, ant.Col(&Users.Age).Plus(1))`
 
 ### Writing
 
 - [x] Batched bulk insert: `db.Users.InsertMany(ctx, users, ant.BatchSize(500))`
 - [x] Insert from a query: `db.Users.InsertFrom(ctx, ant.Project[T](q, mappings...))`
-- [x] Insert ignoring conflicts: `ant.OnConflict(&U.Email).DoNothing()`
-- [x] Upsert on conflict: `db.Users.Upsert(ctx, v, ant.OnConflict(&U.Email))`
-- [x] Upsert selected columns: `.DoUpdate(ant.F(&U.Name))`, `.Set(...)`
+- [x] Insert ignoring conflicts: `ant.OnConflict(&Users.Email).DoNothing()`
+- [x] Upsert on conflict: `db.Users.Upsert(ctx, v, ant.OnConflict(&Users.Email))`
+- [x] Upsert selected columns: `.DoUpdate(ant.F(&Users.Name))`, `.Set(...)`
 - [x] Upsert returning rows: the entity receives the stored row
 - [x] `MERGE` where supported: `ant.Merge`
   - Needs PostgreSQL 15 or later. `OnConflict` does most of this on older versions.
 - [x] Find or create: `db.Users.FirstOrCreate(ctx, v, conds...)`
 - [x] Find or initialize without saving: `db.Users.FirstOrNew(ctx, v, conds...)`
 - [x] Update or create: `db.Users.Upsert`
-- [x] Bulk update of different values per row: `db.Users.UpdateMany(ctx, users, ant.F(&U.Age))`
+- [x] Bulk update of different values per row: `db.Users.UpdateMany(ctx, users, ant.F(&Users.Age))`
 - [x] Bulk update from a query: `ant.SetExpr` with `ant.SubExpr`
 - [x] Bulk delete with a join: `ant.Has`, `ant.InSub`, or `ant.Exists` in `Where`
-- [x] Increment and decrement: `ant.Inc(&U.Age, 1)`, `ant.Dec`
+- [x] Increment and decrement: `ant.Inc(&Users.Age, 1)`, `ant.Dec`
 - [x] Returning rows from update and delete: `q.UpdateReturning`, `q.DeleteReturning`
 - [x] Truncate: `db.Users.Truncate(ctx)`
 - [x] Bulk copy: PostgreSQL `COPY` through `pgxext.Copy`
@@ -348,14 +348,14 @@ API names are targets and may change until the v1.0 freeze. Features with no pub
 - [x] Custom naming strategy: `ant.WithNaming(fn)`
   - Global, set in the first `Open`, because models are reflected once per process.
 - [x] Bulk conventions: `ant.WithConvention(fn)`
-- [x] Column type, length, precision, scale, and collation: `b.Column(&U.Name).Type(...)`
+- [x] Column type, length, precision, scale, and collation: `b.Column(&Users.Name).Type(...)`
 - [x] Fixed-length strings: `.Fixed(n)`
   - Unicode settings do not apply: PostgreSQL text encoding belongs to the database, not the column.
 - [x] Table and column comments: `b.Comment`, `.Comment`
 - [x] Column order
   - Columns follow the struct's field order. Reordering later is not offered, since PostgreSQL cannot do it without rebuilding the table.
 - [x] Unique constraint tag: `ant:"unique"`
-- [x] Indexes: `b.Index(&U.Email)`
+- [x] Indexes: `b.Index(&Users.Email)`
 - [x] Unique indexes: `.Unique()`
 - [x] Composite indexes, sort order, names, filters, and included columns
 - [x] Functional, full-text, and spatial indexes: `b.IndexExpr(expr)`, `.Using("gin")`
@@ -363,7 +363,7 @@ API names are targets and may change until the v1.0 freeze. Features with no pub
 - [ ] Table triggers declaration
   - Skipped: Triggers go in `migrations/code`, where they are plain SQL that the runner reapplies when the file changes. Declaring one in Go would only wrap the same SQL in a string, and `drift` could not compare it. `examples/ledger` in ant-examples does this.
 - [x] Mixins through embedded configuration: `ConfigureMixin(m *ant.Mixin)`
-- [x] Field validators: `b.Validate(&U.Age, fn)`
+- [x] Field validators: `b.Validate(&Users.Age, fn)`
 - [x] Built-in validators: package `validate`
 - [x] Immutable fields: `ant:"immutable"`
 - [x] Sensitive fields hidden from logs: `.Sensitive()`
@@ -374,20 +374,20 @@ API names are targets and may change until the v1.0 freeze. Features with no pub
 
 ### Keys and identity
 
-- [x] Composite primary keys: `b.CompositeKey(ant.F(&T.A), ant.F(&T.B))`, `db.Table.FindKey(ctx, a, b)`
+- [x] Composite primary keys: `b.CompositeKey(ant.F(&Tickets.A), ant.F(&Tickets.B))`, `db.Table.FindKey(ctx, a, b)`
 - [x] Composite foreign keys
   - As a constraint, through `b.ForeignKey`. Relations stay single-column, so a relation on a composite key is marked `.NoForeignKey()`, and joins name both columns.
-- [x] Alternate keys: `.References(&U.Email)`
-- [x] Application-generated keys: `ant.GenerateKey(b, &U.ID, uuid.NewString)`
+- [x] Alternate keys: `.References(&Users.Email)`
+- [x] Application-generated keys: `ant.GenerateKey(b, &Users.ID, uuid.NewString)`
 - [x] UUID, ULID, and snowflake helpers: package `ids`
-- [x] Sequences: `b.Column(&O.Number).Sequence(name)`
+- [x] Sequences: `b.Column(&Orders.Number).Sequence(name)`
 - [x] Case-insensitive string keys
   - `.Type("citext")`, or a named type with a `ColumnType` method. That needs the `citext` extension, created in `migrations/code`.
 - [x] Value objects as keys
 
 ### Relations
 
-- [x] Many-to-many: `b.ManyToMany(&U.Roles).Through("user_roles")`
+- [x] Many-to-many: `b.ManyToMany(&Users.Roles).Through("user_roles")`
 - [x] Join model with payload: a model with two one-to-many relations
 - [x] Self-referencing many-to-many: `PivotColumns`
 - [ ] Pivot attributes in results
@@ -396,13 +396,13 @@ API names are targets and may change until the v1.0 freeze. Features with no pub
   - Skipped: Same reason as pivot attributes: model the join table and query it directly.
 - [ ] Pivot timestamps
   - Skipped: Same reason as pivot attributes: a modeled join table gets timestamps like any other model.
-- [x] Attach and detach: `ant.Link(ctx, db, user, &U.Roles, role)`, `ant.Unlink`
+- [x] Attach and detach: `ant.Link(ctx, db, user, &Users.Roles, role)`, `ant.Unlink`
 - [x] Sync and toggle: `ant.SyncLinks`, `ant.Toggle`
 - [ ] Update a pivot row: `ant.UpdatePivot`
   - Skipped: Same reason as pivot attributes: update the modeled join table.
 - [x] Has one through: `b.HasOneThrough`
 - [x] Has many through: `b.HasManyThrough`
-- [x] Polymorphic relations: `.ForeignKey(&C.OwnerID).Morph(&C.OwnerType, "post")`
+- [x] Polymorphic relations: `.ForeignKey(&Comments.OwnerID).Morph(&Comments.OwnerType, "post")`
 - [ ] Polymorphic many-to-many
   - Skipped: It stacks the costs of polymorphism on those of a pivot, with no foreign key to protect either side. Use a modeled join table with a `.Morph` relation.
 - [x] Morph type map
@@ -425,7 +425,7 @@ API names are targets and may change until the v1.0 freeze. Features with no pub
 - [x] Enum mapping to string or integer: named Go types, or `Scanner` and `Valuer`
 - [x] Enums as native database types: `.Enum`
 - [x] JSON columns: `ant.JSON[T]`
-- [x] JSON path conditions: `postgres.JSONText(&U.Meta, "a", "b")`
+- [x] JSON path conditions: `postgres.JSONText(&Users.Meta, "a", "b")`
 - [x] JSON contains and length conditions: `postgres.JSONContains`, `JSONHasKey`, `JSONLength`
 - [x] Update inside a JSON column: `postgres.JSONSet`
 - [x] Array columns on PostgreSQL: `postgres.Array[T]`
@@ -459,7 +459,7 @@ API names are targets and may change until the v1.0 freeze. Features with no pub
 - [x] Restore: `q.Restore(ctx)`
 - [x] Force delete: `q.ForceDelete(ctx)`
 - [x] Delete flag alternative for unique indexes
-  - `b.Index(&U.Email).Unique().Where("deleted_at IS NULL")`, a partial index. It does what a flag does, with no extra column.
+  - `b.Index(&Users.Email).Unique().Where("deleted_at IS NULL")`, a partial index. It does what a flag does, with no extra column.
 - [x] Pruning old rows: `db.Users.Prune(ctx, cond)`
 
 ### Lifecycle

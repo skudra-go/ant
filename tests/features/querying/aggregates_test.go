@@ -13,7 +13,7 @@ import (
 func TestAggregates(t *testing.T) {
 	fixture.Run(t, func(t *testing.T, db *fixture.AppDB) {
 		ctx := t.Context()
-		adults := db.Users.Where(ant.Gt(&U.Age, 18))
+		adults := db.Users.Where(ant.Gt(&Users.Age, 18))
 
 		t.Run("empty table", func(t *testing.T) {
 			n, err := db.Users.Count(ctx)
@@ -31,15 +31,15 @@ func TestAggregates(t *testing.T) {
 
 		// SUM over no rows is NULL in SQL, and zero here.
 		t.Run("aggregates over no rows are zero", func(t *testing.T) {
-			sum, err := ant.SumOf(ctx, adults, &U.Age)
+			sum, err := ant.SumOf(ctx, adults, &Users.Age)
 			require.NoError(t, err)
 			require.Zero(t, sum)
 
-			avg, err := ant.AvgOf(ctx, adults, &U.Age)
+			avg, err := ant.AvgOf(ctx, adults, &Users.Age)
 			require.NoError(t, err)
 			require.Zero(t, avg)
 
-			largest, err := ant.MaxOf(ctx, adults, &U.Age)
+			largest, err := ant.MaxOf(ctx, adults, &Users.Age)
 			require.NoError(t, err)
 			require.Zero(t, largest)
 		})
@@ -53,13 +53,13 @@ func TestAggregates(t *testing.T) {
 		})
 
 		t.Run("Count honors Limit, Offset, and Distinct", func(t *testing.T) {
-			n, err := db.Users.OrderBy(&U.Name).Limit(2).Count(ctx)
+			n, err := db.Users.OrderBy(&Users.Name).Limit(2).Count(ctx)
 			require.NoError(t, err)
 			require.EqualValues(t, 2, n)
-			n, err = db.Users.OrderBy(&U.Name).Offset(2).Count(ctx)
+			n, err = db.Users.OrderBy(&Users.Name).Offset(2).Count(ctx)
 			require.NoError(t, err)
 			require.EqualValues(t, 1, n)
-			n, err = db.Users.Column(&U.Bio).Distinct().Count(ctx)
+			n, err = db.Users.Column(&Users.Bio).Distinct().Count(ctx)
 			require.NoError(t, err)
 			require.EqualValues(t, 2, n)
 		})
@@ -71,31 +71,31 @@ func TestAggregates(t *testing.T) {
 		})
 
 		t.Run("Sum, Avg, Min, Max", func(t *testing.T) {
-			sum, err := ant.SumOf(ctx, adults, &U.Age)
+			sum, err := ant.SumOf(ctx, adults, &Users.Age)
 			require.NoError(t, err)
 			require.Equal(t, 70, sum)
 
-			avg, err := ant.AvgOf(ctx, adults, &U.Age)
+			avg, err := ant.AvgOf(ctx, adults, &Users.Age)
 			require.NoError(t, err)
 			require.EqualValues(t, 35, avg)
 
-			smallest, err := ant.MinOf(ctx, adults, &U.Age)
+			smallest, err := ant.MinOf(ctx, adults, &Users.Age)
 			require.NoError(t, err)
 			require.Equal(t, 30, smallest)
 
-			last, err := ant.MaxOf(ctx, adults, &U.Name)
+			last, err := ant.MaxOf(ctx, adults, &Users.Name)
 			require.NoError(t, err)
 			require.Equal(t, "Carol", last)
 		})
 
 		t.Run("Pluck reads one column", func(t *testing.T) {
-			names, err := ant.Pluck(ctx, db.Users.OrderBy(&U.Name), &U.Name)
+			names, err := ant.Pluck(ctx, db.Users.OrderBy(&Users.Name), &Users.Name)
 			require.NoError(t, err)
 			require.Equal(t, []string{"Alice", "Bob", "Carol"}, names)
 		})
 
 		t.Run("Pluck keeps NULLs with a pointer column", func(t *testing.T) {
-			bios, err := ant.Pluck(ctx, db.Users.OrderBy(&U.Name), &U.Bio)
+			bios, err := ant.Pluck(ctx, db.Users.OrderBy(&Users.Name), &Users.Bio)
 			require.NoError(t, err)
 			require.Nil(t, bios[0])
 			require.Equal(t, "Gopher", *bios[2])
@@ -107,7 +107,7 @@ func TestAggregates(t *testing.T) {
 			_, err := db.Users.Where(ant.Gt(&x, 0)).Count(ctx)
 			require.ErrorIs(t, err, ant.ErrNotProbe)
 			//antvet:ignore another model's field, on purpose: the test checks the error
-			_, err = ant.SumOf(ctx, db.Users.Where(), &P.ID)
+			_, err = ant.SumOf(ctx, db.Users.Where(), &Posts.ID)
 			require.ErrorIs(t, err, ant.ErrWrongModel)
 		})
 	})

@@ -35,7 +35,7 @@ func TestInsertGraph(t *testing.T) {
 		})
 
 		t.Run("an existing parent is linked", func(t *testing.T) {
-			alice, err := db.Users.Where(ant.Eq(&U.Name, "Alice")).Single(ctx)
+			alice, err := db.Users.Where(ant.Eq(&Users.Name, "Alice")).Single(ctx)
 			require.NoError(t, err)
 
 			post := &Post{Title: "D", User: alice}

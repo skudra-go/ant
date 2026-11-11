@@ -22,13 +22,13 @@ type Signup struct {
 }
 
 func (Signup) Configure(b *ant.ModelBuilder[Signup]) {
-	b.Validate(&SU.Name, validate.All(validate.Required[string](), validate.MaxLength(5)))
-	b.Validate(&SU.Email, validate.Email)
-	b.Validate(&SU.Age, validate.Range(0, 150))
+	b.Validate(&Signups.Name, validate.All(validate.Required[string](), validate.MaxLength(5)))
+	b.Validate(&Signups.Email, validate.Email)
+	b.Validate(&Signups.Age, validate.Range(0, 150))
 }
 
-// SU is Signup's probe.
-var SU = ant.Fields[Signup]()
+// Signups is Signup's probe.
+var Signups = ant.Fields[Signup]()
 
 // ValidDB holds it.
 type ValidDB struct {
@@ -126,7 +126,7 @@ func TestPrune(t *testing.T) {
 		fixture.Seed(t, db)
 
 		cutoff := time.Now().Add(time.Hour)
-		removed, err := db.Users.Prune(ctx, ant.Lt(&fixture.U.CreatedAt, cutoff))
+		removed, err := db.Users.Prune(ctx, ant.Lt(&fixture.Users.CreatedAt, cutoff))
 		require.NoError(t, err)
 		require.EqualValues(t, 3, removed)
 

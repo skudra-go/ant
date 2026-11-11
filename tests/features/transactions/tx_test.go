@@ -17,7 +17,7 @@ type (
 	AppDB = fixture.AppDB
 )
 
-var U = fixture.U
+var Users = fixture.Users
 
 func count(t *testing.T, db *AppDB) int {
 	t.Helper()
@@ -86,7 +86,7 @@ func TestTx(t *testing.T) {
 		})
 
 		t.Run("SaveChanges inside saves in the transaction", func(t *testing.T) {
-			u, err := db.Users.Where(ant.Eq(&U.Name, "committed")).Single(ctx)
+			u, err := db.Users.Where(ant.Eq(&Users.Name, "committed")).Single(ctx)
 			require.NoError(t, err)
 
 			u.Age = 50
@@ -151,7 +151,7 @@ func TestTx(t *testing.T) {
 		})
 
 		t.Run("a rolled back save gives back an appended post's key", func(t *testing.T) {
-			u, err := db.Users.Include(&U.Posts).Where(ant.Eq(&U.Name, "again")).Single(ctx)
+			u, err := db.Users.Include(&Users.Posts).Where(ant.Eq(&Users.Name, "again")).Single(ctx)
 			require.NoError(t, err)
 
 			u.Posts = append(u.Posts, fixture.Post{Title: "draft"})
@@ -170,7 +170,7 @@ func TestTx(t *testing.T) {
 
 			require.NoError(t, db.SaveChanges(ctx))
 
-			again, err := db.Users.NoTracking().Include(&U.Posts).Find(ctx, u.ID)
+			again, err := db.Users.NoTracking().Include(&Users.Posts).Find(ctx, u.ID)
 			require.NoError(t, err)
 			require.Equal(t, "again, renamed", again.Name)
 			require.Len(t, again.Posts, 1, "the next save inserted it")

@@ -24,11 +24,11 @@ func (Legacy) Configure(b *ant.ModelBuilder[Legacy]) {
 	b.Table("tbl_customer")
 	b.KeyName("pk_customer")
 	b.NoTimestamps()
-	b.Column(&L.FullName).Type("varchar(120)").Unique("uq_customer_name")
-	b.Column(&L.Status).Type("varchar(10)").Default("'new'")
-	b.Column(&L.Created).Type("date").Default("CURRENT_DATE")
+	b.Column(&Legacies.FullName).Type("varchar(120)").Unique("uq_customer_name")
+	b.Column(&Legacies.Status).Type("varchar(10)").Default("'new'")
+	b.Column(&Legacies.Created).Type("date").Default("CURRENT_DATE")
 	b.Check("ck_customer_status", "status IN ('new', 'gone')")
-	b.Index(&L.Status).Name("ix_customer_status")
+	b.Index(&Legacies.Status).Name("ix_customer_status")
 }
 
 // LegacyDB holds Legacy.
@@ -37,8 +37,8 @@ type LegacyDB struct {
 	Customers ant.Table[Legacy]
 }
 
-// L is Legacy's probe.
-var L = ant.Fields[Legacy]()
+// Legacies is Legacy's probe.
+var Legacies = ant.Fields[Legacy]()
 
 const legacySchema = `
 	CREATE TABLE tbl_customer (

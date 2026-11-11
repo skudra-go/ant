@@ -15,48 +15,51 @@ func TestSubqueries(t *testing.T) {
 		alice, _, _ := fixture.Seed(t, db)
 		ctx := t.Context()
 		require.NoError(t, db.Posts.Insert(ctx, &fixture.Post{UserID: alice.ID, Title: "Hello"}))
-		authors := ant.SubOf(db.Posts.Where(), &P.UserID)
+		authors := ant.SubOf(db.Posts.Where(), &Posts.UserID)
 
 		t.Run("InSub", func(t *testing.T) {
-			got, err := db.Users.Where(ant.InSub(&U.ID, authors)).All(ctx)
+			got, err := db.Users.Where(ant.InSub(&Users.ID, authors)).All(ctx)
 			require.NoError(t, err)
 			require.Equal(t, []string{"Alice"}, fixture.Names(got))
 		})
 
 		t.Run("NotInSub", func(t *testing.T) {
-			got, err := db.Users.Where(ant.NotInSub(&U.ID, authors)).OrderBy(&U.Name).All(ctx)
+			got, err := db.Users.Where(ant.NotInSub(&Users.ID, authors)).
+				OrderBy(&Users.Name).
+				All(ctx)
 			require.NoError(t, err)
 			require.Equal(t, []string{"Bob", "Carol"}, fixture.Names(got))
 		})
 
 		t.Run("Exists can refer to the outer row", func(t *testing.T) {
-			wrote := db.Posts.Where(ant.EqCol(&P.UserID, &U.ID))
+			wrote := db.Posts.Where(ant.EqCol(&Posts.UserID, &Users.ID))
 			got, err := db.Users.Where(ant.Exists(wrote)).All(ctx)
 			require.NoError(t, err)
 			require.Equal(t, []string{"Alice"}, fixture.Names(got))
 
-			got, err = db.Users.Where(ant.NotExists(wrote)).OrderBy(&U.Name).All(ctx)
+			got, err = db.Users.Where(ant.NotExists(wrote)).OrderBy(&Users.Name).All(ctx)
 			require.NoError(t, err)
 			require.Equal(t, []string{"Bob", "Carol"}, fixture.Names(got))
 		})
 
 		t.Run("a subquery as a value", func(t *testing.T) {
-			oldest := ant.SubExpr(db.Users.Where(), ant.Max(&U.Age)).Expr()
-			got, err := db.Users.Where(ant.Col(&U.Age).EqExpr(oldest)).All(ctx)
+			oldest := ant.SubExpr(db.Users.Where(), ant.Max(&Users.Age)).Expr()
+			got, err := db.Users.Where(ant.Col(&Users.Age).EqExpr(oldest)).All(ctx)
 			require.NoError(t, err)
 			require.Equal(t, []string{"Carol"}, fixture.Names(got))
 		})
 
 		t.Run("ordering by a subquery", func(t *testing.T) {
-			posts := ant.SubExpr(db.Posts.Where(ant.EqCol(&P.UserID, &U.ID)), ant.Count()).Expr()
-			got, err := db.Users.Order(posts.Desc(), ant.Col(&U.Name).Asc()).All(ctx)
+			posts := ant.SubExpr(db.Posts.Where(ant.EqCol(&Posts.UserID, &Users.ID)), ant.Count()).
+				Expr()
+			got, err := db.Users.Order(posts.Desc(), ant.Col(&Users.Name).Asc()).All(ctx)
 			require.NoError(t, err)
 			require.Equal(t, []string{"Alice", "Bob", "Carol"}, fixture.Names(got))
 		})
 
 		t.Run("From reads from a subquery", func(t *testing.T) {
-			adults := db.Users.Where(ant.Gt(&U.Age, 18))
-			got, err := db.Users.Query().From(adults).Where(ant.Lt(&U.Age, 35)).All(ctx)
+			adults := db.Users.Where(ant.Gt(&Users.Age, 18))
+			got, err := db.Users.Query().From(adults).Where(ant.Lt(&Users.Age, 35)).All(ctx)
 			require.NoError(t, err)
 			require.Equal(t, []string{"Alice"}, fixture.Names(got))
 		})
@@ -64,8 +67,8 @@ func TestSubqueries(t *testing.T) {
 		t.Run("a bad subquery is reported", func(t *testing.T) {
 			x := 1
 			//antvet:ignore not a probe, on purpose: the test checks the error
-			bad := ant.SubOf(db.Posts.Where(ant.Gt(&x, 0)), &P.UserID)
-			_, err := db.Users.Where(ant.InSub(&U.ID, bad)).All(ctx)
+			bad := ant.SubOf(db.Posts.Where(ant.Gt(&x, 0)), &Posts.UserID)
+			_, err := db.Users.Where(ant.InSub(&Users.ID, bad)).All(ctx)
 			require.ErrorIs(t, err, ant.ErrNotProbe)
 		})
 
@@ -73,13 +76,13 @@ func TestSubqueries(t *testing.T) {
 			type other struct{ ID int64 }
 
 			o := ant.Fields[other]()
-			sub := ant.SubOf(db.Posts.Where(ant.Eq(&o.ID, int64(1))), &P.UserID)
-			_, err := db.Users.Where(ant.InSub(&U.ID, sub)).All(ctx)
+			sub := ant.SubOf(db.Posts.Where(ant.Eq(&o.ID, int64(1))), &Posts.UserID)
+			_, err := db.Users.Where(ant.InSub(&Users.ID, sub)).All(ctx)
 			require.ErrorIs(t, err, ant.ErrWrongModel)
 		})
 
 		t.Run("Include cannot be a subquery", func(t *testing.T) {
-			_, err := db.Users.Query().From(db.Users.Include(&U.Posts)).All(ctx)
+			_, err := db.Users.Query().From(db.Users.Include(&Users.Posts)).All(ctx)
 			require.ErrorIs(t, err, ant.ErrIncludeInSubquery)
 		})
 	})

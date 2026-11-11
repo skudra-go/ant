@@ -172,10 +172,10 @@ func TestEntry(t *testing.T) {
 			entry := fixture.Entry(t, db, bob)
 			require.Equal(t, ant.Modified, entry.State())
 			require.Equal(t, []string{"Age"}, entry.Changed())
-			require.True(t, ant.IsDirty(entry, &U.Age))
-			require.False(t, ant.IsDirty(entry, &U.Name))
+			require.True(t, ant.IsDirty(entry, &Users.Age))
+			require.False(t, ant.IsDirty(entry, &Users.Name))
 
-			original, err := ant.Original(entry, &U.Age)
+			original, err := ant.Original(entry, &Users.Age)
 			require.NoError(t, err)
 			require.Equal(t, 17, original)
 		})
@@ -193,7 +193,7 @@ func TestEntry(t *testing.T) {
 			entry := fixture.Entry(t, db, &User{})
 			require.Equal(t, ant.Detached, entry.State())
 			require.Empty(t, entry.Changed())
-			_, err := ant.Original(entry, &U.Age)
+			_, err := ant.Original(entry, &Users.Age)
 			require.ErrorIs(t, err, ant.ErrNotTracked)
 		})
 	})
@@ -221,7 +221,7 @@ func TestConcurrency(t *testing.T) {
 		alice, bob, _ := fixture.Seed(t, db)
 		ctx := t.Context()
 
-		_, err := db.Users.Where(ant.Eq(&U.ID, bob.ID)).Delete(ctx)
+		_, err := db.Users.Where(ant.Eq(&Users.ID, bob.ID)).Delete(ctx)
 		require.NoError(t, err)
 
 		alice.Age = 44

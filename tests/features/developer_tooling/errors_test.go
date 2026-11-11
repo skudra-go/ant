@@ -29,7 +29,8 @@ func TestErrorKinds(t *testing.T) {
 		_, err := ant.Raw[any](db, `ALTER TABLE users ADD CHECK (age < 1000)`).Exec(ctx)
 		require.NoError(t, err)
 
-		_, check := db.Users.Where(ant.Eq(&U.ID, alice.ID)).Update(ctx, ant.Set(&U.Age, 2000))
+		_, check := db.Users.Where(ant.Eq(&Users.ID, alice.ID)).
+			Update(ctx, ant.Set(&Users.Age, 2000))
 		require.True(t, ant.IsCheckViolation(check))
 
 		require.Empty(t, ant.SQLState(ant.ErrNotFound))

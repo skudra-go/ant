@@ -33,10 +33,10 @@ type ShopDB struct {
 	Categories ant.Table[Category]
 }
 
-var C = ant.Fields[Category]()
+var Categories = ant.Fields[Category]()
 
 // A condition built before the database opens still uses the configured table.
-var named = ant.Eq(&C.Name, "Tools")
+var named = ant.Eq(&Categories.Name, "Tools")
 
 func TestTableName(t *testing.T) {
 	ddl := `CREATE TABLE order_items (id BIGSERIAL PRIMARY KEY, sku TEXT NOT NULL);

@@ -44,8 +44,8 @@ const homeDDL = `
 	CREATE TABLE pets (id BIGSERIAL PRIMARY KEY, person_id BIGINT NOT NULL REFERENCES persons, name TEXT NOT NULL)`
 
 var (
-	Pe = ant.Fields[Person]()
-	Pt = ant.Fields[Pet]()
+	Persons = ant.Fields[Person]()
+	Pets    = ant.Fields[Pet]()
 )
 
 func TestConventions(t *testing.T) {
@@ -57,19 +57,19 @@ func TestConventions(t *testing.T) {
 		require.NoError(t, db.Pets.Insert(ctx, &Pet{PersonID: ann.ID, Name: "Rex"}))
 
 		t.Run("one to many", func(t *testing.T) {
-			found, err := db.People.Include(&Pe.Pets).First(ctx)
+			found, err := db.People.Include(&Persons.Pets).First(ctx)
 			require.NoError(t, err)
 			require.Equal(t, "Rex", found.Pets[0].Name)
 		})
 
 		t.Run("many to one", func(t *testing.T) {
-			found, err := db.Pets.IncludeOne(&Pt.Person).First(ctx)
+			found, err := db.Pets.IncludeOne(&Pets.Person).First(ctx)
 			require.NoError(t, err)
 			require.Equal(t, "Ann", found.Person.Name)
 		})
 
 		t.Run("one to one", func(t *testing.T) {
-			found, err := db.People.IncludeOne(&Pe.Passport).First(ctx)
+			found, err := db.People.IncludeOne(&Persons.Passport).First(ctx)
 			require.NoError(t, err)
 			require.Equal(t, "LV1", found.Passport.Number)
 		})

@@ -40,9 +40,9 @@ func TestHasChanges(t *testing.T) {
 			t.Helper()
 
 			session := ant.Session(db)
-			users, err := session.Users.Include(&U.Posts, byTitle).
-				Where(ant.In(&U.ID, alice.ID, bob.ID)).
-				OrderBy(&U.Name).
+			users, err := session.Users.Include(&Users.Posts, byTitle).
+				Where(ant.In(&Users.ID, alice.ID, bob.ID)).
+				OrderBy(&Users.Name).
 				All(ctx)
 			require.NoError(t, err)
 
@@ -103,7 +103,7 @@ func TestHasChanges(t *testing.T) {
 
 		t.Run("a post's user changed", func(t *testing.T) {
 			session := ant.Session(db)
-			posts, err := session.Posts.IncludeOne(&P.User).OrderBy(&P.Title).All(ctx)
+			posts, err := session.Posts.IncludeOne(&Posts.User).OrderBy(&Posts.Title).All(ctx)
 			require.NoError(t, err)
 			require.NotEmpty(t, posts)
 

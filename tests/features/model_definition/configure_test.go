@@ -19,10 +19,10 @@ type Plan struct {
 
 func (Plan) Configure(b *ant.ModelBuilder[Plan]) {
 	b.Table("pricing_plans")
-	b.Key(&Pl.Slug)
+	b.Key(&Plans.Slug)
 }
 
-var Pl = ant.Fields[Plan]()
+var Plans = ant.Fields[Plan]()
 
 type PlanDB struct {
 	ant.Context
@@ -39,13 +39,13 @@ type BadKey struct {
 	Owner *Plan
 }
 
-func (BadKey) Configure(b *ant.ModelBuilder[BadKey]) { b.Key(&BK.Owner) }
+func (BadKey) Configure(b *ant.ModelBuilder[BadKey]) { b.Key(&BadKeys.Owner) }
 
-var BK = ant.Fields[BadKey]()
+var BadKeys = ant.Fields[BadKey]()
 
 type WrongModelKey struct{ ID int64 }
 
-func (WrongModelKey) Configure(b *ant.ModelBuilder[WrongModelKey]) { b.Key(&Pl.Slug) }
+func (WrongModelKey) Configure(b *ant.ModelBuilder[WrongModelKey]) { b.Key(&Plans.Slug) }
 
 type NotAProbeKey struct{ ID int64 }
 

@@ -16,19 +16,21 @@ func TestBetween(t *testing.T) {
 		ctx := t.Context()
 
 		t.Run("both ends are included", func(t *testing.T) {
-			got, err := db.Users.Where(ant.Between(&U.Age, 17, 30)).OrderBy(&U.Name).All(ctx)
+			got, err := db.Users.Where(ant.Between(&Users.Age, 17, 30)).
+				OrderBy(&Users.Name).
+				All(ctx)
 			require.NoError(t, err)
 			require.Equal(t, []string{"Alice", "Bob"}, fixture.Names(got))
 		})
 
 		t.Run("low above high matches nothing", func(t *testing.T) {
-			got, err := db.Users.Where(ant.Between(&U.Age, 30, 17)).All(ctx)
+			got, err := db.Users.Where(ant.Between(&Users.Age, 30, 17)).All(ctx)
 			require.NoError(t, err)
 			require.Empty(t, got)
 		})
 
 		t.Run("Not excludes the range", func(t *testing.T) {
-			got, err := db.Users.Where(ant.Not(ant.Between(&U.Age, 17, 30))).All(ctx)
+			got, err := db.Users.Where(ant.Not(ant.Between(&Users.Age, 17, 30))).All(ctx)
 			require.NoError(t, err)
 			require.Equal(t, []string{"Carol"}, fixture.Names(got))
 		})

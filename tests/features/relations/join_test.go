@@ -26,9 +26,9 @@ func TestJoin(t *testing.T) {
 		ctx := t.Context()
 
 		t.Run("through a relation", func(t *testing.T) {
-			got, err := db.Posts.Join(&P.User).
-				Where(ant.Eq(&P.Published, true)).
-				OrderBy(&P.Title).
+			got, err := db.Posts.Join(&Posts.User).
+				Where(ant.Eq(&Posts.Published, true)).
+				OrderBy(&Posts.Title).
 				Select(toByline).
 				All(ctx)
 			require.NoError(t, err)
@@ -36,9 +36,9 @@ func TestJoin(t *testing.T) {
 		})
 
 		t.Run("conditions and ordering on either model", func(t *testing.T) {
-			got, err := db.Posts.Join(&P.User).
-				Where(ant.Eq(&U.Name, "Alice")).
-				OrderByDesc(&P.Title).
+			got, err := db.Posts.Join(&Posts.User).
+				Where(ant.Eq(&Users.Name, "Alice")).
+				OrderByDesc(&Posts.Title).
 				Limit(1).
 				Select(toByline).
 				All(ctx)
@@ -47,8 +47,8 @@ func TestJoin(t *testing.T) {
 		})
 
 		t.Run("Where can come before Join", func(t *testing.T) {
-			got, err := db.Posts.Where(ant.Eq(&U.Name, "Bob")).
-				Join(&P.User).
+			got, err := db.Posts.Where(ant.Eq(&Users.Name, "Bob")).
+				Join(&Posts.User).
 				Select(toByline).
 				All(ctx)
 			require.NoError(t, err)
@@ -56,8 +56,8 @@ func TestJoin(t *testing.T) {
 		})
 
 		t.Run("JoinMany gives one result per related row", func(t *testing.T) {
-			got, err := db.Users.JoinMany(&U.Posts).
-				OrderBy(&P.Title).
+			got, err := db.Users.JoinMany(&Users.Posts).
+				OrderBy(&Posts.Title).
 				Select(func(u *User, p *Post) string { return u.Name + ":" + p.Title }).
 				All(ctx)
 			require.NoError(t, err)
@@ -65,8 +65,8 @@ func TestJoin(t *testing.T) {
 		})
 
 		t.Run("an inner join drops unmatched rows", func(t *testing.T) {
-			got, err := db.Users.JoinMany(&U.Posts).
-				Where(ant.Eq(&U.Name, "Carol")).
+			got, err := db.Users.JoinMany(&Users.Posts).
+				Where(ant.Eq(&Users.Name, "Carol")).
 				Select(func(u *User, p *Post) string { return u.Name }).
 				All(ctx)
 			require.NoError(t, err)
@@ -74,8 +74,8 @@ func TestJoin(t *testing.T) {
 		})
 
 		t.Run("a left join keeps them, with a nil side", func(t *testing.T) {
-			got, err := db.Users.LeftJoinMany(&U.Posts).
-				Where(ant.Eq(&U.Name, "Carol")).
+			got, err := db.Users.LeftJoinMany(&Users.Posts).
+				Where(ant.Eq(&Users.Name, "Carol")).
 				Select(func(u *User, p *Post) bool { return p == nil }).
 				All(ctx)
 			require.NoError(t, err)
@@ -83,8 +83,8 @@ func TestJoin(t *testing.T) {
 		})
 
 		t.Run("a NULL column is not an unmatched row", func(t *testing.T) {
-			got, err := db.Posts.LeftJoin(&P.User).
-				Where(ant.Eq(&P.Title, "Hello")).
+			got, err := db.Posts.LeftJoin(&Posts.User).
+				Where(ant.Eq(&Posts.Title, "Hello")).
 				Select(func(p *Post, u *User) *string { return u.Bio }).
 				All(ctx)
 			require.NoError(t, err)
@@ -92,12 +92,12 @@ func TestJoin(t *testing.T) {
 		})
 
 		t.Run("First", func(t *testing.T) {
-			got, err := db.Posts.Join(&P.User).OrderBy(&P.Title).Select(toByline).First(ctx)
+			got, err := db.Posts.Join(&Posts.User).OrderBy(&Posts.Title).Select(toByline).First(ctx)
 			require.NoError(t, err)
 			require.Equal(t, "Bob's post", got.Title)
 
-			_, err = db.Posts.Join(&P.User).
-				Where(ant.Eq(&P.Title, "None")).
+			_, err = db.Posts.Join(&Posts.User).
+				Where(ant.Eq(&Posts.Title, "None")).
 				Select(toByline).
 				First(ctx)
 			require.ErrorIs(t, err, ant.ErrNotFound)
@@ -106,7 +106,7 @@ func TestJoin(t *testing.T) {
 		t.Run("Each streams", func(t *testing.T) {
 			var seen []string
 
-			rows := db.Posts.Join(&P.User).OrderBy(&P.Title).Select(toByline)
+			rows := db.Posts.Join(&Posts.User).OrderBy(&Posts.Title).Select(toByline)
 
 			for row, err := range rows.Each(ctx) {
 				require.NoError(t, err)
@@ -118,8 +118,8 @@ func TestJoin(t *testing.T) {
 		})
 
 		t.Run("a join can be a base for others", func(t *testing.T) {
-			base := db.Posts.Join(&P.User).OrderBy(&P.Title)
-			one, err := base.Where(ant.Eq(&U.Name, "Bob")).Select(toByline).All(ctx)
+			base := db.Posts.Join(&Posts.User).OrderBy(&Posts.Title)
+			one, err := base.Where(ant.Eq(&Users.Name, "Bob")).Select(toByline).All(ctx)
 			require.NoError(t, err)
 			require.Len(t, one, 1)
 
@@ -132,7 +132,7 @@ func TestJoin(t *testing.T) {
 			type other struct{ ID int64 }
 
 			o := ant.Fields[other]()
-			_, err := db.Posts.Join(&P.User).
+			_, err := db.Posts.Join(&Posts.User).
 				//antvet:ignore another model's field, on purpose: the test checks the error
 				Where(ant.Eq(&o.ID, int64(1))).
 				Select(toByline).
@@ -147,7 +147,7 @@ func TestJoinOn(t *testing.T) {
 	fixture.Run(t, func(t *testing.T, db *fixture.AppDB) {
 		seed(t, db)
 		ctx := t.Context()
-		sameUser := ant.EqCol(&U.ID, &P.UserID)
+		sameUser := ant.EqCol(&Users.ID, &Posts.UserID)
 
 		pair := func(u *User, p *Post) string {
 			switch {
@@ -163,8 +163,8 @@ func TestJoinOn(t *testing.T) {
 		t.Run("inner", func(t *testing.T) {
 			got, err := db.Users.JoinOn[Post](
 				sameUser,
-				ant.Eq(&P.Published, true),
-			).OrderBy(&P.Title).
+				ant.Eq(&Posts.Published, true),
+			).OrderBy(&Posts.Title).
 				Select(pair).
 				All(ctx)
 			require.NoError(t, err)
@@ -174,8 +174,8 @@ func TestJoinOn(t *testing.T) {
 		t.Run("left", func(t *testing.T) {
 			got, err := db.Users.LeftJoinOn[Post](
 				sameUser,
-				ant.Eq(&P.Title, "Hello"),
-			).OrderBy(&U.Name).
+				ant.Eq(&Posts.Title, "Hello"),
+			).OrderBy(&Users.Name).
 				Select(pair).
 				All(ctx)
 			require.NoError(t, err)
@@ -184,9 +184,9 @@ func TestJoinOn(t *testing.T) {
 
 		t.Run("right", func(t *testing.T) {
 			got, err := db.Users.RightJoinOn[Post](
-				ant.EqCol(&U.ID, &P.UserID),
-				ant.Eq(&U.Name, "Bob"),
-			).OrderBy(&P.Title).
+				ant.EqCol(&Users.ID, &Posts.UserID),
+				ant.Eq(&Users.Name, "Bob"),
+			).OrderBy(&Posts.Title).
 				Select(pair).
 				All(ctx)
 			require.NoError(t, err)
@@ -196,8 +196,8 @@ func TestJoinOn(t *testing.T) {
 		t.Run("full", func(t *testing.T) {
 			got, err := db.Users.FullJoinOn[Post](
 				sameUser,
-				ant.Eq(&U.Name, "Bob"),
-			).Where(ant.Eq(&P.Title, "Draft")).
+				ant.Eq(&Users.Name, "Bob"),
+			).Where(ant.Eq(&Posts.Title, "Draft")).
 				Select(pair).
 				All(ctx)
 			require.NoError(t, err)
@@ -212,7 +212,7 @@ func TestJoinOn(t *testing.T) {
 
 		t.Run("JoinUsing joins on a column both tables have", func(t *testing.T) {
 			got, err := db.Users.Query().JoinUsing[Post](
-				&U.ID,
+				&Users.ID,
 			).Select(func(u *User, p *Post) bool { return true }).
 				All(ctx)
 			require.NoError(t, err)
@@ -222,7 +222,7 @@ func TestJoinOn(t *testing.T) {
 		t.Run("a bad condition is reported", func(t *testing.T) {
 			x := int64(1)
 			//antvet:ignore not a probe, on purpose: the test checks the error
-			_, err := db.Users.JoinOn[Post](ant.EqCol(&U.ID, &x)).Select(pair).All(ctx)
+			_, err := db.Users.JoinOn[Post](ant.EqCol(&Users.ID, &x)).Select(pair).All(ctx)
 			require.ErrorIs(t, err, ant.ErrNotProbe)
 		})
 	})

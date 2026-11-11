@@ -34,6 +34,8 @@ func (user) Configure(b *ant.ModelBuilder[user]) {
 
 var _ ant.Entity[user] = user{}
 
+// Users and Posts are taken by the exported models in example_test.go, so these
+// keep short names.
 var (
 	U = ant.Fields[user]()
 	P = ant.Fields[post]()

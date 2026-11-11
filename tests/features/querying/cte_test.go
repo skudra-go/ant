@@ -22,7 +22,7 @@ type TreeDB struct {
 	Branches ant.Table[Branch]
 }
 
-var Br = ant.Fields[Branch]()
+var Branches = ant.Fields[Branch]()
 
 // FromCTE names a subquery in a WITH clause. Recursive follows a relation of a
 // model to itself as far as it goes.
@@ -58,25 +58,25 @@ func TestCTE(t *testing.T) {
 		}
 
 		t.Run("FromCTE", func(t *testing.T) {
-			named := db.Branches.Where(ant.Like(&Br.Name, "a%"))
-			got, err := db.Branches.Query().FromCTE("named", named).OrderBy(&Br.Name).All(ctx)
+			named := db.Branches.Where(ant.Like(&Branches.Name, "a%"))
+			got, err := db.Branches.Query().FromCTE("named", named).OrderBy(&Branches.Name).All(ctx)
 			require.NoError(t, err)
 			require.Equal(t, []string{"a", "a1"}, names(got))
 		})
 
 		t.Run("Recursive goes down", func(t *testing.T) {
-			got, err := db.Branches.Where(ant.Eq(&Br.ID, root.ID)).
-				Recursive(&Br.Children).
-				OrderBy(&Br.Name).
+			got, err := db.Branches.Where(ant.Eq(&Branches.ID, root.ID)).
+				Recursive(&Branches.Children).
+				OrderBy(&Branches.Name).
 				All(ctx)
 			require.NoError(t, err)
 			require.Equal(t, []string{"a", "a1", "b", "root"}, names(got))
 		})
 
 		t.Run("RecursiveOne goes up", func(t *testing.T) {
-			got, err := db.Branches.Where(ant.Eq(&Br.ID, leaf.ID)).
-				RecursiveOne(&Br.Parent).
-				OrderBy(&Br.Name).
+			got, err := db.Branches.Where(ant.Eq(&Branches.ID, leaf.ID)).
+				RecursiveOne(&Branches.Parent).
+				OrderBy(&Branches.Name).
 				All(ctx)
 			require.NoError(t, err)
 			require.Equal(t, []string{"a", "a1", "root"}, names(got))
@@ -85,30 +85,30 @@ func TestCTE(t *testing.T) {
 		// The starting rows keep their own ordering and paging: here the last
 		// root by name, and the second, which are both root.
 		t.Run("a paged start", func(t *testing.T) {
-			roots := db.Branches.Where(ant.IsNull(&Br.ParentID))
+			roots := db.Branches.Where(ant.IsNull(&Branches.ParentID))
 
 			for _, start := range []*ant.Query[Branch]{
-				roots.OrderByDesc(&Br.Name).Limit(1),
-				roots.OrderBy(&Br.Name).Offset(1).Limit(1),
+				roots.OrderByDesc(&Branches.Name).Limit(1),
+				roots.OrderBy(&Branches.Name).Offset(1).Limit(1),
 			} {
-				got, err := start.Recursive(&Br.Children).OrderBy(&Br.Name).All(ctx)
+				got, err := start.Recursive(&Branches.Children).OrderBy(&Branches.Name).All(ctx)
 				require.NoError(t, err)
 				require.Equal(t, []string{"a", "a1", "b", "root"}, names(got))
 			}
 
-			got, err := db.Branches.Where(ant.Eq(&Br.ID, leaf.ID)).
-				OrderBy(&Br.Name).
-				RecursiveOne(&Br.Parent).
-				OrderBy(&Br.Name).
+			got, err := db.Branches.Where(ant.Eq(&Branches.ID, leaf.ID)).
+				OrderBy(&Branches.Name).
+				RecursiveOne(&Branches.Parent).
+				OrderBy(&Branches.Name).
 				All(ctx)
 			require.NoError(t, err, "an ordering without paging changes nothing")
 			require.Equal(t, []string{"a", "a1", "root"}, names(got))
 		})
 
 		t.Run("the result is a normal query", func(t *testing.T) {
-			n, err := db.Branches.Where(ant.Eq(&Br.ID, root.ID)).
-				Recursive(&Br.Children).
-				Where(ant.IsNotNull(&Br.ParentID)).
+			n, err := db.Branches.Where(ant.Eq(&Branches.ID, root.ID)).
+				Recursive(&Branches.Children).
+				Where(ant.IsNotNull(&Branches.ParentID)).
 				Count(ctx)
 			require.NoError(t, err)
 			require.EqualValues(t, 3, n)
@@ -123,17 +123,18 @@ func TestCTE(t *testing.T) {
 			inbox := add("inbox", nil)
 			add("tmp", inbox)
 
-			tree := db.Branches.Where(ant.Eq(&Br.ID, archive.ID)).Recursive(&Br.Children)
+			tree := db.Branches.Where(ant.Eq(&Branches.ID, archive.ID)).
+				Recursive(&Branches.Children)
 
-			n, err := tree.Where(ant.Eq(&Br.Name, "tmp")).Delete(ctx)
+			n, err := tree.Where(ant.Eq(&Branches.Name, "tmp")).Delete(ctx)
 			require.NoError(t, err)
 			require.EqualValues(t, 1, n)
 
-			n, err = tree.Update(ctx, ant.Set(&Br.Name, "archived"))
+			n, err = tree.Update(ctx, ant.Set(&Branches.Name, "archived"))
 			require.NoError(t, err)
 			require.EqualValues(t, 2, n)
 
-			kept, err := db.Branches.Where(ant.Eq(&Br.Name, "tmp")).All(ctx)
+			kept, err := db.Branches.Where(ant.Eq(&Branches.Name, "tmp")).All(ctx)
 			require.NoError(t, err)
 			require.Len(t, kept, 1)
 			require.Equal(t, inbox.ID, *kept[0].ParentID)
@@ -141,10 +142,13 @@ func TestCTE(t *testing.T) {
 
 		// UNION drops rows already seen, so a loop in the data ends.
 		t.Run("a cycle in the data terminates", func(t *testing.T) {
-			_, err := db.Branches.Where(ant.Eq(&Br.ID, root.ID)).
-				Update(ctx, ant.Set(&Br.ParentID, &leaf.ID))
+			_, err := db.Branches.Where(ant.Eq(&Branches.ID, root.ID)).
+				Update(ctx, ant.Set(&Branches.ParentID, &leaf.ID))
 			require.NoError(t, err)
-			got, err := db.Branches.Where(ant.Eq(&Br.ID, root.ID)).Recursive(&Br.Children).All(ctx)
+
+			got, err := db.Branches.Where(ant.Eq(&Branches.ID, root.ID)).
+				Recursive(&Branches.Children).
+				All(ctx)
 			require.NoError(t, err)
 			require.Len(t, got, 4)
 		})

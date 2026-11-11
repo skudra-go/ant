@@ -30,7 +30,7 @@ type Dept struct {
 }
 
 func (Dept) Configure(b *ant.ModelBuilder[Dept]) {
-	b.ManyToMany(&Dp.Badges).Through("dept_badges")
+	b.ManyToMany(&Depts.Badges).Through("dept_badges")
 }
 
 type Emp struct {
@@ -48,7 +48,7 @@ type Badge struct {
 }
 
 func (Badge) Configure(b *ant.ModelBuilder[Badge]) {
-	b.ManyToMany(&Bd.Depts).Through("dept_badges")
+	b.ManyToMany(&Badges.Depts).Through("dept_badges")
 }
 
 type Grp struct {
@@ -103,14 +103,14 @@ type ProbeDB struct {
 }
 
 var (
-	Dp = ant.Fields[Dept]()
-	Em = ant.Fields[Emp]()
-	Bd = ant.Fields[Badge]()
-	Gp = ant.Fields[Grp]()
-	It = ant.Fields[Item]()
-	Cr = ant.Fields[Crate]()
-	Gm = ant.Fields[Gem]()
-	Ct = ant.Fields[Cat]()
+	Depts  = ant.Fields[Dept]()
+	Emps   = ant.Fields[Emp]()
+	Badges = ant.Fields[Badge]()
+	Grps   = ant.Fields[Grp]()
+	Items  = ant.Fields[Item]()
+	Crates = ant.Fields[Crate]()
+	Gems   = ant.Fields[Gem]()
+	Cats   = ant.Fields[Cat]()
 )
 
 const probeDDL = `
@@ -221,12 +221,12 @@ func seedAB(t *testing.T, db *ProbeDB) (a, b *Dept) {
 	return a, b
 }
 
-func byName(q *ant.Query[Emp]) *ant.Query[Emp] { return q.OrderBy(&Em.Name) }
+func byName(q *ant.Query[Emp]) *ant.Query[Emp] { return q.OrderBy(&Emps.Name) }
 
 // loadAB returns A and B with their emps, from the session.
 func loadAB(t *testing.T, ses *ProbeDB) (a, b *Dept) {
 	t.Helper()
-	ds, err := ses.Depts.Include(&Dp.Emps, byName).OrderBy(&Dp.Name).All(t.Context())
+	ds, err := ses.Depts.Include(&Depts.Emps, byName).OrderBy(&Depts.Name).All(t.Context())
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(ds), 2)
 
@@ -236,7 +236,7 @@ func loadAB(t *testing.T, ses *ProbeDB) (a, b *Dept) {
 func empsOf(t *testing.T, db *ProbeDB, dept int64) []string {
 	t.Helper()
 
-	rows, err := db.Emps.NoTracking().Where(ant.Eq(&Em.DeptID, dept)).OrderBy(&Em.Name).
+	rows, err := db.Emps.NoTracking().Where(ant.Eq(&Emps.DeptID, dept)).OrderBy(&Emps.Name).
 		All(t.Context())
 	require.NoError(t, err)
 
@@ -277,8 +277,8 @@ func badgesOf(t *testing.T, db *ProbeDB, dept int64) []string {
 	t.Helper()
 
 	d, err := db.Depts.NoTracking().
-		Include(&Dp.Badges, func(q *ant.Query[Badge]) *ant.Query[Badge] {
-			return q.OrderBy(&Bd.Name)
+		Include(&Depts.Badges, func(q *ant.Query[Badge]) *ant.Query[Badge] {
+			return q.OrderBy(&Badges.Name)
 		}).
 		Find(t.Context(), dept)
 	require.NoError(t, err)
@@ -590,7 +590,7 @@ func TestProbeHasChangesLeavesTheForeignKey(t *testing.T) {
 		require.NoError(t, db.Items.InsertOnly(ctx, &Item{GrpID: &g.ID, Label: "i"}))
 
 		ses := ant.Session(db)
-		items, err := ses.Items.IncludeOne(&It.Grp).All(ctx)
+		items, err := ses.Items.IncludeOne(&Items.Grp).All(ctx)
 		require.NoError(t, err)
 
 		item := items[0]
@@ -626,7 +626,7 @@ func TestProbeDuplicateElementInSlice(t *testing.T) {
 
 func countIn(t *testing.T, db *ProbeDB, dept int64) int64 {
 	t.Helper()
-	n, err := db.Emps.NoTracking().Where(ant.Eq(&Em.DeptID, dept)).Count(t.Context())
+	n, err := db.Emps.NoTracking().Where(ant.Eq(&Emps.DeptID, dept)).Count(t.Context())
 	require.NoError(t, err)
 
 	return n
@@ -732,7 +732,7 @@ func TestProbeVersionedDuplicateInstanceEditAndOrphan(t *testing.T) {
 		aSeed, _ := seedAB(t, db)
 		ses := ant.Session(db)
 		// Load the pointer instance first, so the slice element is the second one.
-		direct, err := ses.Emps.Where(ant.Eq(&Em.Name, "a1")).Single(ctx)
+		direct, err := ses.Emps.Where(ant.Eq(&Emps.Name, "a1")).Single(ctx)
 		require.NoError(t, err)
 
 		a, _ := loadAB(t, ses)
@@ -762,7 +762,7 @@ func TestProbeVersionedDuplicateInstancesBothEdited(t *testing.T) {
 		direct, err := ses.Items.Find(ctx, item.ID)
 		require.NoError(t, err)
 
-		loadedG, err := ses.Grps.Include(&Gp.Items).Find(ctx, g.ID)
+		loadedG, err := ses.Grps.Include(&Grps.Items).Find(ctx, g.ID)
 		require.NoError(t, err)
 		require.NotSame(t, direct, &loadedG.Items[0])
 
@@ -1120,7 +1120,7 @@ func TestProbeAttachParentAdoptsExistingChild(t *testing.T) {
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
 		ctx := t.Context()
 		aSeed, bSeed := seedAB(t, db)
-		a1, err := db.Emps.NoTracking().Where(ant.Eq(&Em.Name, "a1")).Single(ctx)
+		a1, err := db.Emps.NoTracking().Where(ant.Eq(&Emps.Name, "a1")).Single(ctx)
 		require.NoError(t, err)
 
 		ses := ant.Session(db)
@@ -1146,7 +1146,7 @@ func TestProbeTrackGraphMovesChild(t *testing.T) {
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
 		ctx := t.Context()
 		aSeed, bSeed := seedAB(t, db)
-		rows, err := db.Emps.NoTracking().OrderBy(&Em.Name).All(ctx)
+		rows, err := db.Emps.NoTracking().OrderBy(&Emps.Name).All(ctx)
 		require.NoError(t, err)
 
 		ses := ant.Session(db)
@@ -1195,8 +1195,8 @@ func seedBadges(t *testing.T, db *ProbeDB) (x, y, z *Badge) {
 func loadDeptBadges(t *testing.T, ses *ProbeDB, id int64) *Dept {
 	t.Helper()
 
-	d, err := ses.Depts.Include(&Dp.Badges, func(q *ant.Query[Badge]) *ant.Query[Badge] {
-		return q.OrderBy(&Bd.Name)
+	d, err := ses.Depts.Include(&Depts.Badges, func(q *ant.Query[Badge]) *ant.Query[Badge] {
+		return q.OrderBy(&Badges.Name)
 	}).Find(t.Context(), id)
 	require.NoError(t, err)
 
@@ -1208,7 +1208,7 @@ func TestProbeM2MRemoveAndAppendExisting(t *testing.T) {
 		ctx := t.Context()
 		a, _ := seedAB(t, db)
 		x, y, z := seedBadges(t, db)
-		require.NoError(t, ant.Link(ctx, db, a, &Dp.Badges, x, y))
+		require.NoError(t, ant.Link(ctx, db, a, &Depts.Badges, x, y))
 
 		ses := ant.Session(db)
 		d := loadDeptBadges(t, ses, a.ID)
@@ -1232,7 +1232,7 @@ func TestProbeM2MAppendNewBadge(t *testing.T) {
 		ctx := t.Context()
 		a, _ := seedAB(t, db)
 		x, _, _ := seedBadges(t, db)
-		require.NoError(t, ant.Link(ctx, db, a, &Dp.Badges, x))
+		require.NoError(t, ant.Link(ctx, db, a, &Depts.Badges, x))
 
 		ses := ant.Session(db)
 		d := loadDeptBadges(t, ses, a.ID)
@@ -1252,13 +1252,13 @@ func TestProbeM2MLinkUnlinkThenSave(t *testing.T) {
 		ctx := t.Context()
 		a, _ := seedAB(t, db)
 		x, y, z := seedBadges(t, db)
-		require.NoError(t, ant.Link(ctx, db, a, &Dp.Badges, x, y))
+		require.NoError(t, ant.Link(ctx, db, a, &Depts.Badges, x, y))
 
 		ses := ant.Session(db)
 		d := loadDeptBadges(t, ses, a.ID)
 
-		require.NoError(t, ant.Link(ctx, ses, d, &Dp.Badges, z))
-		require.NoError(t, ant.Unlink(ctx, ses, d, &Dp.Badges, x))
+		require.NoError(t, ant.Link(ctx, ses, d, &Depts.Badges, z))
+		require.NoError(t, ant.Unlink(ctx, ses, d, &Depts.Badges, x))
 
 		d.Badges = append(d.Badges, Badge{Name: "w"})
 
@@ -1281,12 +1281,12 @@ func TestProbeM2MUnlinkAndRemoveFromSlice(t *testing.T) {
 		ctx := t.Context()
 		a, _ := seedAB(t, db)
 		x, y, _ := seedBadges(t, db)
-		require.NoError(t, ant.Link(ctx, db, a, &Dp.Badges, x, y))
+		require.NoError(t, ant.Link(ctx, db, a, &Depts.Badges, x, y))
 
 		ses := ant.Session(db)
 		d := loadDeptBadges(t, ses, a.ID)
 
-		require.NoError(t, ant.Unlink(ctx, ses, d, &Dp.Badges, x))
+		require.NoError(t, ant.Unlink(ctx, ses, d, &Depts.Badges, x))
 		d.Badges = d.Badges[1:]
 
 		require.NoError(t, ses.SaveChanges(ctx))
@@ -1300,10 +1300,10 @@ func TestProbeM2MOtherSide(t *testing.T) {
 		ctx := t.Context()
 		a, b := seedAB(t, db)
 		x, _, _ := seedBadges(t, db)
-		require.NoError(t, ant.Link(ctx, db, a, &Dp.Badges, x))
+		require.NoError(t, ant.Link(ctx, db, a, &Depts.Badges, x))
 
 		ses := ant.Session(db)
-		bx, err := ses.Badges.Include(&Bd.Depts).Find(ctx, x.ID)
+		bx, err := ses.Badges.Include(&Badges.Depts).Find(ctx, x.ID)
 		require.NoError(t, err)
 		require.Len(t, bx.Depts, 1)
 
@@ -1372,7 +1372,7 @@ func TestProbeM2MUnlinkedLinkStaysUnlinked(t *testing.T) {
 		require.NoError(t, ses.Depts.Insert(ctx, d))
 		require.Equal(t, []string{"n1", "n2"}, badgesOf(t, db, d.ID))
 
-		require.NoError(t, ant.Unlink(ctx, ses, d, &Dp.Badges, &d.Badges[0]))
+		require.NoError(t, ant.Unlink(ctx, ses, d, &Depts.Badges, &d.Badges[0]))
 		require.Equal(t, []string{"n2"}, badgesOf(t, db, d.ID))
 
 		d.Name = "renamed"
@@ -1394,7 +1394,7 @@ func TestProbeM2MReplaceElementInPlace(t *testing.T) {
 		ctx := t.Context()
 		a, _ := seedAB(t, db)
 		x, y, z := seedBadges(t, db)
-		require.NoError(t, ant.Link(ctx, db, a, &Dp.Badges, x, y))
+		require.NoError(t, ant.Link(ctx, db, a, &Depts.Badges, x, y))
 
 		ses := ant.Session(db)
 		d := loadDeptBadges(t, ses, a.ID)
@@ -1431,7 +1431,7 @@ func TestProbeM2MReplaceWithSameBadges(t *testing.T) {
 		ctx := t.Context()
 		a, _ := seedAB(t, db)
 		x, y, _ := seedBadges(t, db)
-		require.NoError(t, ant.Link(ctx, db, a, &Dp.Badges, x, y))
+		require.NoError(t, ant.Link(ctx, db, a, &Depts.Badges, x, y))
 
 		ses := ant.Session(db)
 		d := loadDeptBadges(t, ses, a.ID)
@@ -1469,7 +1469,7 @@ func TestProbeM2MAddedAndRemovedParentsFail(t *testing.T) {
 		ctx := t.Context()
 		a, _ := seedAB(t, db)
 		x, y, _ := seedBadges(t, db)
-		require.NoError(t, ant.Link(ctx, db, a, &Dp.Badges, x))
+		require.NoError(t, ant.Link(ctx, db, a, &Depts.Badges, x))
 
 		ses := ant.Session(db)
 		fresh := &Dept{Name: "F", Badges: []Badge{*y}}
@@ -1527,8 +1527,8 @@ func gemCounts(t *testing.T, db *ProbeDB) (live, deleted, all int64) {
 func loadCrate(t *testing.T, ses *ProbeDB, id int64) *Crate {
 	t.Helper()
 
-	c, err := ses.Crates.Include(&Cr.Gems, func(q *ant.Query[Gem]) *ant.Query[Gem] {
-		return q.OrderBy(&Gm.Name)
+	c, err := ses.Crates.Include(&Crates.Gems, func(q *ant.Query[Gem]) *ant.Query[Gem] {
+		return q.OrderBy(&Gems.Name)
 	}).Find(t.Context(), id)
 	require.NoError(t, err)
 
@@ -1569,7 +1569,7 @@ func TestProbeSoftDeletedChildNotLoadedUntouched(t *testing.T) {
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
 		ctx := t.Context()
 		c := seedCrate(t, db)
-		_, err := db.Gems.Where(ant.Eq(&Gm.Name, "g2")).Delete(ctx)
+		_, err := db.Gems.Where(ant.Eq(&Gems.Name, "g2")).Delete(ctx)
 		require.NoError(t, err)
 
 		ses := ant.Session(db)
@@ -1594,12 +1594,12 @@ func TestProbeSoftDeletedChildLoadedWithDeleted(t *testing.T) {
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
 		ctx := t.Context()
 		c := seedCrate(t, db)
-		_, err := db.Gems.Where(ant.Eq(&Gm.Name, "g2")).Delete(ctx)
+		_, err := db.Gems.Where(ant.Eq(&Gems.Name, "g2")).Delete(ctx)
 		require.NoError(t, err)
 
 		ses := ant.Session(db)
-		crate, err := ses.Crates.Include(&Cr.Gems, func(q *ant.Query[Gem]) *ant.Query[Gem] {
-			return q.WithDeleted().OrderBy(&Gm.Name)
+		crate, err := ses.Crates.Include(&Crates.Gems, func(q *ant.Query[Gem]) *ant.Query[Gem] {
+			return q.WithDeleted().OrderBy(&Gems.Name)
 		}).Find(ctx, c.ID)
 		require.NoError(t, err)
 		require.Len(t, crate.Gems, 3)
@@ -1882,11 +1882,11 @@ func TestProbeNestedIncludeMoveSubtree(t *testing.T) {
 		require.NoError(t, db.Cats.InsertOnly(ctx, g1, g2))
 
 		ses := ant.Session(db)
-		roots, err := ses.Cats.Where(ant.In(&Ct.Name, "r1", "r2")).OrderBy(&Ct.Name).
-			Include(&Ct.Children, func(q *ant.Query[Cat]) *ant.Query[Cat] {
-				return q.OrderBy(&Ct.Name).
-					Include(&Ct.Children, func(q *ant.Query[Cat]) *ant.Query[Cat] {
-						return q.OrderBy(&Ct.Name)
+		roots, err := ses.Cats.Where(ant.In(&Cats.Name, "r1", "r2")).OrderBy(&Cats.Name).
+			Include(&Cats.Children, func(q *ant.Query[Cat]) *ant.Query[Cat] {
+				return q.OrderBy(&Cats.Name).
+					Include(&Cats.Children, func(q *ant.Query[Cat]) *ant.Query[Cat] {
+						return q.OrderBy(&Cats.Name)
 					})
 			}).All(ctx)
 		require.NoError(t, err)
@@ -2046,7 +2046,7 @@ func TestProbeRelationPointerNilRelinkNil(t *testing.T) {
 		g1, _, i1, _ := seedGrpItems(t, db)
 		ses := ant.Session(db)
 
-		it, err := ses.Items.IncludeOne(&It.Grp).Find(ctx, i1.ID)
+		it, err := ses.Items.IncludeOne(&Items.Grp).Find(ctx, i1.ID)
 		require.NoError(t, err)
 		require.NotNil(t, it.Grp)
 
@@ -2137,7 +2137,7 @@ func TestProbeFKAndPointerDisagree(t *testing.T) {
 
 				ses := ant.Session(db)
 
-				it, err := ses.Items.IncludeOne(&It.Grp).Find(ctx, i1.ID)
+				it, err := ses.Items.IncludeOne(&Items.Grp).Find(ctx, i1.ID)
 				require.NoError(t, err)
 				require.NotNil(t, it.Grp)
 
@@ -2203,8 +2203,8 @@ func TestProbeUnlinkViaSliceStampsLikeDirectEdit(t *testing.T) {
 		before1, before2 := storedItem(t, db, i1.ID), storedItem(t, db, i2.ID)
 
 		ses := ant.Session(db)
-		g, err := ses.Grps.Include(&Gp.Items, func(q *ant.Query[Item]) *ant.Query[Item] {
-			return q.OrderBy(&It.Label)
+		g, err := ses.Grps.Include(&Grps.Items, func(q *ant.Query[Item]) *ant.Query[Item] {
+			return q.OrderBy(&Items.Label)
 		}).Find(ctx, g1.ID)
 		require.NoError(t, err)
 		require.Len(t, g.Items, 2)
@@ -2237,8 +2237,8 @@ func TestProbeEditThenUnlinkKeepsEdit(t *testing.T) {
 		ctx := t.Context()
 		g1, _, i1, _ := seedGrpItems(t, db)
 		ses := ant.Session(db)
-		g, err := ses.Grps.Include(&Gp.Items, func(q *ant.Query[Item]) *ant.Query[Item] {
-			return q.OrderBy(&It.Label)
+		g, err := ses.Grps.Include(&Grps.Items, func(q *ant.Query[Item]) *ant.Query[Item] {
+			return q.OrderBy(&Items.Label)
 		}).Find(ctx, g1.ID)
 		require.NoError(t, err)
 
@@ -2318,7 +2318,7 @@ func TestProbeLoadTwiceVisibleMatchesSaved(t *testing.T) {
 		id := a.Emps[0].ID
 
 		a.Emps[0].Name = "edited-before-reload"
-		require.NoError(t, ses.Depts.Load(ctx, &Dp.Emps, a))
+		require.NoError(t, ses.Depts.Load(ctx, &Depts.Emps, a))
 
 		shown := ""
 
@@ -2348,7 +2348,7 @@ func TestProbeTwoSessionsMoveSameChild(t *testing.T) {
 		a1, b1 := loadAB(t, one)
 		a2, _ := loadAB(t, two)
 
-		c2, err := two.Depts.Include(&Dp.Emps).Find(ctx, c.ID)
+		c2, err := two.Depts.Include(&Depts.Emps).Find(ctx, c.ID)
 		require.NoError(t, err)
 
 		moved := a1.Emps[0]
@@ -2532,9 +2532,9 @@ func TestProbeNullableChildMovedBetweenSlices(t *testing.T) {
 		g1, g2, i1, i2 := seedGrpItems(t, db)
 		ses := ant.Session(db)
 
-		groups, err := ses.Grps.Include(&Gp.Items, func(q *ant.Query[Item]) *ant.Query[Item] {
-			return q.OrderBy(&It.Label)
-		}).OrderBy(&Gp.Name).All(ctx)
+		groups, err := ses.Grps.Include(&Grps.Items, func(q *ant.Query[Item]) *ant.Query[Item] {
+			return q.OrderBy(&Items.Label)
+		}).OrderBy(&Grps.Name).All(ctx)
 		require.NoError(t, err)
 		require.Len(t, groups, 2)
 
@@ -2590,12 +2590,12 @@ func TestProbeParentLoadedAsSliceElement(t *testing.T) {
 		ctx := t.Context()
 		aSeed, _ := seedAB(t, db)
 		x, _, _ := seedBadges(t, db)
-		require.NoError(t, ant.Link(ctx, db, aSeed, &Dp.Badges, x))
+		require.NoError(t, ant.Link(ctx, db, aSeed, &Depts.Badges, x))
 
 		ses := ant.Session(db)
 		// Dept reached as a slice element of Badge, with its own emps loaded.
-		bx, err := ses.Badges.Include(&Bd.Depts, func(q *ant.Query[Dept]) *ant.Query[Dept] {
-			return q.Include(&Dp.Emps, byName)
+		bx, err := ses.Badges.Include(&Badges.Depts, func(q *ant.Query[Dept]) *ant.Query[Dept] {
+			return q.Include(&Depts.Emps, byName)
 		}).Find(ctx, x.ID)
 		require.NoError(t, err)
 		require.Len(t, bx.Depts, 1)
@@ -2672,9 +2672,9 @@ func TestProbeNestedIncludeRemoveAndAppendBelowSliceElement(t *testing.T) {
 		require.NoError(t, db.Cats.InsertOnly(ctx, g1, g2))
 
 		ses := ant.Session(db)
-		root, err := ses.Cats.Include(&Ct.Children, func(q *ant.Query[Cat]) *ant.Query[Cat] {
-			return q.Include(&Ct.Children, func(q *ant.Query[Cat]) *ant.Query[Cat] {
-				return q.OrderBy(&Ct.Name)
+		root, err := ses.Cats.Include(&Cats.Children, func(q *ant.Query[Cat]) *ant.Query[Cat] {
+			return q.Include(&Cats.Children, func(q *ant.Query[Cat]) *ant.Query[Cat] {
+				return q.OrderBy(&Cats.Name)
 			})
 		}).Find(ctx, r1.ID)
 		require.NoError(t, err)
@@ -2707,11 +2707,11 @@ func TestProbeNestedIncludeRemoveBelowManyToManyElement(t *testing.T) {
 		ctx := t.Context()
 		aSeed, _ := seedAB(t, db)
 		x, _, _ := seedBadges(t, db)
-		require.NoError(t, ant.Link(ctx, db, aSeed, &Dp.Badges, x))
+		require.NoError(t, ant.Link(ctx, db, aSeed, &Depts.Badges, x))
 
 		ses := ant.Session(db)
-		bx, err := ses.Badges.Include(&Bd.Depts, func(q *ant.Query[Dept]) *ant.Query[Dept] {
-			return q.Include(&Dp.Emps, byName)
+		bx, err := ses.Badges.Include(&Badges.Depts, func(q *ant.Query[Dept]) *ant.Query[Dept] {
+			return q.Include(&Depts.Emps, byName)
 		}).Find(ctx, x.ID)
 		require.NoError(t, err)
 
@@ -2779,7 +2779,7 @@ func TestProbeExplicitLoadThenRemove(t *testing.T) {
 
 		a, err := ses.Depts.Find(ctx, aSeed.ID)
 		require.NoError(t, err)
-		require.NoError(t, ses.Depts.Load(ctx, &Dp.Emps, a))
+		require.NoError(t, ses.Depts.Load(ctx, &Depts.Emps, a))
 		require.Len(t, a.Emps, 3)
 
 		slices.SortFunc(a.Emps, func(x, y Emp) int { return strings.Compare(x.Name, y.Name) })
@@ -2798,7 +2798,7 @@ func TestProbeIncludeJoinedThenNilAndEdit(t *testing.T) {
 		g1, _, i1, i2 := seedGrpItems(t, db)
 		ses := ant.Session(db)
 
-		items, err := ses.Items.IncludeJoined(&It.Grp).OrderBy(&It.Label).All(ctx)
+		items, err := ses.Items.IncludeJoined(&Items.Grp).OrderBy(&Items.Label).All(ctx)
 		require.NoError(t, err)
 		require.Len(t, items, 2)
 		require.NotNil(t, items[0].Grp)
@@ -2824,7 +2824,7 @@ func TestProbeBelongsToPointerMoveRequired(t *testing.T) {
 		aSeed, bSeed := seedAB(t, db)
 		ses := ant.Session(db)
 
-		e, err := ses.Emps.IncludeOne(&Em.Dept).Where(ant.Eq(&Em.Name, "a1")).Single(ctx)
+		e, err := ses.Emps.IncludeOne(&Emps.Dept).Where(ant.Eq(&Emps.Name, "a1")).Single(ctx)
 		require.NoError(t, err)
 		require.NotNil(t, e.Dept)
 
@@ -2856,9 +2856,9 @@ func TestProbeNestedIncludeRemoveOnlyBelowSliceElement(t *testing.T) {
 		require.NoError(t, db.Cats.InsertOnly(ctx, g1, g2))
 
 		ses := ant.Session(db)
-		root, err := ses.Cats.Include(&Ct.Children, func(q *ant.Query[Cat]) *ant.Query[Cat] {
-			return q.Include(&Ct.Children, func(q *ant.Query[Cat]) *ant.Query[Cat] {
-				return q.OrderBy(&Ct.Name)
+		root, err := ses.Cats.Include(&Cats.Children, func(q *ant.Query[Cat]) *ant.Query[Cat] {
+			return q.Include(&Cats.Children, func(q *ant.Query[Cat]) *ant.Query[Cat] {
+				return q.OrderBy(&Cats.Name)
 			})
 		}).Find(ctx, r1.ID)
 		require.NoError(t, err)

@@ -36,13 +36,13 @@ type AppDB struct {
 
 func (User) Configure(b *ant.ModelBuilder[User]) {
 	b.Table("users")
-	b.Index(&U.Email).Unique()
-	b.HasMany(&U.Posts).ForeignKey(&P.UserID).OnDelete(ant.Cascade)
+	b.Index(&Users.Email).Unique()
+	b.HasMany(&Users.Posts).ForeignKey(&Posts.UserID).OnDelete(ant.Cascade)
 }
 
 var (
-	U = ant.Fields[User]()
-	P = ant.Fields[Post]()
+	Users = ant.Fields[User]()
+	Posts = ant.Fields[Post]()
 )
 
 var _ ant.Entity[User] = User{}

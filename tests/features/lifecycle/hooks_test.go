@@ -87,7 +87,7 @@ type MembersDB struct {
 	Members ant.Table[Member]
 }
 
-var Mb = ant.Fields[Member]()
+var Members = ant.Fields[Member]()
 
 const membersDDL = `CREATE TABLE members (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL)`
 
@@ -183,7 +183,7 @@ func TestHooks(t *testing.T) {
 		})
 
 		t.Run("bulk writes run none", func(t *testing.T) {
-			_, err := db.Members.Unfiltered().Update(ctx, ant.Set(&Mb.Name, ""))
+			_, err := db.Members.Unfiltered().Update(ctx, ant.Set(&Members.Name, ""))
 			require.NoError(t, err)
 		})
 	})

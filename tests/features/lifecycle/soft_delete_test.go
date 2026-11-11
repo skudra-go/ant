@@ -33,8 +33,8 @@ type NotesDB struct {
 }
 
 var (
-	N = ant.Fields[Note]()
-	A = ant.Fields[Author]()
+	Notes   = ant.Fields[Note]()
+	Authors = ant.Fields[Author]()
 )
 
 const notesDDL = `
@@ -67,7 +67,7 @@ func TestSoftDelete(t *testing.T) {
 			return *n
 		}
 
-		n, err := db.Notes.Where(ant.Eq(&N.Text, "gone")).Delete(ctx)
+		n, err := db.Notes.Where(ant.Eq(&Notes.Text, "gone")).Delete(ctx)
 		require.NoError(t, err)
 		require.EqualValues(t, 1, n)
 
@@ -90,15 +90,16 @@ func TestSoftDelete(t *testing.T) {
 		})
 
 		t.Run("Include, Has, and joins skip it", func(t *testing.T) {
-			got, err := db.Authors.NoTracking().Include(&A.Notes).Single(ctx)
+			got, err := db.Authors.NoTracking().Include(&Authors.Notes).Single(ctx)
 			require.NoError(t, err)
 			require.Len(t, got.Notes, 1)
 
-			c, err := db.Authors.Where(ant.Has(&A.Notes, ant.Eq(&N.Text, "gone"))).Count(ctx)
+			c, err := db.Authors.Where(ant.Has(&Authors.Notes, ant.Eq(&Notes.Text, "gone"))).
+				Count(ctx)
 			require.NoError(t, err)
 			require.Zero(t, c)
 
-			rows, err := db.Authors.LeftJoinMany(&A.Notes).
+			rows, err := db.Authors.LeftJoinMany(&Authors.Notes).
 				Select(func(a *Author, n *Note) string { return n.Text }).
 				All(ctx)
 			require.NoError(t, err)
@@ -106,7 +107,7 @@ func TestSoftDelete(t *testing.T) {
 		})
 
 		t.Run("WithDeleted and OnlyDeleted see it", func(t *testing.T) {
-			got, err := db.Notes.WithDeleted().NoTracking().OrderBy(&N.Text).All(ctx)
+			got, err := db.Notes.WithDeleted().NoTracking().OrderBy(&Notes.Text).All(ctx)
 			require.NoError(t, err)
 			require.Equal(t, []string{"gone", "kept"}, textsOf(got))
 
@@ -117,13 +118,13 @@ func TestSoftDelete(t *testing.T) {
 		})
 
 		t.Run("a second delete changes nothing", func(t *testing.T) {
-			n, err := db.Notes.Where(ant.Eq(&N.Text, "gone")).Delete(ctx)
+			n, err := db.Notes.Where(ant.Eq(&Notes.Text, "gone")).Delete(ctx)
 			require.NoError(t, err)
 			require.Zero(t, n)
 		})
 
 		t.Run("Restore brings it back", func(t *testing.T) {
-			n, err := db.Notes.Where(ant.Eq(&N.Text, "gone")).Restore(ctx)
+			n, err := db.Notes.Where(ant.Eq(&Notes.Text, "gone")).Restore(ctx)
 			require.NoError(t, err)
 			require.EqualValues(t, 1, n)
 
@@ -134,7 +135,7 @@ func TestSoftDelete(t *testing.T) {
 
 		t.Run("Remove with SaveChanges soft-deletes", func(t *testing.T) {
 			session := ant.Session(db)
-			note, err := session.Notes.Where(ant.Eq(&N.Text, "gone")).Single(ctx)
+			note, err := session.Notes.Where(ant.Eq(&Notes.Text, "gone")).Single(ctx)
 			require.NoError(t, err)
 			require.NoError(t, ant.Remove(ctx, session, note))
 			require.NoError(t, session.SaveChanges(ctx))
@@ -145,12 +146,12 @@ func TestSoftDelete(t *testing.T) {
 			require.NoError(t, db.Notes.DeleteByID(ctx, kept.ID))
 			require.Equal(t, 2, rawCount())
 
-			_, err := db.Notes.Where(ant.Gt(&N.ID, 0)).Restore(ctx)
+			_, err := db.Notes.Where(ant.Gt(&Notes.ID, 0)).Restore(ctx)
 			require.NoError(t, err)
 		})
 
 		t.Run("ForceDelete removes it for real", func(t *testing.T) {
-			n, err := db.Notes.Where(ant.Eq(&N.Text, "gone")).ForceDelete(ctx)
+			n, err := db.Notes.Where(ant.Eq(&Notes.Text, "gone")).ForceDelete(ctx)
 			require.NoError(t, err)
 			require.EqualValues(t, 1, n)
 			require.Equal(t, 1, rawCount())
@@ -160,34 +161,34 @@ func TestSoftDelete(t *testing.T) {
 			author := &Author{Name: "Prue"}
 			require.NoError(t, db.Authors.Insert(ctx, author))
 			require.NoError(t, db.Notes.Insert(ctx, &Note{AuthorID: author.ID, Text: "stale"}))
-			_, err := db.Notes.Where(ant.Eq(&N.Text, "stale")).Delete(ctx)
+			_, err := db.Notes.Where(ant.Eq(&Notes.Text, "stale")).Delete(ctx)
 			require.NoError(t, err)
 
 			early, err := db.Notes.OnlyDeleted().
-				Where(ant.Lt(&N.DeletedAt.V, time.Now().Add(-time.Hour))).
+				Where(ant.Lt(&Notes.DeletedAt.V, time.Now().Add(-time.Hour))).
 				Count(ctx)
 			require.NoError(t, err)
 			require.Zero(t, early)
 
 			removed, err := db.Notes.Prune(
 				ctx,
-				ant.Eq(&N.Text, "stale"),
-				ant.Lt(&N.DeletedAt.V, time.Now().Add(time.Hour)),
+				ant.Eq(&Notes.Text, "stale"),
+				ant.Lt(&Notes.DeletedAt.V, time.Now().Add(time.Hour)),
 			)
 			require.NoError(t, err)
 			require.EqualValues(t, 1, removed)
 		})
 
 		t.Run("ForceDelete reaches deleted rows with WithDeleted", func(t *testing.T) {
-			_, err := db.Notes.Where(ant.Eq(&N.Text, "kept")).Delete(ctx)
+			_, err := db.Notes.Where(ant.Eq(&Notes.Text, "kept")).Delete(ctx)
 			require.NoError(t, err)
-			n, err := db.Notes.WithDeleted().Where(ant.Eq(&N.Text, "kept")).ForceDelete(ctx)
+			n, err := db.Notes.WithDeleted().Where(ant.Eq(&Notes.Text, "kept")).ForceDelete(ctx)
 			require.NoError(t, err)
 			require.EqualValues(t, 1, n)
 		})
 
 		t.Run("Restore on a plain model", func(t *testing.T) {
-			_, err := db.Authors.Where(ant.Gt(&A.ID, 0)).Restore(ctx)
+			_, err := db.Authors.Where(ant.Gt(&Authors.ID, 0)).Restore(ctx)
 			require.ErrorIs(t, err, ant.ErrNotSoftDeleted)
 		})
 	})

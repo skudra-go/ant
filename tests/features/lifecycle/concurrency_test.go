@@ -32,8 +32,8 @@ type WikiDB struct {
 }
 
 var (
-	Pg = ant.Fields[Page]()
-	Sk = ant.Fields[Stock]()
+	Pages  = ant.Fields[Page]()
+	Stocks = ant.Fields[Stock]()
 )
 
 const wikiDDL = `
@@ -97,8 +97,8 @@ func TestOptimisticConcurrency(t *testing.T) {
 			session := ant.Session(db)
 			require.NoError(t, session.Pages.Insert(ctx, page))
 
-			_, err := db.Pages.Where(ant.Eq(&Pg.ID, page.ID)).
-				Update(ctx, ant.Set(&Pg.Title, "other"))
+			_, err := db.Pages.Where(ant.Eq(&Pages.ID, page.ID)).
+				Update(ctx, ant.Set(&Pages.Title, "other"))
 			require.NoError(t, err)
 
 			page.Title = "mine"
@@ -110,7 +110,9 @@ func TestOptimisticConcurrency(t *testing.T) {
 			page := &Page{Title: "gone"}
 			session := ant.Session(db)
 			require.NoError(t, session.Pages.Insert(ctx, page))
-			_, err := db.Pages.Where(ant.Eq(&Pg.ID, page.ID)).Update(ctx, ant.Set(&Pg.Title, "x"))
+
+			_, err := db.Pages.Where(ant.Eq(&Pages.ID, page.ID)).
+				Update(ctx, ant.Set(&Pages.Title, "x"))
 			require.NoError(t, err)
 			require.NoError(t, ant.Remove(ctx, session, page))
 			require.ErrorIs(t, session.SaveChanges(ctx), ant.ErrConcurrency)
@@ -121,8 +123,8 @@ func TestOptimisticConcurrency(t *testing.T) {
 			session := ant.Session(db)
 			require.NoError(t, session.Stocks.Insert(ctx, stock))
 
-			_, err := db.Stocks.Where(ant.Eq(&Sk.ID, stock.ID)).
-				Update(ctx, ant.Set(&Sk.ETag, new("v2")))
+			_, err := db.Stocks.Where(ant.Eq(&Stocks.ID, stock.ID)).
+				Update(ctx, ant.Set(&Stocks.ETag, new("v2")))
 			require.NoError(t, err)
 
 			stock.Quantity = 4

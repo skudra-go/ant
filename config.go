@@ -264,7 +264,7 @@ func (b *ModelBuilder[E]) Comment(text string) { b.model.Comment = text }
 //
 //	func (Dog) Configure(b *ant.ModelBuilder[Dog]) {
 //		b.Table("animals")
-//		b.Discriminator(&D.Kind, "dog")
+//		b.Discriminator(&Dogs.Kind, "dog")
 //	}
 //
 // Migrations merge the models into one table, and a column only some of them
@@ -308,7 +308,7 @@ func (b *ModelBuilder[E]) Validate[V any](field *V, rule func(V) error) {
 // such as a key of several columns. It adds a constraint and nothing else, so
 // relations and queries do not know about it.
 //
-//	b.ForeignKey(ant.F(&L.OrderID), ant.F(&L.Region)).References(ant.F(&O.ID), ant.F(&O.Region))
+//	b.ForeignKey(ant.F(&Lines.OrderID), ant.F(&Lines.Region)).References(ant.F(&Orders.ID), ant.F(&Orders.Region))
 func (b *ModelBuilder[E]) ForeignKey(fields ...FieldRef) *ForeignKeyBuilder {
 	key := &meta.ForeignKey{}
 
@@ -408,7 +408,7 @@ func (b *ModelBuilder[E]) addIndex() *IndexBuilder {
 // model that refers to the owner, and throughKey the column on the target that
 // refers to the middle model's key.
 //
-//	b.HasManyThrough(&C.Posts, &U.CountryID, &P.UserID)
+//	b.HasManyThrough(&Countries.Posts, &Users.CountryID, &Posts.UserID)
 func (b *ModelBuilder[E]) HasManyThrough[R, A, C any](
 	rel *[]R,
 	parentKey *A,
@@ -865,7 +865,7 @@ func (r *RelationBuilder) OnUpdate(action Action) *RelationBuilder {
 // Where scopes the relation: Include, Has, joins, and counts see only the target
 // rows that meet conds.
 //
-//	b.HasMany(&U.LivePosts).ForeignKey(&P.UserID).Where(ant.Eq(&P.Published, true))
+//	b.HasMany(&Users.LivePosts).ForeignKey(&Posts.UserID).Where(ant.Eq(&Posts.Published, true))
 func (r *RelationBuilder) Where(conds ...Cond) *RelationBuilder {
 	if r.relation == nil {
 		return r
@@ -888,8 +888,8 @@ func (r *RelationBuilder) Where(conds ...Cond) *RelationBuilder {
 // tables, and field says which. Set it on each relation with the value for that
 // target, which is also the place to keep a map of type names:
 //
-//	b.HasMany(&Post{}.Comments).ForeignKey(&C.OwnerID).Morph(&C.OwnerType, "post")
-//	b.BelongsTo(&C.Post).ForeignKey(&C.OwnerID).Morph(&C.OwnerType, "post")
+//	b.HasMany(&Post{}.Comments).ForeignKey(&Comments.OwnerID).Morph(&Comments.OwnerType, "post")
+//	b.BelongsTo(&Comments.Post).ForeignKey(&Comments.OwnerID).Morph(&Comments.OwnerType, "post")
 //
 // Saving through the relation sets field. A foreign key cannot point at several
 // tables, so migrations declare none.
@@ -948,7 +948,7 @@ func (r *RelationBuilder) Touch() *RelationBuilder {
 }
 
 // Inverse fills a pointer on each loaded child back to its parent, so a Post from
-// Include(&U.Posts) has its User without another query.
+// Include(&Users.Posts) has its User without another query.
 func (r *RelationBuilder) Inverse[P any](back **P) *RelationBuilder {
 	inverse, err := relation(back)
 	if err != nil {

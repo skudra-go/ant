@@ -69,7 +69,7 @@ func TestInsert(t *testing.T) {
 			require.Error(t, db.Users.Insert(ctx, ok, clash))
 			require.Zero(t, ok.ID, "the key of a rolled back row is cleared")
 
-			_, err := db.Users.Where(ant.Eq(&U.Email, "h@example.com")).First(ctx)
+			_, err := db.Users.Where(ant.Eq(&Users.Email, "h@example.com")).First(ctx)
 			require.ErrorIs(t, err, ant.ErrNotFound)
 		})
 

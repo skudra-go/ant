@@ -44,7 +44,7 @@ func TestUp(t *testing.T) {
 				Notes:       []V3Note{{Text: "hi"}},
 			}
 			require.NoError(t, db.Accounts.Insert(ctx, account))
-			loaded, err := db.Accounts.Include(&A3.Notes).First(ctx)
+			loaded, err := db.Accounts.Include(&V3Accounts.Notes).First(ctx)
 			require.NoError(t, err)
 			require.Equal(t, "Ada", loaded.DisplayName)
 			require.Len(t, loaded.Notes, 1)

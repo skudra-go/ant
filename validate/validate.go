@@ -1,10 +1,10 @@
 // Package validate holds common rules for ModelBuilder.Validate:
 //
-//	b.Validate(&U.Name, validate.Required[string]())
-//	b.Validate(&U.Name, validate.MaxLength(100))
-//	b.Validate(&U.Age, validate.Range(0, 150))
-//	b.Validate(&U.Email, validate.Email)
-//	b.Validate(&U.Plan, validate.OneOf("free", "pro"))
+//	b.Validate(&Users.Name, validate.Required[string]())
+//	b.Validate(&Users.Name, validate.MaxLength(100))
+//	b.Validate(&Users.Age, validate.Range(0, 150))
+//	b.Validate(&Users.Email, validate.Email)
+//	b.Validate(&Users.Plan, validate.OneOf("free", "pro"))
 //
 // A rule is a func(V) error, so your own need nothing from here.
 package validate

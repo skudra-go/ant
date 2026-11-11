@@ -11,7 +11,7 @@ import (
 
 type User = fixture.User
 
-var U = fixture.U
+var Users = fixture.Users
 
 // seed adds n users named u000, u001, and so on, in order.
 func seed(t *testing.T, db *fixture.AppDB, n int) {

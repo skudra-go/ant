@@ -245,7 +245,7 @@ func (q *Query[T]) IgnoreFilters(names ...string) *Query[T] {
 // Scope applies reusable query logic:
 //
 //	func Adults(q *ant.Query[User]) *ant.Query[User] {
-//		return q.Where(ant.Gte(&U.Age, 18))
+//		return q.Where(ant.Gte(&Users.Age, 18))
 //	}
 //
 //	db.Users.Query().Scope(Adults).All(ctx)
@@ -1243,8 +1243,8 @@ func LeftJoinSub[T, J any](q *Query[T], sub *Query[J], on ...Cond) *Join2[T, J] 
 // plain join cannot express:
 //
 //	ant.JoinLateral(db.Users.Query(), db.Posts.
-//		Where(ant.EqCol(&P.UserID, &U.ID)).
-//		OrderByDesc(&P.CreatedAt).Limit(3))
+//		Where(ant.EqCol(&Posts.UserID, &Users.ID)).
+//		OrderByDesc(&Posts.CreatedAt).Limit(3))
 func JoinLateral[T, J any](q *Query[T], sub *Query[J], on ...Cond) *Join2[T, J] {
 	return joinQuery(q, qb.InnerJoin, sub, true, on)
 }

@@ -1,7 +1,7 @@
 // Package ids makes unique keys in Go, for use with ant.GenerateKey:
 //
 //	func (Order) Configure(b *ant.ModelBuilder[Order]) {
-//		ant.GenerateKey(b, &O.ID, ids.UUID)
+//		ant.GenerateKey(b, &Orders.ID, ids.UUID)
 //	}
 //
 // UUID and ULID sort by creation time, unlike a random UUID, so new rows land at

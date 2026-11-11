@@ -32,7 +32,7 @@ func TestInterceptor(t *testing.T) {
 		t.Run("Include runs exactly one extra statement", func(t *testing.T) {
 			rec.reset()
 
-			_, err := db.Users.Include(&U.Posts).All(ctx)
+			_, err := db.Users.Include(&Users.Posts).All(ctx)
 			require.NoError(t, err)
 			require.Len(t, rec.statements(), 2, "not one per user")
 		})
@@ -100,7 +100,7 @@ func TestSaveChangesStatements(t *testing.T) {
 		require.NoError(t, db.Posts.Insert(ctx, &fixture.Post{UserID: alice.ID, Title: "x"}))
 
 		session := ant.Session(db)
-		user, err := session.Users.Include(&U.Posts).Find(ctx, alice.ID)
+		user, err := session.Users.Include(&Users.Posts).Find(ctx, alice.ID)
 		require.NoError(t, err)
 
 		rec.reset()

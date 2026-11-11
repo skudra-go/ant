@@ -19,8 +19,8 @@ type Author struct {
 }
 
 func (Author) Configure(b *ant.ModelBuilder[Author]) {
-	b.HasMany(&AU.Books).OnDelete(ant.Cascade)
-	b.ManyToMany(&AU.Fans).Through("author_fans")
+	b.HasMany(&Authors.Books).OnDelete(ant.Cascade)
+	b.ManyToMany(&Authors.Fans).Through("author_fans")
 }
 
 // Book has one required parent and two optional ones.
@@ -38,14 +38,14 @@ type Book struct {
 }
 
 func (Book) Configure(b *ant.ModelBuilder[Book]) {
-	b.BelongsTo(&BK.Editor).
-		ForeignKey(&BK.EditorEmail).
-		References(&AU.Email).
+	b.BelongsTo(&Books.Editor).
+		ForeignKey(&Books.EditorEmail).
+		References(&Authors.Email).
 		ConstraintName("books_editor_fk")
 
-	b.BelongsTo(&BK.Shelf).OnDelete(ant.SetNull).OnUpdate(ant.Cascade).NoIndex()
-	b.BelongsTo(&BK.Parent).OnDelete(ant.Restrict)
-	b.Index(&BK.AuthorID).And(&BK.CreatedAt)
+	b.BelongsTo(&Books.Shelf).OnDelete(ant.SetNull).OnUpdate(ant.Cascade).NoIndex()
+	b.BelongsTo(&Books.Parent).OnDelete(ant.Restrict)
+	b.Index(&Books.AuthorID).And(&Books.CreatedAt)
 }
 
 // Shelf is only reachable through a relation, and still gets its table.
@@ -61,7 +61,7 @@ type Reader struct {
 }
 
 func (Reader) Configure(b *ant.ModelBuilder[Reader]) {
-	b.ManyToMany(&RD.Authors).Through("author_fans")
+	b.ManyToMany(&Readers.Authors).Through("author_fans")
 }
 
 // External belongs to another system, so migrations leave it alone.
@@ -84,7 +84,7 @@ type Linked struct {
 }
 
 func (Linked) Configure(b *ant.ModelBuilder[Linked]) {
-	b.BelongsTo(&LK.Other).ForeignKey(&LK.OtherID).NoForeignKey()
+	b.BelongsTo(&Linkeds.Other).ForeignKey(&Linkeds.OtherID).NoForeignKey()
 }
 
 // LibraryDB declares its tables. Shelf and Reader come through relations.
@@ -99,10 +99,10 @@ type LibraryDB struct {
 
 // Probes for the models.
 var (
-	AU = ant.Fields[Author]()
-	BK = ant.Fields[Book]()
-	RD = ant.Fields[Reader]()
-	LK = ant.Fields[Linked]()
+	Authors = ant.Fields[Author]()
+	Books   = ant.Fields[Book]()
+	Readers = ant.Fields[Reader]()
+	Linkeds = ant.Fields[Linked]()
 )
 
 func keys(t *schema.Table) map[string]*schema.ForeignKey {
@@ -253,7 +253,7 @@ type BadSetNull struct {
 }
 
 func (BadSetNull) Configure(b *ant.ModelBuilder[BadSetNull]) {
-	b.BelongsTo(&BS.Parent).OnDelete(ant.SetNull)
+	b.BelongsTo(&BadSetNulls.Parent).OnDelete(ant.SetNull)
 }
 
 // BadSetNullDB holds BadSetNull.
@@ -262,8 +262,8 @@ type BadSetNullDB struct {
 	Rows ant.Table[BadSetNull]
 }
 
-// BS is BadSetNull's probe.
-var BS = ant.Fields[BadSetNull]()
+// BadSetNulls is BadSetNull's probe.
+var BadSetNulls = ant.Fields[BadSetNull]()
 
 // A model that cannot work is an error at generation, not at the first delete.
 func TestInvalidRelations(t *testing.T) {

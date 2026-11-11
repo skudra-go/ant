@@ -26,14 +26,14 @@ func TestIdentity(t *testing.T) {
 		})
 
 		t.Run("queries return it too", func(t *testing.T) {
-			users, err := session.Users.Where(ant.Eq(&U.ID, alice.ID)).All(ctx)
+			users, err := session.Users.Where(ant.Eq(&Users.ID, alice.ID)).All(ctx)
 			require.NoError(t, err)
 			require.Same(t, first, users[0])
 		})
 
 		t.Run("unsaved changes survive a later query", func(t *testing.T) {
 			first.Age = 70
-			again, err := session.Users.Where(ant.Eq(&U.ID, alice.ID)).Single(ctx)
+			again, err := session.Users.Where(ant.Eq(&Users.ID, alice.ID)).Single(ctx)
 			require.NoError(t, err)
 			require.Equal(t, 70, again.Age)
 			first.Age = 30
@@ -41,13 +41,14 @@ func TestIdentity(t *testing.T) {
 
 		t.Run("related rows use it", func(t *testing.T) {
 			require.NoError(t, session.Posts.InsertOnly(ctx, &Post{UserID: alice.ID, Title: "x"}))
-			post, err := session.Posts.IncludeOne(&P.User).First(ctx)
+			post, err := session.Posts.IncludeOne(&Posts.User).First(ctx)
 			require.NoError(t, err)
 			require.Same(t, first, post.User)
 		})
 
 		t.Run("Reload picks up database changes", func(t *testing.T) {
-			_, err := session.Users.Where(ant.Eq(&U.ID, alice.ID)).Update(ctx, ant.Set(&U.Age, 41))
+			_, err := session.Users.Where(ant.Eq(&Users.ID, alice.ID)).
+				Update(ctx, ant.Set(&Users.Age, 41))
 			require.NoError(t, err)
 			require.Equal(t, 30, first.Age, "a bulk update does not touch tracked entities")
 			require.NoError(t, session.Users.Reload(ctx, first))
@@ -68,7 +69,7 @@ func TestIdentity(t *testing.T) {
 
 		t.Run("each row in a relation slice is tracked once", func(t *testing.T) {
 			fresh := ant.Session(db)
-			owner, err := fresh.Users.Include(&U.Posts).Find(ctx, alice.ID)
+			owner, err := fresh.Users.Include(&Users.Posts).Find(ctx, alice.ID)
 			require.NoError(t, err)
 			require.Len(t, fixture.Tracked[Post](t, fresh), len(owner.Posts))
 
@@ -83,7 +84,7 @@ func TestIdentity(t *testing.T) {
 		t.Run("a row in a relation slice is a second instance, and both save", func(t *testing.T) {
 			post, err := session.Posts.First(ctx)
 			require.NoError(t, err)
-			owner, err := session.Users.Include(&U.Posts).Find(ctx, alice.ID)
+			owner, err := session.Users.Include(&Users.Posts).Find(ctx, alice.ID)
 			require.NoError(t, err)
 
 			post.Title = "from the pointer"

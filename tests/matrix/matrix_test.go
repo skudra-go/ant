@@ -377,7 +377,7 @@ func combination(t *testing.T, db *MatrixDB, w *world, src source, c condition, 
 	}
 
 	check(t, "Include", func(t *testing.T) error {
-		got, err := build(db, src, c, o, p).Include(&A.Posts).All(ctx)
+		got, err := build(db, src, c, o, p).Include(&Authors.Posts).All(ctx)
 		if err != nil {
 			return err
 		}
@@ -420,7 +420,7 @@ func combination(t *testing.T, db *MatrixDB, w *world, src source, c condition, 
 					q := build(tx, src, c, o, p)
 
 					if terminal == "Update" {
-						_, err := q.Update(ctx, ant.Set(&A.Marked, true))
+						_, err := q.Update(ctx, ant.Set(&Authors.Marked, true))
 
 						return err
 					}
@@ -445,12 +445,12 @@ func combination(t *testing.T, db *MatrixDB, w *world, src source, c condition, 
 			o,
 			p,
 			func(tx *MatrixDB) error {
-				_, err := build(tx, src, c, o, p).Update(ctx, ant.Set(&A.Marked, true))
+				_, err := build(tx, src, c, o, p).Update(ctx, ant.Set(&Authors.Marked, true))
 
 				return err
 			},
 			func(tx *MatrixDB) ([]*Author, error) {
-				return tx.Authors.Where(ant.Eq(&A.Marked, true)).All(ctx)
+				return tx.Authors.Where(ant.Eq(&Authors.Marked, true)).All(ctx)
 			},
 		)
 	})

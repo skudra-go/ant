@@ -15,7 +15,7 @@ func TestPage(t *testing.T) {
 	fixture.Run(t, func(t *testing.T, db *fixture.AppDB) {
 		seed(t, db, 25)
 		ctx := t.Context()
-		q := db.Users.OrderBy(&U.Name)
+		q := db.Users.OrderBy(&Users.Name)
 
 		t.Run("a middle page", func(t *testing.T) {
 			page, err := q.Page(ctx, 2, 10)
@@ -47,7 +47,7 @@ func TestPage(t *testing.T) {
 		})
 
 		t.Run("no rows", func(t *testing.T) {
-			page, err := db.Users.Where(ant.Eq(&U.Name, "none")).Page(ctx, 1, 10)
+			page, err := db.Users.Where(ant.Eq(&Users.Name, "none")).Page(ctx, 1, 10)
 			require.NoError(t, err)
 			require.Zero(t, page.Pages())
 			require.False(t, page.HasNext())
@@ -90,21 +90,21 @@ func TestAfter(t *testing.T) {
 		}
 
 		t.Run("visits every row once", func(t *testing.T) {
-			names := walk(t, db.Users.OrderBy(&U.Name), 10)
+			names := walk(t, db.Users.OrderBy(&Users.Name), 10)
 			require.Len(t, names, 25)
 			require.Equal(t, "u000", names[0])
 			require.Equal(t, "u024", names[24])
 		})
 
 		t.Run("descending", func(t *testing.T) {
-			names := walk(t, db.Users.OrderByDesc(&U.Name), 7)
+			names := walk(t, db.Users.OrderByDesc(&Users.Name), 7)
 			require.Equal(t, "u024", names[0])
 			require.Len(t, names, 25)
 		})
 
 		// Age has many ties. The key breaks them, so no row is lost at a boundary.
 		t.Run("ties", func(t *testing.T) {
-			names := walk(t, db.Users.OrderBy(&U.Age), 4)
+			names := walk(t, db.Users.OrderBy(&Users.Age), 4)
 			require.Len(t, names, 25)
 
 			seen := map[string]bool{}
@@ -116,7 +116,7 @@ func TestAfter(t *testing.T) {
 		})
 
 		t.Run("two columns in opposite directions", func(t *testing.T) {
-			require.Len(t, walk(t, db.Users.OrderBy(&U.Age).ThenByDesc(&U.Name), 3), 25)
+			require.Len(t, walk(t, db.Users.OrderBy(&Users.Age).ThenByDesc(&Users.Name), 3), 25)
 		})
 
 		t.Run("no ordering uses the key", func(t *testing.T) {
@@ -124,26 +124,30 @@ func TestAfter(t *testing.T) {
 		})
 
 		t.Run("with a filter", func(t *testing.T) {
-			require.Len(t, walk(t, db.Users.Where(ant.Eq(&U.Age, 0)).OrderBy(&U.Name), 2), 9)
+			require.Len(
+				t,
+				walk(t, db.Users.Where(ant.Eq(&Users.Age, 0)).OrderBy(&Users.Name), 2),
+				9,
+			)
 		})
 
 		t.Run("a row added behind the cursor shifts nothing", func(t *testing.T) {
-			first, err := db.Users.OrderBy(&U.Name).After(ctx, "", 10)
+			first, err := db.Users.OrderBy(&Users.Name).After(ctx, "", 10)
 			require.NoError(t, err)
 			require.NoError(t, db.Users.Insert(ctx, &User{Name: "a-early", Email: "a-early"}))
-			second, err := db.Users.OrderBy(&U.Name).After(ctx, first.Next, 10)
+			second, err := db.Users.OrderBy(&Users.Name).After(ctx, first.Next, 10)
 			require.NoError(t, err)
 			require.Equal(t, "u010", second.Items[0].Name)
 		})
 
 		t.Run("an exact last page has no next cursor", func(t *testing.T) {
-			page, err := db.Users.OrderBy(&U.Name).After(ctx, "", 1000)
+			page, err := db.Users.OrderBy(&Users.Name).After(ctx, "", 1000)
 			require.NoError(t, err)
 			require.Empty(t, page.Next)
 		})
 
 		t.Run("bad cursors", func(t *testing.T) {
-			q := db.Users.OrderBy(&U.Name)
+			q := db.Users.OrderBy(&Users.Name)
 			_, err := q.After(ctx, "%%%", 10)
 			require.ErrorIs(t, err, ant.ErrCursor)
 			_, err = q.After(ctx, base64.RawURLEncoding.EncodeToString([]byte(`{"a":1}`)), 10)
@@ -153,17 +157,17 @@ func TestAfter(t *testing.T) {
 		})
 
 		t.Run("a cursor needs plain columns", func(t *testing.T) {
-			_, err := db.Users.Order(ant.Lower(&U.Name).Asc()).After(ctx, "", 10)
+			_, err := db.Users.Order(ant.Lower(&Users.Name).Asc()).After(ctx, "", 10)
 			require.ErrorIs(t, err, ant.ErrCursor)
 		})
 
 		t.Run("a NULL in the ordering is refused, not skipped", func(t *testing.T) {
-			_, err := db.Users.Order(ant.Col(&U.Bio).Asc()).After(ctx, "", 1)
+			_, err := db.Users.Order(ant.Col(&Users.Bio).Asc()).After(ctx, "", 1)
 			require.ErrorIs(t, err, ant.ErrCursor)
 		})
 
 		t.Run("a bad size", func(t *testing.T) {
-			_, err := db.Users.OrderBy(&U.Name).After(ctx, "", 0)
+			_, err := db.Users.OrderBy(&Users.Name).After(ctx, "", 0)
 			require.Error(t, err)
 		})
 	})

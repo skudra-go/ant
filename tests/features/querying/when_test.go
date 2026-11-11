@@ -17,12 +17,12 @@ func TestWhen(t *testing.T) {
 
 		search := func(name string, adultsOnly bool) ([]*fixture.User, error) {
 			return db.Users.
-				OrderBy(&U.Name).
+				OrderBy(&Users.Name).
 				When(name != "", func(q *ant.Query[fixture.User]) *ant.Query[fixture.User] {
-					return q.Where(ant.Eq(&U.Name, name))
+					return q.Where(ant.Eq(&Users.Name, name))
 				}).
 				When(adultsOnly, func(q *ant.Query[fixture.User]) *ant.Query[fixture.User] {
-					return q.Where(ant.Gte(&U.Age, 18))
+					return q.Where(ant.Gte(&Users.Age, 18))
 				}).
 				All(ctx)
 		}

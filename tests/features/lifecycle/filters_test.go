@@ -36,10 +36,10 @@ func (Doc) Configure(b *ant.ModelBuilder[Doc]) {
 			return ant.FailedCond(errors.New("no tenant in context"))
 		}
 
-		return ant.Eq(&D.TenantID, tenant)
+		return ant.Eq(&Docs.TenantID, tenant)
 	})
 
-	b.Filter("public", func(context.Context) ant.Cond { return ant.Eq(&D.Secret, false) })
+	b.Filter("public", func(context.Context) ant.Cond { return ant.Eq(&Docs.Secret, false) })
 }
 
 type Owner struct {
@@ -55,8 +55,8 @@ type DocsDB struct {
 }
 
 var (
-	D = ant.Fields[Doc]()
-	O = ant.Fields[Owner]()
+	Docs   = ant.Fields[Doc]()
+	Owners = ant.Fields[Owner]()
 )
 
 func TestGlobalFilters(t *testing.T) {
@@ -81,7 +81,7 @@ func TestGlobalFilters(t *testing.T) {
 			&Doc{TenantID: 2, OwnerID: owner.ID, Title: "two"}))
 
 		titles := func(ctx context.Context, q *ant.Query[Doc]) []string {
-			got, err := ant.Pluck(ctx, q, &D.Title)
+			got, err := ant.Pluck(ctx, q, &Docs.Title)
 			require.NoError(t, err)
 
 			return got
@@ -103,16 +103,17 @@ func TestGlobalFilters(t *testing.T) {
 			require.NoError(t, err)
 			require.EqualValues(t, 1, n)
 
-			got, err := db.Owners.Include(&O.Docs).Single(two)
+			got, err := db.Owners.Include(&Owners.Docs).Single(two)
 			require.NoError(t, err)
 			require.Len(t, got.Docs, 1)
 			require.Equal(t, "two", got.Docs[0].Title)
 
-			hits, err := db.Owners.Where(ant.Has(&O.Docs, ant.Eq(&D.Title, "two"))).Count(one)
+			hits, err := db.Owners.Where(ant.Has(&Owners.Docs, ant.Eq(&Docs.Title, "two"))).
+				Count(one)
 			require.NoError(t, err)
 			require.Zero(t, hits)
 
-			rows, err := db.Owners.JoinMany(&O.Docs).
+			rows, err := db.Owners.JoinMany(&Owners.Docs).
 				Select(func(o *Owner, d *Doc) string { return d.Title }).
 				All(two)
 			require.NoError(t, err)
@@ -121,23 +122,23 @@ func TestGlobalFilters(t *testing.T) {
 
 		// A subquery is built with no context, and still gets the caller's.
 		t.Run("subqueries are filtered with the caller's context", func(t *testing.T) {
-			sub := ant.SubOf(db.Docs.Where(), &D.OwnerID)
-			q := db.Owners.Where(ant.InSub(&O.ID, sub))
+			sub := ant.SubOf(db.Docs.Where(), &Docs.OwnerID)
+			q := db.Owners.Where(ant.InSub(&Owners.ID, sub))
 			n, err := q.Count(one)
 			require.NoError(t, err)
 			require.EqualValues(t, 1, n)
 
-			sub = ant.SubOf(db.Docs.Where(ant.Eq(&D.Title, "two")), &D.OwnerID)
-			n, err = db.Owners.Where(ant.InSub(&O.ID, sub)).Count(one)
+			sub = ant.SubOf(db.Docs.Where(ant.Eq(&Docs.Title, "two")), &Docs.OwnerID)
+			n, err = db.Owners.Where(ant.InSub(&Owners.ID, sub)).Count(one)
 			require.NoError(t, err)
 			require.Zero(t, n, "tenant two's row is invisible to tenant one")
 		})
 
 		t.Run("bulk writes are filtered", func(t *testing.T) {
-			n, err := db.Docs.Unfiltered().Update(one, ant.Set(&D.Title, "ONE"))
+			n, err := db.Docs.Unfiltered().Update(one, ant.Set(&Docs.Title, "ONE"))
 			require.NoError(t, err)
 			require.EqualValues(t, 1, n)
-			n, err = db.Docs.Where(ant.Eq(&D.Title, "two")).Delete(one)
+			n, err = db.Docs.Where(ant.Eq(&Docs.Title, "two")).Delete(one)
 			require.NoError(t, err)
 			require.Zero(t, n)
 		})
@@ -164,11 +165,11 @@ func TestGlobalFilters(t *testing.T) {
 
 // A scope is a named, reusable piece of a query.
 func Adults(q *ant.Query[fixture.User]) *ant.Query[fixture.User] {
-	return q.Where(ant.Gte(&fixture.U.Age, 18))
+	return q.Where(ant.Gte(&fixture.Users.Age, 18))
 }
 
 func OlderFirst(q *ant.Query[fixture.User]) *ant.Query[fixture.User] {
-	return q.OrderByDesc(&fixture.U.Age)
+	return q.OrderByDesc(&fixture.Users.Age)
 }
 
 func TestScopes(t *testing.T) {

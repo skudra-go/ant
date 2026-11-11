@@ -19,8 +19,8 @@ type Author struct {
 }
 
 func (Author) Configure(b *ant.ModelBuilder[Author]) {
-	b.HasMany(&Au.Books).ForeignKey(&Vo.WriterID).OnDelete(ant.Cascade)
-	b.HasMany(&Au.Quotes).ForeignKey(&Qu.AuthorHandle).References(&Au.Handle)
+	b.HasMany(&Authors.Books).ForeignKey(&Volumes.WriterID).OnDelete(ant.Cascade)
+	b.HasMany(&Authors.Quotes).ForeignKey(&Quotes.AuthorHandle).References(&Authors.Handle)
 }
 
 type Volume struct {
@@ -31,7 +31,7 @@ type Volume struct {
 }
 
 func (Volume) Configure(b *ant.ModelBuilder[Volume]) {
-	b.BelongsTo(&Vo.Writer).ForeignKey(&Vo.WriterID)
+	b.BelongsTo(&Volumes.Writer).ForeignKey(&Volumes.WriterID)
 }
 
 type Quote struct {
@@ -57,10 +57,10 @@ type ShelfDB struct {
 }
 
 var (
-	Au = ant.Fields[Author]()
-	Vo = ant.Fields[Volume]()
-	Qu = ant.Fields[Quote]()
-	Or = ant.Fields[Orphan]()
+	Authors = ant.Fields[Author]()
+	Volumes = ant.Fields[Volume]()
+	Quotes  = ant.Fields[Quote]()
+	Orphans = ant.Fields[Orphan]()
 )
 
 func TestConfiguredRelations(t *testing.T) {
@@ -81,27 +81,27 @@ func TestConfiguredRelations(t *testing.T) {
 		)
 
 		t.Run("ForeignKey on the child", func(t *testing.T) {
-			found, err := db.Authors.Include(&Au.Books).First(ctx)
+			found, err := db.Authors.Include(&Authors.Books).First(ctx)
 			require.NoError(t, err)
 			require.Equal(t, "Notes", found.Books[0].Title)
 		})
 
 		t.Run("ForeignKey on the owner", func(t *testing.T) {
-			found, err := db.Volumes.IncludeOne(&Vo.Writer).First(ctx)
+			found, err := db.Volumes.IncludeOne(&Volumes.Writer).First(ctx)
 			require.NoError(t, err)
 			require.Equal(t, "ada", found.Writer.Handle)
 		})
 
 		t.Run("References a column other than the key", func(t *testing.T) {
-			found, err := db.Authors.Include(&Au.Quotes).First(ctx)
+			found, err := db.Authors.Include(&Authors.Quotes).First(ctx)
 			require.NoError(t, err)
 			require.Len(t, found.Quotes, 1)
 		})
 
 		t.Run("no foreign key is an error at the terminal call", func(t *testing.T) {
-			_, err := db.Orphans.Include(&Or.Strays).All(ctx)
+			_, err := db.Orphans.Include(&Orphans.Strays).All(ctx)
 			require.ErrorIs(t, err, ant.ErrNoForeignKey)
-			_, err = db.Orphans.Where(ant.Has(&Or.Strays)).All(ctx)
+			_, err = db.Orphans.Where(ant.Has(&Orphans.Strays)).All(ctx)
 			require.ErrorIs(t, err, ant.ErrNoForeignKey)
 		})
 

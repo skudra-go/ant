@@ -52,7 +52,7 @@ func TestIsolate(t *testing.T) {
 func TestFixtures(t *testing.T) {
 	fixture.Run(t, func(t *testing.T, db *fixture.AppDB) {
 		anttest.Load(t, db, data, "testdata/users.json", "testdata/posts.json")
-		post, err := db.Posts.IncludeOne(&fixture.P.User).First(t.Context())
+		post, err := db.Posts.IncludeOne(&fixture.Posts.User).First(t.Context())
 		require.NoError(t, err)
 		require.Equal(t, "From a file", post.Title)
 		require.Equal(t, "Ada", post.User.Name)
@@ -93,7 +93,7 @@ func TestFactory(t *testing.T) {
 			user := Users.Create(t, &db.Users, func(u *fixture.User) {
 				u.Posts = []fixture.Post{*Posts.Build(), *Posts.Build()}
 			})
-			count, err := db.Posts.Where(ant.Eq(&fixture.P.UserID, user.ID)).Count(ctx)
+			count, err := db.Posts.Where(ant.Eq(&fixture.Posts.UserID, user.ID)).Count(ctx)
 			require.NoError(t, err)
 			require.EqualValues(t, 2, count)
 		})

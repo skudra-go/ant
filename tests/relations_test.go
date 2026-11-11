@@ -26,9 +26,9 @@ func TestInclude(t *testing.T) {
 		seedGraph(t, app)
 
 		adults, err := app.Users.
-			Where(ant.Gt(&U.Age, 18)).
-			OrderBy(&U.Name).
-			Include(&U.Posts).
+			Where(ant.Gt(&Users.Age, 18)).
+			OrderBy(&Users.Name).
+			Include(&Users.Posts).
 			All(t.Context())
 		require.NoError(t, err)
 		require.Len(t, adults, 1)
@@ -40,7 +40,7 @@ func TestIncludeOne(t *testing.T) {
 	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
 		app := openApp(t, target)
 		seedGraph(t, app)
-		posts, err := app.Posts.IncludeOne(&P.User).All(t.Context())
+		posts, err := app.Posts.IncludeOne(&Posts.User).All(t.Context())
 		require.NoError(t, err)
 		require.Len(t, posts, 2)
 		require.Equal(t, "Alice", posts[0].User.Name)
@@ -66,8 +66,8 @@ func TestJoinSelect(t *testing.T) {
 		type Summary struct{ Author, Title string }
 
 		summaries, err := app.Posts.
-			Join(&P.User).
-			Where(ant.Eq(&P.Published, true)).
+			Join(&Posts.User).
+			Where(ant.Eq(&Posts.Published, true)).
 			Select(func(p *Post, u *User) Summary { return Summary{u.Name, p.Title} }).
 			All(t.Context())
 		require.NoError(t, err)

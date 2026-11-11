@@ -19,7 +19,7 @@ func TestEach(t *testing.T) {
 		t.Run("yields each row", func(t *testing.T) {
 			var seen []string
 
-			for user, err := range db.Users.OrderBy(&U.Name).Each(ctx) {
+			for user, err := range db.Users.OrderBy(&Users.Name).Each(ctx) {
 				require.NoError(t, err)
 
 				seen = append(seen, user.Name)
@@ -29,7 +29,7 @@ func TestEach(t *testing.T) {
 		})
 
 		t.Run("no rows means no iterations", func(t *testing.T) {
-			for range db.Users.Where(ant.Eq(&U.Name, "Nobody")).Each(ctx) {
+			for range db.Users.Where(ant.Eq(&Users.Name, "Nobody")).Each(ctx) {
 				t.Fatal("unexpected row")
 			}
 		})

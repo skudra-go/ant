@@ -15,7 +15,7 @@ func TestChunk(t *testing.T) {
 	fixture.Run(t, func(t *testing.T, db *fixture.AppDB) {
 		seed(t, db, 25)
 		ctx := t.Context()
-		ordered := db.Users.OrderBy(&U.Name)
+		ordered := db.Users.OrderBy(&Users.Name)
 
 		t.Run("groups of the given size", func(t *testing.T) {
 			var sizes []int
@@ -46,7 +46,7 @@ func TestChunk(t *testing.T) {
 		t.Run("no rows makes no call", func(t *testing.T) {
 			require.NoError(
 				t,
-				db.Users.Where(ant.Eq(&U.Name, "none")).Chunk(ctx, 10, func([]*User) error {
+				db.Users.Where(ant.Eq(&Users.Name, "none")).Chunk(ctx, 10, func([]*User) error {
 					t.Fatal("unexpected call")
 
 					return nil
@@ -67,11 +67,14 @@ func TestChunk(t *testing.T) {
 		})
 
 		t.Run("Include works, per group", func(t *testing.T) {
-			require.NoError(t, ordered.Include(&U.Posts).Chunk(ctx, 10, func(users []*User) error {
-				require.NotNil(t, users[0].Posts)
+			require.NoError(
+				t,
+				ordered.Include(&Users.Posts).Chunk(ctx, 10, func(users []*User) error {
+					require.NotNil(t, users[0].Posts)
 
-				return nil
-			}))
+					return nil
+				}),
+			)
 		})
 
 		t.Run("a bad size", func(t *testing.T) {
@@ -92,13 +95,14 @@ func TestChunkByKey(t *testing.T) {
 
 			require.NoError(
 				t,
-				db.Users.Where(ant.Gte(&U.Age, 0)).ChunkByKey(ctx, 7, func(users []*User) error {
-					for _, u := range users {
-						seen[u.Name]++
-					}
+				db.Users.Where(ant.Gte(&Users.Age, 0)).
+					ChunkByKey(ctx, 7, func(users []*User) error {
+						for _, u := range users {
+							seen[u.Name]++
+						}
 
-					return nil
-				}),
+						return nil
+					}),
 			)
 
 			require.Len(t, seen, 25)
@@ -107,13 +111,14 @@ func TestChunkByKey(t *testing.T) {
 		t.Run("the callback can delete its rows", func(t *testing.T) {
 			require.NoError(
 				t,
-				db.Users.Where(ant.Gte(&U.Age, 0)).ChunkByKey(ctx, 7, func(users []*User) error {
-					for _, u := range users {
-						require.NoError(t, db.Users.DeleteByID(ctx, u.ID))
-					}
+				db.Users.Where(ant.Gte(&Users.Age, 0)).
+					ChunkByKey(ctx, 7, func(users []*User) error {
+						for _, u := range users {
+							require.NoError(t, db.Users.DeleteByID(ctx, u.ID))
+						}
 
-					return nil
-				}),
+						return nil
+					}),
 			)
 
 			n, err := db.Users.Count(ctx)

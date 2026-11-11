@@ -123,7 +123,7 @@ func TestChangingRelations(t *testing.T) {
 			session, alice := loaded(t, db)
 			bob := &User{Name: "Target", Email: "target@example.com"}
 			require.NoError(t, session.Users.Insert(ctx(), bob))
-			require.NoError(t, session.Users.Load(ctx(), &U.Posts, bob))
+			require.NoError(t, session.Users.Load(ctx(), &Users.Posts, bob))
 
 			post := alice.Posts[0]
 			post.UserID = bob.ID
@@ -177,8 +177,8 @@ const teamDDL = `
 	CREATE TABLE members (id BIGSERIAL PRIMARY KEY, team_id BIGINT REFERENCES teams, name TEXT NOT NULL)`
 
 var (
-	T = ant.Fields[Team]()
-	M = ant.Fields[Member]()
+	Teams   = ant.Fields[Team]()
+	Members = ant.Fields[Member]()
 )
 
 func TestOptionalRelations(t *testing.T) {
@@ -199,9 +199,9 @@ func TestOptionalRelations(t *testing.T) {
 		t.Run("removed from the parent, the child stays with no parent", func(t *testing.T) {
 			session := ant.Session(db)
 			team, err := session.Teams.Include(
-				&T.Members,
+				&Teams.Members,
 				func(q *ant.Query[Member]) *ant.Query[Member] {
-					return q.OrderBy(&M.Name)
+					return q.OrderBy(&Members.Name)
 				},
 			).
 				Find(ctx, red.ID)
@@ -216,7 +216,7 @@ func TestOptionalRelations(t *testing.T) {
 
 		t.Run("a parent set to nil clears the foreign key", func(t *testing.T) {
 			session := ant.Session(db)
-			member, err := session.Members.IncludeOne(&M.Team).Find(ctx, ben.ID)
+			member, err := session.Members.IncludeOne(&Members.Team).Find(ctx, ben.ID)
 			require.NoError(t, err)
 			require.NotNil(t, member.Team)
 			member.Team = nil
@@ -256,7 +256,7 @@ func TestOptionalRelations(t *testing.T) {
 			session := ant.Session(db)
 			blue := &Team{Name: "Green"}
 			require.NoError(t, session.Teams.Insert(ctx, blue))
-			member, err := session.Members.IncludeOne(&M.Team).Find(ctx, ben.ID)
+			member, err := session.Members.IncludeOne(&Members.Team).Find(ctx, ben.ID)
 			require.NoError(t, err)
 			require.NotNil(t, member.Team)
 			member.TeamID = &blue.ID

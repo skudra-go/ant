@@ -34,7 +34,7 @@ type ShopsDB struct {
 	Shops ant.Table[Shop]
 }
 
-var Sh = ant.Fields[Shop]()
+var Shops = ant.Fields[Shop]()
 
 func TestEmbedded(t *testing.T) {
 	ddl := `CREATE TABLE shops (
@@ -60,14 +60,14 @@ func TestEmbedded(t *testing.T) {
 
 		t.Run("probes reach inside", func(t *testing.T) {
 			got, err := db.Shops.NoTracking().
-				Where(ant.Eq(&Sh.Shipping.City, "Oslo"), ant.Eq(&Sh.CreatedBy, "ann")).
+				Where(ant.Eq(&Shops.Shipping.City, "Oslo"), ant.Eq(&Shops.CreatedBy, "ann")).
 				Single(ctx)
 			require.NoError(t, err)
 			require.Equal(t, "Riga", got.Billing.City)
 		})
 
 		t.Run("two fields of one struct stay apart", func(t *testing.T) {
-			n, err := db.Shops.Where(ant.Eq(&Sh.Billing.City, "Oslo")).Count(ctx)
+			n, err := db.Shops.Where(ant.Eq(&Shops.Billing.City, "Oslo")).Count(ctx)
 			require.NoError(t, err)
 			require.Zero(t, n)
 		})
@@ -118,6 +118,6 @@ func TestEmbeddedPointerIsRefused(t *testing.T) {
 
 	co := ant.Fields[Courier]()
 
-	_, err = ant.Project[Courier](db.Shops.Query(), ant.Into(&co.ID, &Sh.ID)).All(ctx)
+	_, err = ant.Project[Courier](db.Shops.Query(), ant.Into(&co.ID, &Shops.ID)).All(ctx)
 	require.ErrorContains(t, err, named)
 }

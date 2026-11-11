@@ -78,7 +78,7 @@ func TestInsertMany(t *testing.T) {
 			n, err := db.Users.InsertMany(
 				ctx,
 				users,
-				ant.WithConflict(ant.OnConflict(&U.Email).DoNothing()),
+				ant.WithConflict(ant.OnConflict(&Users.Email).DoNothing()),
 			)
 			require.NoError(t, err)
 			require.Zero(t, n)
@@ -87,9 +87,14 @@ func TestInsertMany(t *testing.T) {
 		t.Run("WithConflict can update them", func(t *testing.T) {
 			users := many(2, "a")
 			users[0].Age = 77
-			_, err := db.Users.InsertMany(ctx, users, ant.WithConflict(ant.OnConflict(&U.Email)))
+
+			_, err := db.Users.InsertMany(
+				ctx,
+				users,
+				ant.WithConflict(ant.OnConflict(&Users.Email)),
+			)
 			require.NoError(t, err)
-			got, err := db.Users.Where(ant.Eq(&U.Email, "a0")).Single(ctx)
+			got, err := db.Users.Where(ant.Eq(&Users.Email, "a0")).Single(ctx)
 			require.NoError(t, err)
 			require.Equal(t, 77, got.Age)
 		})
@@ -120,7 +125,7 @@ type ArchiveDB struct {
 	Copies ant.Table[Copy]
 }
 
-var C = ant.Fields[Copy]()
+var Copies = ant.Fields[Copy]()
 
 // InsertFrom copies rows with one statement.
 func TestInsertFrom(t *testing.T) {
@@ -135,9 +140,9 @@ func TestInsertFrom(t *testing.T) {
 			&fixture.Post{UserID: owner.ID, Title: "two"}))
 
 		n, err := db.Copies.InsertFrom(ctx, ant.Project[Copy](
-			db.Posts.Where(ant.Eq(&P.Published, true)),
-			ant.Into(&C.Title, &P.Title),
-			ant.IntoExpr(&C.Tag, ant.SQL[string]("'archived'")),
+			db.Posts.Where(ant.Eq(&Posts.Published, true)),
+			ant.Into(&Copies.Title, &Posts.Title),
+			ant.IntoExpr(&Copies.Tag, ant.SQL[string]("'archived'")),
 		))
 		require.NoError(t, err)
 		require.EqualValues(t, 1, n)

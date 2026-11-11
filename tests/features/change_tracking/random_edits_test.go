@@ -126,7 +126,7 @@ func TestRandomEdits(t *testing.T) {
 
 				counter := 0
 				session := ant.Session(db)
-				users, err := session.Users.Include(&U.Posts).OrderBy(&U.ID).All(ctx)
+				users, err := session.Users.Include(&Users.Posts).OrderBy(&Users.ID).All(ctx)
 				require.NoError(t, err)
 
 				for step := range 60 {
@@ -151,7 +151,7 @@ func TestRandomEdits(t *testing.T) {
 					// Some of the time, continue from a fresh load.
 					if r.IntN(8) == 0 {
 						session = ant.Session(db)
-						users, err = session.Users.Include(&U.Posts).OrderBy(&U.ID).All(ctx)
+						users, err = session.Users.Include(&Users.Posts).OrderBy(&Users.ID).All(ctx)
 						require.NoError(t, err)
 					}
 				}

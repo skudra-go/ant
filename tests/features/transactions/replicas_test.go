@@ -67,7 +67,9 @@ func TestReplicas(t *testing.T) {
 
 		t.Run("writes use the primary", func(t *testing.T) {
 			require.NoError(t, db.Users.Insert(ctx, user("write")))
-			_, err := db.Users.Where(ant.Eq(&U.Name, "write")).Update(ctx, ant.Set(&U.Age, 1))
+
+			_, err := db.Users.Where(ant.Eq(&Users.Name, "write")).
+				Update(ctx, ant.Set(&Users.Age, 1))
 			require.NoError(t, err)
 
 			_, replicas := seen.take()

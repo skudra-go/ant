@@ -45,8 +45,8 @@ type ViewsDB struct {
 }
 
 var (
-	AU = ant.Fields[ActiveUser]()
-	In = ant.Fields[Invoice2]()
+	ActiveUsers = ant.Fields[ActiveUser]()
+	Invoice2s   = ant.Fields[Invoice2]()
 )
 
 func TestViewsAndSchemas(t *testing.T) {
@@ -61,20 +61,22 @@ func TestViewsAndSchemas(t *testing.T) {
 		require.NoError(t, db.Users.Insert(ctx, &fixture.User{Name: "Ann", Email: "a", Age: 30}))
 
 		t.Run("a view reads like a table", func(t *testing.T) {
-			got, err := db.Active.Where(ant.Eq(&AU.Name, "Ann")).Single(ctx)
+			got, err := db.Active.Where(ant.Eq(&ActiveUsers.Name, "Ann")).Single(ctx)
 			require.NoError(t, err)
 			require.NotZero(t, got.ID)
 		})
 
 		t.Run("a view refuses writes", func(t *testing.T) {
 			require.ErrorIs(t, db.Active.Insert(ctx, &ActiveUser{Name: "x"}), ant.ErrReadOnly)
-			_, err := db.Active.Where(ant.Gt(&AU.ID, 0)).Update(ctx, ant.Set(&AU.Name, "x"))
+
+			_, err := db.Active.Where(ant.Gt(&ActiveUsers.ID, 0)).
+				Update(ctx, ant.Set(&ActiveUsers.Name, "x"))
 			require.ErrorIs(t, err, ant.ErrReadOnly)
-			_, err = db.Active.Where(ant.Gt(&AU.ID, 0)).Delete(ctx)
+			_, err = db.Active.Where(ant.Gt(&ActiveUsers.ID, 0)).Delete(ctx)
 			require.ErrorIs(t, err, ant.ErrReadOnly)
 			_, err = db.Active.InsertMany(ctx, []*ActiveUser{{Name: "x"}})
 			require.ErrorIs(t, err, ant.ErrReadOnly)
-			_, err = db.Active.Upsert(ctx, &ActiveUser{Name: "x"}, ant.OnConflict(&AU.ID))
+			_, err = db.Active.Upsert(ctx, &ActiveUser{Name: "x"}, ant.OnConflict(&ActiveUsers.ID))
 			require.ErrorIs(t, err, ant.ErrReadOnly)
 		})
 
@@ -91,7 +93,7 @@ func TestViewsAndSchemas(t *testing.T) {
 		t.Run("a schema-qualified table", func(t *testing.T) {
 			row := &Invoice2{Note: "x"}
 			require.NoError(t, db.Invoices.Insert(ctx, row))
-			got, err := db.Invoices.NoTracking().Where(ant.Eq(&In.Note, "x")).Single(ctx)
+			got, err := db.Invoices.NoTracking().Where(ant.Eq(&Invoice2s.Note, "x")).Single(ctx)
 			require.NoError(t, err)
 			require.Equal(t, row.ID, got.ID)
 			row.Note = "y"

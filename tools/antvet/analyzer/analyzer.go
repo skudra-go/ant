@@ -882,7 +882,7 @@ func calleeName(pass *analysis.Pass, call *ast.CallExpr) string {
 	return object.Name()
 }
 
-// probeOf follows a pointer like &U.Age to the variable it is a field of, and
+// probeOf follows a pointer like &Users.Age to the variable it is a field of, and
 // returns that, the model of the probe it holds, or "" if it holds none, and
 // whether the analyzer can tell. It cannot for a field behind a pointer that is
 // itself held in a field, as in &holder.U.Age, or behind what a call returns, as
