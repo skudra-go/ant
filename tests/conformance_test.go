@@ -1801,3 +1801,86 @@ func TestConformanceRecursive(t *testing.T) {
 		require.EqualValues(t, 1, n, "a paged Count on FromCTE")
 	})
 }
+
+// A condition inside Has and the Related helpers reads the related row, however
+// deep its columns sit: under a function, an operator, a CASE, a cast or raw
+// SQL. On a self-relation, a column left unqualified would read the outer row.
+func TestConformanceHasThroughExpressions(t *testing.T) {
+	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
+		ctx := t.Context()
+		_, err := target.DB.ExecContext(ctx, `CREATE TABLE conf_nodes (
+			id BIGINT PRIMARY KEY,
+			parent_id BIGINT NULL,
+			name VARCHAR(20) NOT NULL)`)
+		require.NoError(t, err)
+
+		t.Cleanup(func() {
+			_, _ = target.DB.ExecContext(context.Background(), "DROP TABLE conf_nodes")
+		})
+
+		db, err := ant.Open[NodeDB](ctx, target.Dialect, target.DSN)
+		require.NoError(t, err)
+		t.Cleanup(func() { db.Close() })
+
+		_, err = db.Nodes.InsertMany(ctx, []*Node{
+			{ID: 1, Name: "ROOT"},
+			{ID: 2, ParentID: new(int64(1)), Name: "Child"},
+		})
+		require.NoError(t, err)
+
+		child := map[string]ant.Cond{
+			"function":        ant.Lower(&Nodes.Name).Eq("child"),
+			"nested function": ant.Func[int]("LENGTH", ant.Lower(&Nodes.Name)).Eq(5),
+			"operator":        ant.Col(&Nodes.ID).Plus(1).Eq(3),
+			"case": ant.Case[string]().
+				When(ant.Eq(&Nodes.Name, "Child"), "yes").
+				Else("no").
+				Eq("yes"),
+			"raw expression": ant.SQL[string]("LOWER(?)", ant.Col(&Nodes.Name)).Eq("child"),
+			"raw condition":  ant.SQLCond("? = 2", ant.Col(&Nodes.ID)),
+		}
+
+		for name, cond := range child {
+			got, err := db.Nodes.Where(ant.Has(&Nodes.Children, cond)).All(ctx)
+			require.NoError(t, err, name)
+			require.Len(t, got, 1, name)
+			require.Equal(t, "ROOT", got[0].Name, name)
+
+			got, err = db.Nodes.Where(ant.HasNone(&Nodes.Children, cond)).All(ctx)
+			require.NoError(t, err, name)
+			require.Len(t, got, 1, name)
+			require.Equal(t, "Child", got[0].Name, name)
+		}
+
+		type counted struct {
+			Name     string
+			Children int64
+		}
+
+		C := ant.Fields[counted]()
+		rows, err := ant.Project[counted](
+			db.Nodes.OrderBy(&Nodes.ID),
+			ant.Into(&C.Name, &Nodes.Name),
+			ant.IntoExpr(&C.Children, ant.CountRelated(&Nodes.Children, child["function"])),
+		).All(ctx)
+		require.NoError(t, err)
+		require.Equal(t, []counted{{"ROOT", 1}, {"Child", 0}}, rows, "CountRelated")
+	})
+}
+
+// On an ordinary relation, a column under a function inside Has is the related
+// table's, not a reference to a table the subquery lacks.
+func TestConformanceHasFunctionOnRelated(t *testing.T) {
+	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
+		app := openAndSeed(t, target)
+		ctx := t.Context()
+		alice, err := app.Users.Where(ant.Eq(&Users.Name, "alice")).First(ctx)
+		require.NoError(t, err)
+		require.NoError(t, app.Posts.Insert(ctx, &Post{UserID: alice.ID, Title: "Hello"}))
+
+		got, err := app.Users.Where(ant.Has(&Users.Posts, ant.Lower(&Posts.Title).Eq("hello"))).
+			All(ctx)
+		require.NoError(t, err)
+		require.Equal(t, []string{"alice"}, names(got))
+	})
+}

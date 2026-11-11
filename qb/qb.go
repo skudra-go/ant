@@ -241,40 +241,41 @@ func matchesNone(c Cond) bool {
 	return false
 }
 
-// Aliased returns c with columns of table qualified by alias instead. It lets
-// a subquery use its outer table's conditions on a self-reference.
+// Aliased returns c with columns of table qualified by alias instead, however
+// deep they sit in its expressions. It lets a subquery use its outer table's
+// conditions on a self-reference. A nested SELECT is left as it is, since its
+// columns belong to its own FROM.
 func Aliased(c Cond, table *TableRef, alias string) Cond {
 	expr := func(e Expr) Expr { return aliasedExpr(e, table, alias) }
-
-	conds := func(in []Cond) []Cond {
-		out := make([]Cond, len(in))
-
-		for i, child := range in {
-			out[i] = Aliased(child, table, alias)
-		}
-
-		return out
-	}
 
 	switch c := c.(type) {
 	case Compare:
 		return Compare{expr(c.Left), c.Op, expr(c.Right)}
 	case In:
-		values := make([]Expr, len(c.Values))
-
-		for i, v := range c.Values {
-			values[i] = expr(v)
-		}
-
-		return In{expr(c.Left), values, c.Sub, c.Negate}
+		return In{expr(c.Left), aliasedExprs(c.Values, table, alias), c.Sub, c.Negate}
 	case Between:
 		return Between{expr(c.Left), expr(c.Low), expr(c.High)}
 	case IsNull:
 		return IsNull{expr(c.Left), c.Negate}
+	case Fragment:
+		c.Args = aliasedExprs(c.Args, table, alias)
+
+		return c
+	case Lazy:
+		return Lazy{
+			Build: func(ctx context.Context) (Cond, error) {
+				built, err := c.Build(ctx)
+				if err != nil || built == nil {
+					return built, err
+				}
+
+				return Aliased(built, table, alias), nil
+			},
+		}
 	case And:
-		return And{conds(c.Children)}
+		return And{aliasedConds(c.Children, table, alias)}
 	case Or:
-		return Or{conds(c.Children)}
+		return Or{aliasedConds(c.Children, table, alias)}
 	case Not:
 		return Not{Aliased(c.Child, table, alias)}
 	}
@@ -282,11 +283,80 @@ func Aliased(c Cond, table *TableRef, alias string) Cond {
 	return c
 }
 
-func aliasedExpr(e Expr, table *TableRef, alias string) Expr {
-	if column, ok := e.(Column); ok && column.Table == table && column.Alias == "" {
-		column.Alias = alias
+func aliasedConds(in []Cond, table *TableRef, alias string) []Cond {
+	if in == nil {
+		return nil
+	}
 
-		return column
+	out := make([]Cond, len(in))
+
+	for i, c := range in {
+		out[i] = Aliased(c, table, alias)
+	}
+
+	return out
+}
+
+func aliasedExprs(in []Expr, table *TableRef, alias string) []Expr {
+	if in == nil {
+		return nil
+	}
+
+	out := make([]Expr, len(in))
+
+	for i, e := range in {
+		out[i] = aliasedExpr(e, table, alias)
+	}
+
+	return out
+}
+
+func aliasedExpr(e Expr, table *TableRef, alias string) Expr {
+	expr := func(e Expr) Expr { return aliasedExpr(e, table, alias) }
+
+	switch e := e.(type) {
+	case Column:
+		if e.Table == table && e.Alias == "" {
+			e.Alias = alias
+		}
+
+		return e
+	case Func:
+		e.Args = aliasedExprs(e.Args, table, alias)
+		e.Filter = aliasedConds(e.Filter, table, alias)
+
+		if e.Over != nil {
+			over := Window{PartitionBy: aliasedExprs(e.Over.PartitionBy, table, alias)}
+
+			for _, o := range e.Over.OrderBy {
+				o.Value = expr(o.Value)
+				over.OrderBy = append(over.OrderBy, o)
+			}
+
+			e.Over = &over
+		}
+
+		return e
+	case Fragment:
+		e.Args = aliasedExprs(e.Args, table, alias)
+
+		return e
+	case Binary:
+		return Binary{expr(e.Left), e.Op, expr(e.Right)}
+	case Case:
+		whens := make([]When, len(e.Whens))
+
+		for i, w := range e.Whens {
+			whens[i] = When{Aliased(w.If, table, alias), expr(w.Then)}
+		}
+
+		return Case{whens, expr(e.Else)}
+	case Collate:
+		return Collate{expr(e.Value), e.Collation}
+	case Cast:
+		return Cast{expr(e.Value), e.Type}
+	case Row:
+		return Row{aliasedExprs(e.Values, table, alias)}
 	}
 
 	return e
