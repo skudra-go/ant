@@ -142,6 +142,45 @@ func TestConformanceAggregates(t *testing.T) {
 	})
 }
 
+// SumOf, AvgOf, MinOf and MaxOf aggregate the rows a Limit, Offset or
+// Distinct picks, not the one row the aggregate returns.
+func TestConformanceAggregatesOverPage(t *testing.T) {
+	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
+		app := openAndSeed(t, target)
+		seedUsers(t, app, "dave", 30)
+		ctx := t.Context()
+		byAge := app.Users.OrderBy(&Users.Age).OrderBy(&Users.Name)
+
+		sum, err := ant.SumOf(ctx, byAge.Limit(1), &Users.Age)
+		require.NoError(t, err)
+		require.Equal(t, 25, sum, "SumOf with Limit")
+
+		largest, err := ant.MaxOf(ctx, byAge.Limit(2), &Users.Age)
+		require.NoError(t, err)
+		require.Equal(t, 30, largest, "MaxOf with Limit")
+
+		smallest, err := ant.MinOf(ctx, byAge.Offset(1), &Users.Age)
+		require.NoError(t, err)
+		require.Equal(t, 30, smallest, "MinOf with Offset")
+
+		avg, err := ant.AvgOf(ctx, byAge.Limit(2).Offset(2), &Users.Age)
+		require.NoError(t, err)
+		require.InDelta(t, 32.5, avg, 0.001, "AvgOf with Limit and Offset")
+
+		none, err := ant.MinOf(ctx, byAge.Offset(10), &Users.Age)
+		require.NoError(t, err)
+		require.Zero(t, none, "MinOf past the last row")
+
+		distinct, err := ant.SumOf(ctx, app.Users.Column(&Users.Age).Distinct(), &Users.Age)
+		require.NoError(t, err)
+		require.Equal(t, 90, distinct, "SumOf with Distinct")
+
+		all, err := ant.SumOf(ctx, app.Users.Column(&Users.Age), &Users.Age)
+		require.NoError(t, err)
+		require.Equal(t, 120, all, "SumOf without paging")
+	})
+}
+
 func TestConformanceSets(t *testing.T) {
 	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
 		app := openAndSeed(t, target)
