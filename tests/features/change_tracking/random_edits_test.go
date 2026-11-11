@@ -111,8 +111,13 @@ func TestRandomEdits(t *testing.T) {
 		seeds = n
 	}
 
+	// Each seed runs on a schema of its own, so the seeds run in parallel.
+	fixture.Parallel(t)
+
 	for seed := range seeds {
 		t.Run(fmt.Sprint(seed), func(t *testing.T) {
+			t.Parallel()
+
 			fixture.RunTracked(t, func(t *testing.T, db *AppDB) {
 				ctx := t.Context()
 				r := rand.New(rand.NewPCG(seed, 7))

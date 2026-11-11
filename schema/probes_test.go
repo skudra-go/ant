@@ -781,9 +781,14 @@ func runProbe(t *testing.T, c probe) {
 
 // ---------------------------------------------------------------- scenarios
 
+// Each scenario works in schemas named after a prefix of its own, so they run in
+// parallel.
 func TestProbeScenarios(t *testing.T) {
 	for _, c := range probes {
-		t.Run(c.name, func(t *testing.T) { runProbe(t, c) })
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			runProbe(t, c)
+		})
 	}
 }
 
@@ -2691,6 +2696,8 @@ func TestProbeAddNotNullColumnOfEachType(t *testing.T) {
 
 	for _, typ := range types {
 		t.Run(strings.ReplaceAll(typ, " ", "_"), func(t *testing.T) {
+			t.Parallel()
+
 			runProbe(t, probe{
 				name: typ,
 				seed: []string{"INSERT INTO t (id) VALUES (1), (2)"},

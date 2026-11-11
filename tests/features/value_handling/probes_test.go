@@ -157,20 +157,40 @@ func step(t *testing.T, name string, fn func(t *testing.T)) bool {
 func probe[V any](t *testing.T, s spec[V]) {
 	t.Helper()
 
+	// The test that calls probe checks nothing after it, so it runs in parallel
+	// with the others.
+	fixture.Parallel(t)
+
 	t.Run(s.name, func(t *testing.T) {
 		knownHere(t)
 
-		fixture.RunWith(t, s.ddl(), func(t *testing.T, db *prDB[V]) { s.crud(t, db) })
-
-		if !s.noPtr {
-			fixture.RunWith(t, s.ddl(), func(t *testing.T, db *prDB[V]) { s.pointers(t, db) })
+		// Each phase is a schema of its own, so the phases run in parallel too.
+		phase := func(name string, run func(t *testing.T)) {
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+				run(t)
+			})
 		}
 
-		fixture.RunTrackedWith(t, s.ddl(), func(t *testing.T, db *prDB[V]) { s.tracked(t, db) })
+		phase("crud", func(t *testing.T) {
+			fixture.RunWith(t, s.ddl(), func(t *testing.T, db *prDB[V]) { s.crud(t, db) })
+		})
 
 		if !s.noPtr {
-			fixture.RunTrackedWith(t, s.ddl(), func(t *testing.T, db *prDB[V]) {
-				s.pointersTracked(t, db)
+			phase("pointers", func(t *testing.T) {
+				fixture.RunWith(t, s.ddl(), func(t *testing.T, db *prDB[V]) { s.pointers(t, db) })
+			})
+		}
+
+		phase("tracked", func(t *testing.T) {
+			fixture.RunTrackedWith(t, s.ddl(), func(t *testing.T, db *prDB[V]) { s.tracked(t, db) })
+		})
+
+		if !s.noPtr {
+			phase("pointers tracked", func(t *testing.T) {
+				fixture.RunTrackedWith(t, s.ddl(), func(t *testing.T, db *prDB[V]) {
+					s.pointersTracked(t, db)
+				})
 			})
 		}
 	})
@@ -4041,6 +4061,7 @@ func TestProbePointScanFormats(t *testing.T) {
 
 func TestProbeSecure(t *testing.T) {
 	knownHere(t)
+	fixture.Serial(t) // secure.SetKeys is process-wide
 
 	require.NoError(t, secure.SetKeys("probe", map[string][]byte{"probe": make([]byte, 32)}))
 
@@ -4137,6 +4158,7 @@ func TestProbeSecure(t *testing.T) {
 // A secure column is nothing in the clear, whatever the value is.
 func TestProbeSecureIsCiphertext(t *testing.T) {
 	knownHere(t)
+	fixture.Serial(t) // secure.SetKeys is process-wide
 
 	require.NoError(t, secure.SetKeys("probe", map[string][]byte{"probe": make([]byte, 32)}))
 
