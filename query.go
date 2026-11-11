@@ -1196,7 +1196,9 @@ func (q *Query[T]) LeftJoinOn[J any](on ...Cond) *Join2[T, J] {
 	return joinWith[T, J](q, qb.LeftJoin, on)
 }
 
-// JoinUsing joins J on a column with the same name in both tables.
+// JoinUsing joins J on a column with the same name in both tables. It renders
+// as ON with the column of each table, so J's global filters apply as they do
+// with JoinOn, and it works on databases with no JOIN ... USING.
 func (q *Query[T]) JoinUsing[J, V any](field *V) *Join2[T, J] {
 	n := q.next()
 
@@ -1207,8 +1209,19 @@ func (q *Query[T]) JoinUsing[J, V any](field *V) *Join2[T, J] {
 		return &Join2[T, J]{builder: n.builder}
 	}
 
+	root := n.sources[0]
+
 	joinOn(&n.builder, qb.InnerJoin, sourceOf[J](), nil)
-	n.joins[len(n.joins)-1].Using = []string{f.Column}
+
+	joined := n.joined[len(n.joined)-1]
+
+	n.joins[len(n.joins)-1].On = []qb.Cond{
+		qb.Compare{
+			Left:  qb.Column{Table: root.model.Table, Alias: root.alias, Name: f.Column},
+			Op:    qb.OpEq,
+			Right: qb.Column{Table: joined.model.Table, Alias: joined.alias, Name: f.Column},
+		},
+	}
 
 	return &Join2[T, J]{builder: n.builder}
 }
