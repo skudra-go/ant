@@ -344,6 +344,49 @@ func combination(t *testing.T, db *MatrixDB, w *world, src source, c condition, 
 		return nil
 	})
 
+	// Without an order, a page can hold any rows, so only Count can be checked.
+	if o.less != nil || p.limit < 0 && p.offset <= 0 {
+		check(t, "SumOf", func(t *testing.T) error {
+			sum, err := ant.SumOf(ctx, build(db, src, c, o, p), &Authors.Age)
+			if err != nil {
+				return err
+			}
+
+			should := 0
+
+			for _, a := range want {
+				should += a.Age
+			}
+
+			if sum != should {
+				return fmt.Errorf("sum %d, want %d", sum, should)
+			}
+
+			return nil
+		})
+
+		check(t, "MaxOf", func(t *testing.T) error {
+			largest, err := ant.MaxOf(ctx, build(db, src, c, o, p), &Authors.Age)
+			if err != nil {
+				return err
+			}
+
+			should := 0
+
+			for i, a := range want {
+				if i == 0 || a.Age > should {
+					should = a.Age
+				}
+			}
+
+			if largest != should {
+				return fmt.Errorf("max %d, want %d", largest, should)
+			}
+
+			return nil
+		})
+	}
+
 	check(t, "Exists", func(t *testing.T) error {
 		found, err := build(db, src, c, o, p).Exists(ctx)
 		if err != nil {

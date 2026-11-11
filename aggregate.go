@@ -145,6 +145,7 @@ func aggregateOf[T, V any](ctx context.Context, q *Query[T], value Expr[V]) (V, 
 	f := value.node.(qb.Func)
 
 	inner := n.statement(append(n.selection(), qb.Selected{Value: f.Args[0], Alias: column}))
+
 	if n.limit == nil && n.offset == nil {
 		inner.Order = nil
 	}
