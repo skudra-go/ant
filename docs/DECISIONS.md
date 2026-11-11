@@ -573,3 +573,7 @@ Decision: `Probe` pins each probe with `runtime.Pinner` when it allocates it, un
 ## 102. UpdateMany keeps what a bulk Update keeps
 
 `UpdateMany` wrote only the named columns with a key condition, so it left the version where it was, never set `UpdatedAt`, and wrote soft-deleted rows; a copy loaded before it then saved over its value with no conflict (#86). Each statement now moves the version on (decision 80), sets `UpdatedAt` unless a field names it (decision 89), and carries the model's global filters, as a bulk `Update` does, so a soft-deleted row or one a tenant filter hides is not counted or changed. The entities passed in are left as they are, since ant does not know the stored version to move them to; a caller that keeps one should load it again. Applying only the soft-delete filter was rejected: a tenant filter guards a write at least as much as a read.
+
+## 103. An upsert's update stamps UpdatedAt
+
+`Update`, `SaveChanges` and `Merge` set `UpdatedAt` on every update, but an upsert's update branch did not: `DoUpdate` left the column as it was, and the default clause wrote `excluded.updated_at`, the struct's value, which for a loaded copy is the time it was last saved (#84). The conflict update now sets `UpdatedAt` to ant's clock, on `Upsert` and on `InsertMany` with a conflict, unless `DoUpdate` or `Set` assigns it, in which case the clause's value wins, as with a bulk `Update` (decision 89). The default clause no longer copies the column from the inserted row, since that value is the one being replaced.

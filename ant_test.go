@@ -8,6 +8,8 @@ import (
 	"github.com/skudra-go/ant"
 	"github.com/skudra-go/ant/internal/meta"
 )
+pool, _ := sql.Open("postgres", dsn) // lib/pq
+db, err := ant.Wrap[AppDB](postgres.Dialect, pool)
 
 type user struct {
 	ant.Base
