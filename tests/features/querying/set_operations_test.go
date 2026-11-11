@@ -16,17 +16,17 @@ func TestSetOperations(t *testing.T) {
 	fixture.Run(t, func(t *testing.T, db *fixture.AppDB) {
 		fixture.Seed(t, db)
 		ctx := t.Context()
-		young := db.Users.Where(ant.Lt(&U.Age, 35))
-		old := db.Users.Where(ant.Gt(&U.Age, 25))
+		young := db.Users.Where(ant.Lt(&Users.Age, 35))
+		old := db.Users.Where(ant.Gt(&Users.Age, 25))
 
 		t.Run("Union removes duplicates", func(t *testing.T) {
-			got, err := young.Union(old).OrderBy(&U.Name).All(ctx)
+			got, err := young.Union(old).OrderBy(&Users.Name).All(ctx)
 			require.NoError(t, err)
 			require.Equal(t, []string{"Alice", "Bob", "Carol"}, fixture.Names(got))
 		})
 
 		t.Run("UnionAll keeps them", func(t *testing.T) {
-			got, err := young.UnionAll(old).OrderBy(&U.Name).All(ctx)
+			got, err := young.UnionAll(old).OrderBy(&Users.Name).All(ctx)
 			require.NoError(t, err)
 			require.Equal(t, []string{"Alice", "Alice", "Bob", "Carol"}, fixture.Names(got))
 		})
@@ -44,11 +44,11 @@ func TestSetOperations(t *testing.T) {
 		})
 
 		t.Run("the result is a normal query", func(t *testing.T) {
-			n, err := young.Union(old).Where(ant.Ne(&U.Name, "Bob")).Count(ctx)
+			n, err := young.Union(old).Where(ant.Ne(&Users.Name, "Bob")).Count(ctx)
 			require.NoError(t, err)
 			require.EqualValues(t, 2, n)
 
-			got, err := young.Union(old).OrderByDesc(&U.Age).Limit(1).All(ctx)
+			got, err := young.Union(old).OrderByDesc(&Users.Age).Limit(1).All(ctx)
 			require.NoError(t, err)
 			require.Equal(t, []string{"Carol"}, fixture.Names(got))
 		})
@@ -56,18 +56,18 @@ func TestSetOperations(t *testing.T) {
 		// A side's own ordering and paging pick its rows before they combine:
 		// the youngest user, and the oldest.
 		t.Run("each side keeps its own paging", func(t *testing.T) {
-			youngest := db.Users.OrderBy(&U.Age).Limit(1)
-			oldest := db.Users.OrderByDesc(&U.Age).Limit(1)
+			youngest := db.Users.OrderBy(&Users.Age).Limit(1)
+			oldest := db.Users.OrderByDesc(&Users.Age).Limit(1)
 
-			got, err := youngest.Union(oldest).OrderBy(&U.Name).All(ctx)
+			got, err := youngest.Union(oldest).OrderBy(&Users.Name).All(ctx)
 			require.NoError(t, err)
 			require.Equal(t, []string{"Bob", "Carol"}, fixture.Names(got))
 		})
 
 		t.Run("chained", func(t *testing.T) {
 			got, err := young.Union(old).
-				Except(db.Users.Where(ant.Eq(&U.Name, "Bob"))).
-				OrderBy(&U.Name).
+				Except(db.Users.Where(ant.Eq(&Users.Name, "Bob"))).
+				OrderBy(&Users.Name).
 				All(ctx)
 			require.NoError(t, err)
 			require.Equal(t, []string{"Alice", "Carol"}, fixture.Names(got))

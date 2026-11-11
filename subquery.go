@@ -116,9 +116,9 @@ func (g *Grouped) add(e exprNode) *Grouped {
 // GroupBy groups rows by a column. Add more with Then, and read the results with
 // Project:
 //
-//	ant.Project[Stat](db.Posts.GroupBy(&P.UserID),
-//		ant.Into(&S.UserID, &P.UserID),
-//		ant.IntoExpr(&S.Posts, ant.Count()))
+//	ant.Project[Stat](db.Posts.GroupBy(&Posts.UserID),
+//		ant.Into(&Stats.UserID, &Posts.UserID),
+//		ant.IntoExpr(&Stats.Posts, ant.Count()))
 func (q *Query[T]) GroupBy[V any](field *V) *Grouped { return groupedBy(q.builder, Col(field)) }
 
 // GroupByExpr groups rows by an expression.
@@ -214,7 +214,7 @@ func FromFunc[T any](h Handle, call string, args ...any) *Query[T] {
 // Results are not tracked.
 //
 //	wanted := ant.Values(db, Wanted{ID: 1, Limit: 5}, Wanted{ID: 2, Limit: 9})
-//	ant.JoinSub(db.Users.Query(), wanted, ant.EqCol(&U.ID, &W.ID))
+//	ant.JoinSub(db.Users.Query(), wanted, ant.EqCol(&Users.ID, &Wanteds.ID))
 func Values[T any](h Handle, rows ...T) *Query[T] {
 	var s *state
 

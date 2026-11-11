@@ -22,7 +22,7 @@ type SessionDB struct {
 	Sessions ant.Table[Session]
 }
 
-var S = ant.Fields[Session]()
+var Sessions = ant.Fields[Session]()
 
 func TestExcludeField(t *testing.T) {
 	ddl := `CREATE TABLE sessions (id BIGSERIAL PRIMARY KEY, token TEXT NOT NULL)`
@@ -41,7 +41,7 @@ func TestExcludeField(t *testing.T) {
 		})
 
 		t.Run("an excluded field cannot be queried", func(t *testing.T) {
-			_, err := db.Sessions.Where(ant.Eq(&S.Cached, "x")).All(ctx)
+			_, err := db.Sessions.Where(ant.Eq(&Sessions.Cached, "x")).All(ctx)
 			require.ErrorIs(t, err, ant.ErrNotProbe)
 		})
 	})

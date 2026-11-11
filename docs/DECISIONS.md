@@ -6,7 +6,7 @@ The signatures were compiled with Go 1.27.3 against a stub on 2026-10-31.
 
 ## 1. `ant.Ordered` replaces `cmp.Ordered`
 
-The brief declares `Gt[V cmp.Ordered]` and `OrderBy[V cmp.Ordered]`. `time.Time` does not satisfy `cmp.Ordered`, so `OrderBy(&U.CreatedAt)` and `Gt(&U.CreatedAt, t)` do not compile, although `ant.Base` supplies those columns. EF Core orders by dates.
+The brief declares `Gt[V cmp.Ordered]` and `OrderBy[V cmp.Ordered]`. `time.Time` does not satisfy `cmp.Ordered`, so `OrderBy(&Users.CreatedAt)` and `Gt(&Users.CreatedAt, t)` do not compile, although `ant.Base` supplies those columns. EF Core orders by dates.
 
 Decision: define `type Ordered interface{ cmp.Ordered | time.Time }` and use it for ordering and comparison conditions. Other orderable types, such as UUID or decimal types, remain an open extension.
 
@@ -24,7 +24,7 @@ Decision: `func (t *Table[T]) Find[K comparable](ctx context.Context, key K) (*T
 
 ## 4. Conditions are not tied to a model
 
-The target API uses `ant.Gt(&U.Age, 18)` with no model type, and `Where` takes plain `Cond` values. Adding a model parameter to `Cond` would make condition calls uglier.
+The target API uses `ant.Gt(&Users.Age, 18)` with no model type, and `Where` takes plain `Cond` values. Adding a model parameter to `Cond` would make condition calls uglier.
 
 Decision: keep `Cond` untyped by model. Probes from the wrong model, and non-probe pointers, are returned as errors at the terminal call. A `go vet` analyzer is already planned for v0.9.
 
@@ -42,7 +42,7 @@ Decision: `Find` and `First` return `*T`. `All` returns `[]T`, and the tracker h
 
 ## 7. `Eq` with a nil pointer
 
-`ant.Eq(&U.Bio, nil)` compiles with `V = *string`.
+`ant.Eq(&Users.Bio, nil)` compiles with `V = *string`.
 
 Decision: nil renders as `IS NULL`, as EF Core does for null comparisons. A non-nil pointer compares the pointed-to value, not the pointer.
 
@@ -104,7 +104,7 @@ Some bodies are real because later behavior or the acceptance criteria depend on
 
 ## 19. A zero generated key means "assign one"
 
-Decision 8 of the brief forbids reading meaning into zero values, but an integer primary key needs a way to ask for a generated value. As EF Core does, ant treats zero in a generated key as "assign one". This is the only exception. `b.Key(&T.ID).NotGenerated()` removes it for a model, and non-integer keys are never generated.
+Decision 8 of the brief forbids reading meaning into zero values, but an integer primary key needs a way to ask for a generated value. As EF Core does, ant treats zero in a generated key as "assign one". This is the only exception. `b.Key(&Tickets.ID).NotGenerated()` removes it for a model, and non-integer keys are never generated.
 
 ## 20. Queries are immutable
 
@@ -421,7 +421,7 @@ The helpers that read or mark the tracker, `Add`, `Attach`, `Remove`, `MarkModif
 
 The concurrency suite in `tests/concurrency` runs what servers do, on every database and under the race detector: a shared context read and written from many goroutines, small pools, cancelled requests, a session per worker, version conflicts retried, transfers that lock rows, upserts and `FirstOrCreate` racing for one key, transactions side by side, hooks, observers, events, interceptors, replicas, models first used at once, and a tracking context shared by mistake. It found three things on the databases, and one in a driver. go-mssqldb, as of v1.11.2, rolls a transaction back with the context it began with, and when that context has ended, as a cancelled request's has, the driver leaves a goroutine reading the connection after it went back to the pool, where the next statement races it; `database/sql` keeps such a connection, since the driver can reset its session. So ant begins the transactions it ends itself on a context that does not end, on a connection taken with the caller's context, which still bounds the wait for one in a full pool, and rolls the transaction back from a goroutine of its own when the caller's context ends, as `database/sql` would, but on a context the driver can finish on. Statements still run with the caller's context, a commit after that context ended rolls back instead, and the connection goes back to the pool when the transaction ends. A transaction from `UseTx` began outside ant and keeps the driver's behavior. On the databases: SQL Server's `MERGE` let two at once both insert a row neither found, so ant writes it `WITH (HOLDLOCK)`, which locks the key ranges it reads until it ends, since `MERGE` is SQL Server's only upsert. MariaDB from 11.6 reports a row changed since a transaction's snapshot as error 1020 and rolls the transaction back, which is now retryable, as a serialization failure. And `FirstOrCreate` in a transaction re-read the row that stopped its insert with the transaction's snapshot, which at MySQL's default `REPEATABLE READ` predates that row, so it returned the unique violation: the re-read now takes a lock, `FOR SHARE`, or `FOR UPDATE` on MariaDB, which reads the newest row.
 
-`Include` also builds each parent's relation apart and sets it in one write, so a parent never shows half its rows, and drops repeated parents, which `Load(ctx, &U.Posts, alice, alice)` used to give every post twice.
+`Include` also builds each parent's relation apart and sets it in one write, so a parent never shows half its rows, and drops repeated parents, which `Load(ctx, &Users.Posts, alice, alice)` used to give every post twice.
 
 ## 80. Every write moves the version on
 
@@ -557,3 +557,9 @@ Some limits are `database/sql`'s or a driver's, and are documented in `docs/data
 ## 99. A retried attempt leaves nothing in the tracker
 
 `Attempts` runs `f` again after a deadlock or serialization failure, on the same tracker. The rollback put the tracker back as the save found it, but the entities the failed attempt loaded stayed tracked with its edits, so the next attempt's tracked read got the edited instance and changed it again, and an entity it added stayed pending beside the one the next attempt added (#63). Before a retry, the tracker now forgets every entry that began during the failed attempt, which `f` loads or adds again. What was tracked before the transaction stays, with any change made to it, since ant cannot tell the attempt's edits from earlier ones without copying every entity at each attempt; `f` should load what it changes. Doing this on every rollback, not only before a retry, was rejected: a failed transaction's entities stay pending so that `SaveChanges` can be repeated (decision 79).
+
+## 100. Probes are named after their model, in the plural
+
+The docs, examples and tests named probes with one or two letters, such as `U` for `User`. Two models that start with the same letter needed made-up names (`Pl` for `Plan`, `G` for `Page`, `St` for both `Student` and `Seat`), and a reader could not guess them.
+
+Decision: name a package-level probe after its model in the plural, with the rule ant uses for default table names: `Users` for `User`, `Categories` for `Category`, `Persons` for `Person`. Type names are unique, so probe names are too, and `&Users.Age` reads like the column `users.age`. It is a convention, not a rule: ant accepts any name. A probe declared inside a function keeps a short local name, because a local `users` would be shadowed by `users, err := ...`. `ant_test.go` keeps `U` and `P`, since `example_test.go` in the same package already declares `Users` and `Posts` for other models. A probe of a model whose name is an adjective reads oddly (`Taggeds`); renaming such test models is left for later.

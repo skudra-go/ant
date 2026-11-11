@@ -18,10 +18,10 @@ type Account struct {
 	Password string
 }
 
-func (Account) Configure(b *ant.ModelBuilder[Account]) { b.Column(&AC.Password).Sensitive() }
+func (Account) Configure(b *ant.ModelBuilder[Account]) { b.Column(&Accounts.Password).Sensitive() }
 
-// AC is Account's probe.
-var AC = ant.Fields[Account]()
+// Accounts is Account's probe.
+var Accounts = ant.Fields[Account]()
 
 // AccountDB holds it.
 type AccountDB struct {
@@ -55,10 +55,10 @@ func TestSensitiveFields(t *testing.T) {
 			),
 		)
 
-		_, err = db.Accounts.Where(ant.Eq(&AC.ID, account.ID)).
-			Update(ctx, ant.Set(&AC.Password, "hunter5"))
+		_, err = db.Accounts.Where(ant.Eq(&Accounts.ID, account.ID)).
+			Update(ctx, ant.Set(&Accounts.Password, "hunter5"))
 		require.NoError(t, err)
-		found, err := db.Accounts.Where(ant.Eq(&AC.Password, "hunter5")).First(ctx)
+		found, err := db.Accounts.Where(ant.Eq(&Accounts.Password, "hunter5")).First(ctx)
 		require.NoError(t, err, "the real value reached the database")
 		require.Equal(t, account.ID, found.ID)
 

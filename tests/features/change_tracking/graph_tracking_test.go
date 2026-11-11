@@ -51,8 +51,8 @@ func TestTrackGraph(t *testing.T) {
 		require.NoError(t, db.SaveChanges(ctx))
 
 		loaded, err := db.Users.NoTracking().
-			Include(&U.Posts, func(q *ant.Query[fixture.Post]) *ant.Query[fixture.Post] {
-				return q.OrderBy(&P.ID)
+			Include(&Users.Posts, func(q *ant.Query[fixture.Post]) *ant.Query[fixture.Post] {
+				return q.OrderBy(&Posts.ID)
 			}).
 			Find(ctx, alice.ID)
 		require.NoError(t, err)
@@ -97,7 +97,7 @@ type Tagged struct {
 }
 
 func (Tagged) Configure(b *ant.ModelBuilder[Tagged]) {
-	b.Comparer(&TG.Items, func(a, b ant.JSON[[]string]) bool {
+	b.Comparer(&Taggeds.Items, func(a, b ant.JSON[[]string]) bool {
 		if len(a.V) != len(b.V) {
 			return false
 		}
@@ -120,8 +120,8 @@ func (Tagged) Configure(b *ant.ModelBuilder[Tagged]) {
 	})
 }
 
-// TG is Tagged's probe.
-var TG = ant.Fields[Tagged]()
+// Taggeds is Tagged's probe.
+var Taggeds = ant.Fields[Tagged]()
 
 // TaggedDB holds Tagged.
 type TaggedDB struct {
@@ -165,7 +165,7 @@ func TestInsertsAreBatched(t *testing.T) {
 		require.NoError(t, db.Users.Insert(ctx, user))
 		require.Equal(t, 4, rec.inserts(), "one user, and three batches of posts")
 
-		rows, err := db.Posts.NoTracking().OrderBy(&P.ID).All(ctx)
+		rows, err := db.Posts.NoTracking().OrderBy(&Posts.ID).All(ctx)
 		require.NoError(t, err)
 		require.Len(t, rows, 450)
 

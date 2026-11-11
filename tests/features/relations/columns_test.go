@@ -14,10 +14,10 @@ func TestColumns(t *testing.T) {
 	fixture.Run(t, func(t *testing.T, db *fixture.AppDB) {
 		seed(t, db)
 		ctx := t.Context()
-		carol := ant.Eq(&U.Name, "Carol")
+		carol := ant.Eq(&Users.Name, "Carol")
 
 		t.Run("Column", func(t *testing.T) {
-			got, err := db.Users.Where(carol).Column(&U.ID).Column(&U.Name).Single(ctx)
+			got, err := db.Users.Where(carol).Column(&Users.ID).Column(&Users.Name).Single(ctx)
 			require.NoError(t, err)
 			require.NotZero(t, got.ID)
 			require.Equal(t, "Carol", got.Name)
@@ -26,7 +26,7 @@ func TestColumns(t *testing.T) {
 		})
 
 		t.Run("Omit", func(t *testing.T) {
-			got, err := db.Users.Where(carol).Omit(&U.Bio).Single(ctx)
+			got, err := db.Users.Where(carol).Omit(&Users.Bio).Single(ctx)
 			require.NoError(t, err)
 			require.Equal(t, 40, got.Age)
 			require.Nil(t, got.Bio)
@@ -34,9 +34,9 @@ func TestColumns(t *testing.T) {
 
 		t.Run("Column and Omit combine", func(t *testing.T) {
 			got, err := db.Users.Where(carol).
-				Column(&U.Name).
-				Column(&U.Age).
-				Omit(&U.Age).
+				Column(&Users.Name).
+				Column(&Users.Age).
+				Omit(&Users.Age).
 				Single(ctx)
 			require.NoError(t, err)
 			require.Equal(t, "Carol", got.Name)
@@ -44,18 +44,18 @@ func TestColumns(t *testing.T) {
 		})
 
 		t.Run("omitting everything", func(t *testing.T) {
-			_, err := db.Users.Column(&U.Name).Omit(&U.Name).All(ctx)
+			_, err := db.Users.Column(&Users.Name).Omit(&Users.Name).All(ctx)
 			require.ErrorIs(t, err, ant.ErrNoColumns)
 		})
 
 		t.Run("a column of another model", func(t *testing.T) {
 			//antvet:ignore another model's field, on purpose: the test checks the error
-			_, err := db.Users.Column(&P.Title).All(ctx)
+			_, err := db.Users.Column(&Posts.Title).All(ctx)
 			require.ErrorIs(t, err, ant.ErrWrongModel)
 		})
 
 		t.Run("a relation is not a column", func(t *testing.T) {
-			_, err := db.Users.Column(&U.Posts).All(ctx)
+			_, err := db.Users.Column(&Users.Posts).All(ctx)
 			require.ErrorIs(t, err, ant.ErrNotColumn)
 		})
 	})
@@ -68,15 +68,15 @@ func TestDistinct(t *testing.T) {
 		ctx := t.Context()
 
 		t.Run("on selected columns", func(t *testing.T) {
-			got, err := db.Posts.Column(&P.Published).Distinct().All(ctx)
+			got, err := db.Posts.Column(&Posts.Published).Distinct().All(ctx)
 			require.NoError(t, err)
 			require.Len(t, got, 2)
 		})
 
 		t.Run("on a join", func(t *testing.T) {
 			got, err := ant.Project[Summary](
-				db.Posts.Join(&P.User).Distinct(),
-				ant.Into(&S.Author, &U.Name),
+				db.Posts.Join(&Posts.User).Distinct(),
+				ant.Into(&Summaries.Author, &Users.Name),
 			).All(ctx)
 			require.NoError(t, err)
 			require.Len(t, got, 2)

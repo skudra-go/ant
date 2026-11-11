@@ -14,7 +14,7 @@ func TestWhereOrderByAll(t *testing.T) {
 	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
 		app := openApp(t, target)
 		seedUsers(t, app, "Alice", 30, "Bob", 17)
-		got, err := app.Users.Where(ant.Gt(&U.Age, 18)).OrderBy(&U.Name).All(t.Context())
+		got, err := app.Users.Where(ant.Gt(&Users.Age, 18)).OrderBy(&Users.Name).All(t.Context())
 		require.NoError(t, err)
 		require.Equal(t, []string{"Alice"}, names(got))
 	})
@@ -26,17 +26,21 @@ func TestConditions(t *testing.T) {
 		cond ant.Cond
 		want []string
 	}{
-		{"Eq", ant.Eq(&U.Name, "Bob"), []string{"Bob"}},
-		{"Gt", ant.Gt(&U.Age, 18), []string{"Alice", "Carol"}},
-		{"Lt", ant.Lt(&U.Age, 18), []string{"Bob"}},
-		{"In", ant.In(&U.Name, "Alice", "Carol"), []string{"Alice", "Carol"}},
-		{"Like", ant.Like(&U.Name, "A%"), []string{"Alice"}},
-		{"IsNull", ant.IsNull(&U.Bio), []string{"Alice", "Bob", "Carol"}},
-		{"nil pointer", ant.Eq(&U.Bio, nil), []string{"Alice", "Bob", "Carol"}},
-		{"And", ant.And(ant.Gt(&U.Age, 18), ant.Like(&U.Name, "C%")), []string{"Carol"}},
-		{"Or", ant.Or(ant.Lt(&U.Age, 18), ant.Eq(&U.Name, "Alice")), []string{"Alice", "Bob"}},
-		{"Not", ant.Not(ant.Eq(&U.Name, "Bob")), []string{"Alice", "Carol"}},
-		{"EqCol", ant.EqCol(&U.Name, &U.Email), []string{}},
+		{"Eq", ant.Eq(&Users.Name, "Bob"), []string{"Bob"}},
+		{"Gt", ant.Gt(&Users.Age, 18), []string{"Alice", "Carol"}},
+		{"Lt", ant.Lt(&Users.Age, 18), []string{"Bob"}},
+		{"In", ant.In(&Users.Name, "Alice", "Carol"), []string{"Alice", "Carol"}},
+		{"Like", ant.Like(&Users.Name, "A%"), []string{"Alice"}},
+		{"IsNull", ant.IsNull(&Users.Bio), []string{"Alice", "Bob", "Carol"}},
+		{"nil pointer", ant.Eq(&Users.Bio, nil), []string{"Alice", "Bob", "Carol"}},
+		{"And", ant.And(ant.Gt(&Users.Age, 18), ant.Like(&Users.Name, "C%")), []string{"Carol"}},
+		{
+			"Or",
+			ant.Or(ant.Lt(&Users.Age, 18), ant.Eq(&Users.Name, "Alice")),
+			[]string{"Alice", "Bob"},
+		},
+		{"Not", ant.Not(ant.Eq(&Users.Name, "Bob")), []string{"Alice", "Carol"}},
+		{"EqCol", ant.EqCol(&Users.Name, &Users.Email), []string{}},
 	}
 
 	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
@@ -45,7 +49,7 @@ func TestConditions(t *testing.T) {
 
 		for _, c := range cases {
 			t.Run(c.name, func(t *testing.T) {
-				got, err := app.Users.Where(c.cond).OrderBy(&U.Name).All(t.Context())
+				got, err := app.Users.Where(c.cond).OrderBy(&Users.Name).All(t.Context())
 				require.NoError(t, err)
 				require.Equal(t, c.want, names(got))
 			})
@@ -57,7 +61,7 @@ func TestOrderLimitOffset(t *testing.T) {
 	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
 		app := openApp(t, target)
 		seedUsers(t, app, "Alice", 30, "Bob", 17, "Carol", 40)
-		got, err := app.Users.OrderByDesc(&U.Age).Limit(1).Offset(1).All(t.Context())
+		got, err := app.Users.OrderByDesc(&Users.Age).Limit(1).Offset(1).All(t.Context())
 		require.NoError(t, err)
 		require.Equal(t, []string{"Alice"}, names(got))
 	})
@@ -67,7 +71,7 @@ func TestOrderByTimestamp(t *testing.T) {
 	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
 		app := openApp(t, target)
 		seedUsers(t, app, "Alice", 30)
-		got, err := app.Users.OrderBy(&U.CreatedAt).All(t.Context())
+		got, err := app.Users.OrderBy(&Users.CreatedAt).All(t.Context())
 		require.NoError(t, err)
 		require.Len(t, got, 1)
 	})
@@ -77,10 +81,10 @@ func TestFirst(t *testing.T) {
 	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
 		app := openApp(t, target)
 		seedUsers(t, app, "Alice", 30)
-		user, err := app.Users.Where(ant.Eq(&U.Name, "Alice")).First(t.Context())
+		user, err := app.Users.Where(ant.Eq(&Users.Name, "Alice")).First(t.Context())
 		require.NoError(t, err)
 		require.Equal(t, 30, user.Age)
-		_, err = app.Users.Where(ant.Eq(&U.Name, "Nobody")).First(t.Context())
+		_, err = app.Users.Where(ant.Eq(&Users.Name, "Nobody")).First(t.Context())
 		require.ErrorIs(t, err, ant.ErrNotFound)
 	})
 }
@@ -100,7 +104,7 @@ func TestEach(t *testing.T) {
 
 		var seen []string
 
-		published := app.Posts.Where(ant.Eq(&P.Published, true)).OrderBy(&P.Title)
+		published := app.Posts.Where(ant.Eq(&Posts.Published, true)).OrderBy(&Posts.Title)
 
 		for post, err := range published.Each(t.Context()) {
 			require.NoError(t, err)

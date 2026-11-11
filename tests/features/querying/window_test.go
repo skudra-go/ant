@@ -17,7 +17,7 @@ type ranked struct {
 	Previous sql.Null[int]
 }
 
-var Rk = ant.Fields[ranked]()
+var Rankeds = ant.Fields[ranked]()
 
 // Window functions compute over related rows without collapsing them.
 func TestWindowFunctions(t *testing.T) {
@@ -33,13 +33,13 @@ func TestWindowFunctions(t *testing.T) {
 			require.NoError(t, db.Users.Insert(ctx, &u))
 		}
 
-		byName := db.Users.OrderBy(&U.Name)
-		ascending := ant.OrderedBy(ant.Col(&U.Age).Asc(), ant.Col(&U.Name).Asc())
+		byName := db.Users.OrderBy(&Users.Name)
+		ascending := ant.OrderedBy(ant.Col(&Users.Age).Asc(), ant.Col(&Users.Name).Asc())
 
 		positions := func(t *testing.T, e ant.Expr[int64]) []int64 {
 			t.Helper()
 
-			got, err := ant.Project[ranked](byName, ant.IntoExpr(&Rk.Position, e)).All(ctx)
+			got, err := ant.Project[ranked](byName, ant.IntoExpr(&Rankeds.Position, e)).All(ctx)
 			require.NoError(t, err)
 
 			out := make([]int64, len(got))
@@ -56,24 +56,24 @@ func TestWindowFunctions(t *testing.T) {
 		})
 
 		t.Run("Rank leaves gaps after ties", func(t *testing.T) {
-			w := ant.OrderedBy(ant.Col(&U.Age).Asc())
+			w := ant.OrderedBy(ant.Col(&Users.Age).Asc())
 			require.Equal(t, []int64{1, 2, 2, 4}, positions(t, ant.Rank().Over(w)))
 		})
 
 		t.Run("DenseRank does not", func(t *testing.T) {
-			w := ant.OrderedBy(ant.Col(&U.Age).Asc())
+			w := ant.OrderedBy(ant.Col(&Users.Age).Asc())
 			require.Equal(t, []int64{1, 2, 2, 3}, positions(t, ant.DenseRank().Over(w)))
 		})
 
 		t.Run("PartitionBy restarts per group", func(t *testing.T) {
-			w := ant.PartitionBy(&U.Age).OrderBy(ant.Col(&U.Name).Asc())
+			w := ant.PartitionBy(&Users.Age).OrderBy(ant.Col(&Users.Name).Asc())
 			require.Equal(t, []int64{1, 1, 2, 1}, positions(t, ant.RowNumber().Over(w)))
 		})
 
 		t.Run("an aggregate as a window", func(t *testing.T) {
 			got, err := ant.Project[ranked](
 				byName,
-				ant.IntoExpr(&Rk.Running, ant.Sum(&U.Age).Over(ascending)),
+				ant.IntoExpr(&Rankeds.Running, ant.Sum(&Users.Age).Over(ascending)),
 			).All(ctx)
 			require.NoError(t, err)
 			require.Equal(t, 80, got[3].Running)
@@ -82,7 +82,7 @@ func TestWindowFunctions(t *testing.T) {
 		t.Run("Lag reads the previous row, NULL for the first", func(t *testing.T) {
 			got, err := ant.Project[ranked](
 				byName,
-				ant.IntoExpr(&Rk.Previous, ant.Lag(&U.Age).Over(ascending)),
+				ant.IntoExpr(&Rankeds.Previous, ant.Lag(&Users.Age).Over(ascending)),
 			).All(ctx)
 			require.NoError(t, err)
 			require.False(t, got[0].Previous.Valid)
@@ -92,7 +92,7 @@ func TestWindowFunctions(t *testing.T) {
 		t.Run("Over needs a function", func(t *testing.T) {
 			_, err := ant.Project[ranked](
 				byName,
-				ant.IntoExpr(&Rk.Running, ant.Col(&U.Age).Over(ascending)),
+				ant.IntoExpr(&Rankeds.Running, ant.Col(&Users.Age).Over(ascending)),
 			).All(ctx)
 			require.Error(t, err)
 		})

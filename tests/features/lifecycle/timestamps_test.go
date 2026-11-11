@@ -73,14 +73,16 @@ func TestTimestamps(t *testing.T) {
 		t.Run("a bulk update moves it", func(t *testing.T) {
 			tick()
 
-			_, err := db.Authors.Where(ant.Eq(&A.ID, ann.ID)).Update(ctx, ant.Set(&A.Name, "Ann"))
+			_, err := db.Authors.Where(ant.Eq(&Authors.ID, ann.ID)).
+				Update(ctx, ant.Set(&Authors.Name, "Ann"))
 			require.NoError(t, err)
 			require.True(t, stored(ann.ID).UpdatedAt.Equal(now.Truncate(time.Microsecond)))
 		})
 
 		t.Run("an explicit assignment wins", func(t *testing.T) {
 			at := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
-			_, err := db.Authors.Where(ant.Eq(&A.ID, ann.ID)).Update(ctx, ant.Set(&A.UpdatedAt, at))
+			_, err := db.Authors.Where(ant.Eq(&Authors.ID, ann.ID)).
+				Update(ctx, ant.Set(&Authors.UpdatedAt, at))
 			require.NoError(t, err)
 			require.True(t, stored(ann.ID).UpdatedAt.Equal(at))
 		})
@@ -103,9 +105,9 @@ func TestTimestamps(t *testing.T) {
 
 			tick()
 
-			n, err := ant.Merge(&db.Authors, db.Notes.Query(), ant.EqCol(&A.Name, &N.Text)).
-				WhenMatched(ant.SetExpr(&A.Name, ant.Col(&N.Text))).
-				WhenNotMatched(ant.Into(&A.Name, &N.Text)).
+			n, err := ant.Merge(&db.Authors, db.Notes.Query(), ant.EqCol(&Authors.Name, &Notes.Text)).
+				WhenMatched(ant.SetExpr(&Authors.Name, ant.Col(&Notes.Text))).
+				WhenNotMatched(ant.Into(&Authors.Name, &Notes.Text)).
 				Exec(ctx)
 			require.NoError(t, err)
 			require.EqualValues(t, 2, n)
@@ -113,25 +115,25 @@ func TestTimestamps(t *testing.T) {
 			at := now.Truncate(time.Microsecond)
 			require.True(t, stored(ann.ID).UpdatedAt.Equal(at), "an update moves UpdatedAt")
 
-			bo, err := db.Authors.NoTracking().Where(ant.Eq(&A.Name, "Bo")).Single(ctx)
+			bo, err := db.Authors.NoTracking().Where(ant.Eq(&Authors.Name, "Bo")).Single(ctx)
 			require.NoError(t, err)
 			require.True(t, bo.CreatedAt.Equal(at), "an insert sets CreatedAt")
 			require.True(t, bo.UpdatedAt.Equal(at), "and UpdatedAt")
 
 			given := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
-			_, err = ant.Merge(&db.Authors, db.Notes.Query(), ant.EqCol(&A.Name, &N.Text)).
-				WhenMatched(ant.Set(&A.UpdatedAt, given)).
+			_, err = ant.Merge(&db.Authors, db.Notes.Query(), ant.EqCol(&Authors.Name, &Notes.Text)).
+				WhenMatched(ant.Set(&Authors.UpdatedAt, given)).
 				Exec(ctx)
 			require.NoError(t, err)
 			require.True(t, stored(ann.ID).UpdatedAt.Equal(given))
 
-			_, err = ant.Merge(&db.Authors, db.Notes.Query(), ant.EqCol(&A.Name, &N.Text)).
-				WhenMatched(ant.Set(&A.Name, "x"), ant.Set(&A.Name, "y")).
+			_, err = ant.Merge(&db.Authors, db.Notes.Query(), ant.EqCol(&Authors.Name, &Notes.Text)).
+				WhenMatched(ant.Set(&Authors.Name, "x"), ant.Set(&Authors.Name, "y")).
 				Exec(ctx)
 			require.ErrorContains(t, err, "Author.Name has two assignments")
 
-			_, err = ant.Merge(&db.Authors, db.Notes.Query(), ant.EqCol(&A.Name, &N.Text)).
-				WhenNotMatched(ant.Into(&A.Name, &N.Text), ant.Into(&A.Name, &N.Text)).
+			_, err = ant.Merge(&db.Authors, db.Notes.Query(), ant.EqCol(&Authors.Name, &Notes.Text)).
+				WhenNotMatched(ant.Into(&Authors.Name, &Notes.Text), ant.Into(&Authors.Name, &Notes.Text)).
 				Exec(ctx)
 			require.ErrorContains(t, err, "Author.Name has two mappings")
 		})
@@ -143,7 +145,7 @@ func TestTimestamps(t *testing.T) {
 
 			before := got.UpdatedAt
 			got.Name = "x"
-			_, err = db.Authors.Where(ant.Eq(&A.ID, ann.ID)).Delete(ctx)
+			_, err = db.Authors.Where(ant.Eq(&Authors.ID, ann.ID)).Delete(ctx)
 			require.NoError(t, err)
 			require.ErrorIs(t, session.SaveChanges(ctx), ant.ErrConcurrency)
 			require.True(t, got.UpdatedAt.Equal(before))

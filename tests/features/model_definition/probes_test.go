@@ -13,25 +13,25 @@ import (
 // fixture.U and fixture.P are field probes: var U = ant.Fields[User](). A probe
 // holds no data. Taking the address of its field names a column.
 func TestFieldProbes(t *testing.T) {
-	U, P := fixture.U, fixture.P
+	Users, Posts := fixture.Users, fixture.Posts
 
 	fixture.Run(t, func(t *testing.T, db *fixture.AppDB) {
 		fixture.Seed(t, db)
 		ctx := t.Context()
 
 		t.Run("a field pointer names a column", func(t *testing.T) {
-			adults, err := db.Users.Where(ant.Gt(&U.Age, 18)).OrderBy(&U.Name).All(ctx)
+			adults, err := db.Users.Where(ant.Gt(&Users.Age, 18)).OrderBy(&Users.Name).All(ctx)
 			require.NoError(t, err)
 			require.Equal(t, []string{"Alice", "Carol"}, fixture.Names(adults))
 		})
 
 		t.Run("fields promoted from ant.Base work", func(t *testing.T) {
-			_, err := db.Users.OrderBy(&U.CreatedAt).All(ctx)
+			_, err := db.Users.OrderBy(&Users.CreatedAt).All(ctx)
 			require.NoError(t, err)
 		})
 
 		t.Run("there is one probe per model, however often you ask", func(t *testing.T) {
-			require.Same(t, U, ant.Fields[fixture.User]())
+			require.Same(t, Users, ant.Fields[fixture.User]())
 		})
 
 		// These compile, so ant reports them at the terminal call.
@@ -52,19 +52,19 @@ func TestFieldProbes(t *testing.T) {
 
 		t.Run("a probe of another model is an error", func(t *testing.T) {
 			//antvet:ignore another model's probe, on purpose: the test checks the error
-			_, err := db.Posts.Where(ant.Gt(&U.Age, 18)).All(ctx)
+			_, err := db.Posts.Where(ant.Gt(&Users.Age, 18)).All(ctx)
 			require.ErrorIs(t, err, ant.ErrWrongModel)
 		})
 
 		t.Run("a relation is not a column", func(t *testing.T) {
-			_, err := db.Posts.Where(ant.IsNull(&P.User)).All(ctx)
+			_, err := db.Posts.Where(ant.IsNull(&Posts.User)).All(ctx)
 			require.ErrorIs(t, err, ant.ErrNotColumn)
 		})
 
 		t.Run("errors from several conditions are all reported", func(t *testing.T) {
 			age := 18
 			//antvet:ignore not a probe, on purpose: the test checks the error
-			_, err := db.Posts.Where(ant.Gt(&age, 18), ant.Gt(&U.Age, 18)).All(ctx)
+			_, err := db.Posts.Where(ant.Gt(&age, 18), ant.Gt(&Users.Age, 18)).All(ctx)
 			require.True(t, errors.Is(err, ant.ErrNotProbe) && errors.Is(err, ant.ErrWrongModel))
 		})
 	})

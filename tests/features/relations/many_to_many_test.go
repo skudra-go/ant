@@ -18,7 +18,7 @@ type Student struct {
 }
 
 func (Student) Configure(b *ant.ModelBuilder[Student]) {
-	b.ManyToMany(&St.Courses).Through("enrollments")
+	b.ManyToMany(&Students.Courses).Through("enrollments")
 }
 
 type Course struct {
@@ -28,7 +28,7 @@ type Course struct {
 }
 
 func (Course) Configure(b *ant.ModelBuilder[Course]) {
-	b.ManyToMany(&Cs.Students).Through("enrollments")
+	b.ManyToMany(&Courses.Students).Through("enrollments")
 }
 
 type SchoolDB struct {
@@ -38,8 +38,8 @@ type SchoolDB struct {
 }
 
 var (
-	St = ant.Fields[Student]()
-	Cs = ant.Fields[Course]()
+	Students = ant.Fields[Student]()
+	Courses  = ant.Fields[Course]()
 )
 
 const schoolDDL = `
@@ -67,7 +67,7 @@ type Doc struct {
 }
 
 func (Doc) Configure(b *ant.ModelBuilder[Doc]) {
-	b.ManyToMany(&Dc.Topics).Through("doc_topics")
+	b.ManyToMany(&Docs.Topics).Through("doc_topics")
 }
 
 type Topic struct {
@@ -81,7 +81,7 @@ type DocsDB struct {
 	Topics ant.Table[Topic]
 }
 
-var Dc = ant.Fields[Doc]()
+var Docs = ant.Fields[Doc]()
 
 func TestManyToManyWithUUIDKeys(t *testing.T) {
 	ddl := `
@@ -95,9 +95,9 @@ func TestManyToManyWithUUIDKeys(t *testing.T) {
 
 		require.NoError(t, db.Docs.Insert(ctx, doc))
 		require.NoError(t, db.Topics.Insert(ctx, topic))
-		require.NoError(t, ant.Link(ctx, db, doc, &Dc.Topics, topic))
+		require.NoError(t, ant.Link(ctx, db, doc, &Docs.Topics, topic))
 
-		got, err := db.Docs.Include(&Dc.Topics).Single(ctx)
+		got, err := db.Docs.Include(&Docs.Topics).Single(ctx)
 		require.NoError(t, err)
 		require.Len(t, got.Topics, 1)
 		require.Equal(t, "Go", got.Topics[0].Name)
@@ -115,8 +115,8 @@ func TestManyToMany(t *testing.T) {
 
 		courses := func(s *Student) []string {
 			got, err := ant.Session(db).
-				Students.Include(&St.Courses, func(q *ant.Query[Course]) *ant.Query[Course] {
-				return q.OrderBy(&Cs.Title)
+				Students.Include(&Students.Courses, func(q *ant.Query[Course]) *ant.Query[Course] {
+				return q.OrderBy(&Courses.Title)
 			}).
 				Find(ctx, s.ID)
 			require.NoError(t, err)
@@ -125,14 +125,18 @@ func TestManyToMany(t *testing.T) {
 		}
 
 		t.Run("Link adds, and repeating it is harmless", func(t *testing.T) {
-			require.NoError(t, ant.Link(ctx, db, ann, &St.Courses, math, art))
-			require.NoError(t, ant.Link(ctx, db, ann, &St.Courses, math))
+			require.NoError(t, ant.Link(ctx, db, ann, &Students.Courses, math, art))
+			require.NoError(t, ant.Link(ctx, db, ann, &Students.Courses, math))
 			require.Equal(t, []string{"Art", "Math"}, courses(ann))
 		})
 
 		t.Run("Include loads through the join table", func(t *testing.T) {
-			require.NoError(t, ant.Link(ctx, db, ben, &St.Courses, math))
-			got, err := db.Students.NoTracking().OrderBy(&St.Name).Include(&St.Courses).All(ctx)
+			require.NoError(t, ant.Link(ctx, db, ben, &Students.Courses, math))
+
+			got, err := db.Students.NoTracking().
+				OrderBy(&Students.Name).
+				Include(&Students.Courses).
+				All(ctx)
 			require.NoError(t, err)
 			require.Len(t, got[0].Courses, 2)
 			require.Len(t, got[1].Courses, 1)
@@ -140,8 +144,8 @@ func TestManyToMany(t *testing.T) {
 
 		t.Run("the other side works too", func(t *testing.T) {
 			got, err := db.Courses.NoTracking().
-				Where(ant.Eq(&Cs.Title, "Math")).
-				Include(&Cs.Students).
+				Where(ant.Eq(&Courses.Title, "Math")).
+				Include(&Courses.Students).
 				Single(ctx)
 			require.NoError(t, err)
 			require.Len(t, got.Students, 2)
@@ -149,16 +153,16 @@ func TestManyToMany(t *testing.T) {
 
 		t.Run("Has looks through the join table", func(t *testing.T) {
 			got, err := db.Students.NoTracking().
-				Where(ant.Has(&St.Courses, ant.Eq(&Cs.Title, "Art"))).
+				Where(ant.Has(&Students.Courses, ant.Eq(&Courses.Title, "Art"))).
 				Single(ctx)
 			require.NoError(t, err)
 			require.Equal(t, "Ann", got.Name)
 		})
 
 		t.Run("JoinMany goes through it", func(t *testing.T) {
-			got, err := db.Students.JoinMany(&St.Courses).
-				Where(ant.Eq(&Cs.Title, "Math")).
-				OrderBy(&St.Name).
+			got, err := db.Students.JoinMany(&Students.Courses).
+				Where(ant.Eq(&Courses.Title, "Math")).
+				OrderBy(&Students.Name).
 				Select(func(s *Student, c *Course) string { return s.Name }).
 				All(ctx)
 			require.NoError(t, err)
@@ -172,15 +176,15 @@ func TestManyToMany(t *testing.T) {
 			}
 
 			R := ant.Fields[row]()
-			got, err := ant.Project[row](db.Students.OrderBy(&St.Name),
-				ant.Into(&R.Name, &St.Name),
-				ant.IntoExpr(&R.Count, ant.CountRelated(&St.Courses))).All(ctx)
+			got, err := ant.Project[row](db.Students.OrderBy(&Students.Name),
+				ant.Into(&R.Name, &Students.Name),
+				ant.IntoExpr(&R.Count, ant.CountRelated(&Students.Courses))).All(ctx)
 			require.NoError(t, err)
 			require.Equal(t, []row{{"Ann", 2}, {"Ben", 1}}, got)
 		})
 
 		t.Run("Unlink removes the link, not the course", func(t *testing.T) {
-			require.NoError(t, ant.Unlink(ctx, db, ann, &St.Courses, art))
+			require.NoError(t, ant.Unlink(ctx, db, ann, &Students.Courses, art))
 			require.Equal(t, []string{"Math"}, courses(ann))
 
 			n, err := db.Courses.Count(ctx)
@@ -189,25 +193,25 @@ func TestManyToMany(t *testing.T) {
 		})
 
 		t.Run("SyncLinks makes the list exact", func(t *testing.T) {
-			require.NoError(t, ant.SyncLinks(ctx, db, ann, &St.Courses, art, music))
+			require.NoError(t, ant.SyncLinks(ctx, db, ann, &Students.Courses, art, music))
 			require.Equal(t, []string{"Art", "Music"}, courses(ann))
-			require.NoError(t, ant.SyncLinks(ctx, db, ann, &St.Courses))
+			require.NoError(t, ant.SyncLinks(ctx, db, ann, &Students.Courses))
 			require.Empty(t, courses(ann))
 		})
 
 		t.Run("Toggle flips each", func(t *testing.T) {
-			require.NoError(t, ant.Link(ctx, db, ann, &St.Courses, math))
-			require.NoError(t, ant.Toggle(ctx, db, ann, &St.Courses, math, art))
+			require.NoError(t, ant.Link(ctx, db, ann, &Students.Courses, math))
+			require.NoError(t, ant.Toggle(ctx, db, ann, &Students.Courses, math, art))
 			require.Equal(t, []string{"Art"}, courses(ann))
 		})
 
 		t.Run("a tracked relation saves its changes", func(t *testing.T) {
-			require.NoError(t, ant.SyncLinks(ctx, db, ann, &St.Courses, math, art))
+			require.NoError(t, ant.SyncLinks(ctx, db, ann, &Students.Courses, math, art))
 			session := ant.Session(db)
 			got, err := session.Students.Include(
-				&St.Courses,
+				&Students.Courses,
 				func(q *ant.Query[Course]) *ant.Query[Course] {
-					return q.OrderBy(&Cs.Title)
+					return q.OrderBy(&Courses.Title)
 				},
 			).
 				Find(ctx, ann.ID)
@@ -219,7 +223,7 @@ func TestManyToMany(t *testing.T) {
 			require.NoError(t, session.SaveChanges(ctx))
 			require.Equal(t, []string{"Math", "Music"}, courses(ann))
 
-			n, err := db.Courses.Where(ant.Eq(&Cs.Title, "Art")).Count(ctx)
+			n, err := db.Courses.Where(ant.Eq(&Courses.Title, "Art")).Count(ctx)
 			require.NoError(t, err)
 			require.EqualValues(t, 1, n, "removing a link never deletes the course")
 			require.False(t, fixture.HasChanges(t, session))
@@ -227,7 +231,7 @@ func TestManyToMany(t *testing.T) {
 
 		t.Run("a new target is inserted and linked", func(t *testing.T) {
 			session := ant.Session(db)
-			got, err := session.Students.Include(&St.Courses).Find(ctx, ben.ID)
+			got, err := session.Students.Include(&Students.Courses).Find(ctx, ben.ID)
 			require.NoError(t, err)
 
 			got.Courses = append(got.Courses, Course{Title: "Drama"})
@@ -243,15 +247,25 @@ func TestManyToMany(t *testing.T) {
 		})
 
 		t.Run("mistakes", func(t *testing.T) {
-			require.ErrorIs(t, ant.Link[Student](ctx, db, nil, &St.Courses, math), ant.ErrNilEntity)
-			require.ErrorIs(t, ant.Link(ctx, db, ann, &St.Courses, nil), ant.ErrNilEntity)
-			require.ErrorIs(t, ant.Link(ctx, db, ann, &St.Courses, &Course{}), ant.ErrNoKey)
-			require.NoError(t, ant.Link(ctx, db, ann, &St.Courses), "no targets is nothing to do")
+			require.ErrorIs(
+				t,
+				ant.Link[Student](ctx, db, nil, &Students.Courses, math),
+				ant.ErrNilEntity,
+			)
+
+			require.ErrorIs(t, ant.Link(ctx, db, ann, &Students.Courses, nil), ant.ErrNilEntity)
+			require.ErrorIs(t, ant.Link(ctx, db, ann, &Students.Courses, &Course{}), ant.ErrNoKey)
+
+			require.NoError(
+				t,
+				ant.Link(ctx, db, ann, &Students.Courses),
+				"no targets is nothing to do",
+			)
 		})
 
 		t.Run("a relation that is not many-to-many", func(t *testing.T) {
 			u := &fixture.User{Base: ant.Base{ID: 1}}
-			err := ant.Link(ctx, db, u, &U.Posts, &fixture.Post{Base: ant.Base{ID: 1}})
+			err := ant.Link(ctx, db, u, &Users.Posts, &fixture.Post{Base: ant.Base{ID: 1}})
 			require.ErrorIs(t, err, ant.ErrNotManyToMany)
 		})
 	})

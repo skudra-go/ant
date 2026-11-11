@@ -21,7 +21,7 @@ type CalendarDB struct {
 	Events ant.Table[Event]
 }
 
-var Ev = ant.Fields[Event]()
+var Events = ant.Fields[Event]()
 
 // Dates compare against the database's clock, so results do not depend on the
 // application's.
@@ -38,30 +38,30 @@ func TestDates(t *testing.T) {
 			&Event{Name: "future", At: now.Add(48 * time.Hour)}))
 
 		names := func(c ant.Cond) []string {
-			got, err := ant.Pluck(ctx, db.Events.Where(c).OrderBy(&Ev.At), &Ev.Name)
+			got, err := ant.Pluck(ctx, db.Events.Where(c).OrderBy(&Events.At), &Events.Name)
 			require.NoError(t, err)
 
 			return got
 		}
 
-		require.Equal(t, []string{"past", "today"}, names(ant.Past(&Ev.At)))
-		require.Equal(t, []string{"future"}, names(ant.Future(&Ev.At)))
-		require.Equal(t, []string{"today"}, names(ant.Today(&Ev.At)))
+		require.Equal(t, []string{"past", "today"}, names(ant.Past(&Events.At)))
+		require.Equal(t, []string{"future"}, names(ant.Future(&Events.At)))
+		require.Equal(t, []string{"today"}, names(ant.Today(&Events.At)))
 
 		t.Run("DatePart", func(t *testing.T) {
 			year := float64(now.UTC().Year())
 			require.Contains(
 				t,
-				names(ant.SQLCond("? >= ?", ant.DatePart(&Ev.At, "year"), year-1)),
+				names(ant.SQLCond("? >= ?", ant.DatePart(&Events.At, "year"), year-1)),
 				"today",
 			)
 		})
 
 		t.Run("Latest and Oldest", func(t *testing.T) {
-			got, err := db.Events.Query().Latest(&Ev.At).First(ctx)
+			got, err := db.Events.Query().Latest(&Events.At).First(ctx)
 			require.NoError(t, err)
 			require.Equal(t, "future", got.Name)
-			got, err = db.Events.Query().Oldest(&Ev.At).First(ctx)
+			got, err = db.Events.Query().Oldest(&Events.At).First(ctx)
 			require.NoError(t, err)
 			require.Equal(t, "past", got.Name)
 		})
@@ -70,7 +70,7 @@ func TestDates(t *testing.T) {
 			got, err := db.Events.Query().OrderByRandom().All(ctx)
 			require.NoError(t, err)
 			require.Len(t, got, 3)
-			got, err = db.Events.OrderBy(&Ev.Name).ClearOrder().All(ctx)
+			got, err = db.Events.OrderBy(&Events.Name).ClearOrder().All(ctx)
 			require.NoError(t, err)
 			require.Len(t, got, 3)
 		})

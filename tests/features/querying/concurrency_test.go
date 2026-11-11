@@ -15,7 +15,7 @@ func TestConcurrentUse(t *testing.T) {
 	fixture.Run(t, func(t *testing.T, db *fixture.AppDB) {
 		fixture.Seed(t, db)
 		ctx := t.Context()
-		adults := db.Users.Where(ant.Gt(&U.Age, 18))
+		adults := db.Users.Where(ant.Gt(&Users.Age, 18))
 
 		var wg sync.WaitGroup
 
@@ -23,7 +23,7 @@ func TestConcurrentUse(t *testing.T) {
 
 		for range 20 {
 			wg.Go(func() {
-				got, err := adults.OrderBy(&U.Name).All(ctx)
+				got, err := adults.OrderBy(&Users.Name).All(ctx)
 				if err == nil && len(got) != 2 {
 					t.Errorf("got %d rows", len(got))
 				}
@@ -32,7 +32,7 @@ func TestConcurrentUse(t *testing.T) {
 			})
 
 			wg.Go(func() {
-				_, err := adults.Where(ant.Eq(&U.Name, "Alice")).Single(ctx)
+				_, err := adults.Where(ant.Eq(&Users.Name, "Alice")).Single(ctx)
 				errs <- err
 			})
 		}

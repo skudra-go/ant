@@ -13,10 +13,10 @@ import (
 func TestUpsert(t *testing.T) {
 	fixture.Run(t, func(t *testing.T, db *fixture.AppDB) {
 		ctx := t.Context()
-		onEmail := ant.OnConflict(&U.Email)
+		onEmail := ant.OnConflict(&Users.Email)
 
 		stored := func(email string) *fixture.User {
-			u, err := db.Users.Where(ant.Eq(&U.Email, email)).Single(ctx)
+			u, err := db.Users.Where(ant.Eq(&Users.Email, email)).Single(ctx)
 			require.NoError(t, err)
 
 			return u
@@ -41,7 +41,7 @@ func TestUpsert(t *testing.T) {
 
 		t.Run("DoUpdate writes only the named columns", func(t *testing.T) {
 			u := &fixture.User{Name: "Changed", Email: "ann@x", Age: 99}
-			_, err := db.Users.Upsert(ctx, u, onEmail.DoUpdate(ant.F(&U.Age)))
+			_, err := db.Users.Upsert(ctx, u, onEmail.DoUpdate(ant.F(&Users.Age)))
 			require.NoError(t, err)
 
 			got := stored("ann@x")
@@ -52,7 +52,7 @@ func TestUpsert(t *testing.T) {
 
 		t.Run("Set can use the existing value", func(t *testing.T) {
 			u := &fixture.User{Name: "x", Email: "ann@x"}
-			_, err := db.Users.Upsert(ctx, u, onEmail.Set(ant.Inc(&U.Age, 1)))
+			_, err := db.Users.Upsert(ctx, u, onEmail.Set(ant.Inc(&Users.Age, 1)))
 			require.NoError(t, err)
 			require.Equal(t, 100, stored("ann@x").Age)
 		})
@@ -75,15 +75,15 @@ func TestUpsert(t *testing.T) {
 		})
 
 		t.Run("no matching constraint is the database's error", func(t *testing.T) {
-			_, err := db.Users.Upsert(ctx, &fixture.User{Email: "b@x"}, ant.OnConflict(&U.Age))
+			_, err := db.Users.Upsert(ctx, &fixture.User{Email: "b@x"}, ant.OnConflict(&Users.Age))
 			require.Error(t, err)
 		})
 
 		t.Run("a column set twice is refused", func(t *testing.T) {
 			for _, conflict := range []*ant.Conflict{
-				onEmail.DoUpdate(ant.F(&U.Name)).Set(ant.Set(&U.Name, "x")),
-				onEmail.DoUpdate(ant.F(&U.Name), ant.F(&U.Name)),
-				onEmail.Set(ant.Set(&U.Age, 1), ant.Inc(&U.Age, 1)),
+				onEmail.DoUpdate(ant.F(&Users.Name)).Set(ant.Set(&Users.Name, "x")),
+				onEmail.DoUpdate(ant.F(&Users.Name), ant.F(&Users.Name)),
+				onEmail.Set(ant.Set(&Users.Age, 1), ant.Inc(&Users.Age, 1)),
 			} {
 				_, err := db.Users.Upsert(ctx, &fixture.User{Name: "y", Email: "ann@x"}, conflict)
 				require.ErrorContains(t, err, "has two assignments")

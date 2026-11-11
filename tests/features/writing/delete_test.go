@@ -16,13 +16,13 @@ func TestDelete(t *testing.T) {
 		ctx := t.Context()
 
 		t.Run("no match removes nothing", func(t *testing.T) {
-			n, err := db.Users.Where(ant.Eq(&U.Name, "Nobody")).Delete(ctx)
+			n, err := db.Users.Where(ant.Eq(&Users.Name, "Nobody")).Delete(ctx)
 			require.NoError(t, err)
 			require.Zero(t, n)
 		})
 
 		t.Run("returns the rows removed", func(t *testing.T) {
-			n, err := db.Users.Where(ant.Gt(&U.Age, 18)).Delete(ctx)
+			n, err := db.Users.Where(ant.Gt(&Users.Age, 18)).Delete(ctx)
 			require.NoError(t, err)
 			require.EqualValues(t, 2, n)
 
@@ -40,7 +40,7 @@ func TestDelete(t *testing.T) {
 			_, err = ant.Raw[any](db, `INSERT INTO notes VALUES ($1)`, bob.ID).Exec(ctx)
 			require.NoError(t, err)
 
-			_, err = db.Users.Where(ant.Eq(&U.ID, bob.ID)).Delete(ctx)
+			_, err = db.Users.Where(ant.Eq(&Users.ID, bob.ID)).Delete(ctx)
 			require.ErrorContains(t, err, "foreign key")
 		})
 	})

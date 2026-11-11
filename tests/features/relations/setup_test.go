@@ -10,8 +10,8 @@ import (
 )
 
 var (
-	U = fixture.U
-	P = fixture.P
+	Users = fixture.Users
+	Posts = fixture.Posts
 )
 
 // seed adds Alice with two posts, Bob with one, and Carol with none.

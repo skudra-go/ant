@@ -44,9 +44,9 @@ type Tally struct {
 }
 
 var (
-	Ar = ant.Fields[Article]()
-	Pr = ant.Fields[Proposal]()
-	Ta = ant.Fields[Tally]()
+	Articles  = ant.Fields[Article]()
+	Proposals = ant.Fields[Proposal]()
+	Tallies   = ant.Fields[Tally]()
 )
 
 const articlesDDL = `
@@ -72,7 +72,7 @@ const articlesDDL = `
 func TestUpsertKeepsVersions(t *testing.T) {
 	fixture.RunTrackedWith(t, articlesDDL, func(t *testing.T, db *ArticlesDB) {
 		ctx := t.Context()
-		onSlug := ant.OnConflict(&Ar.Slug)
+		onSlug := ant.OnConflict(&Articles.Slug)
 
 		// seed stores a doc and moves it to version 3, as two saves would.
 		seed := func(t *testing.T, slug string) *Article {
@@ -95,7 +95,7 @@ func TestUpsertKeepsVersions(t *testing.T) {
 		stored := func(t *testing.T, slug string) *Article {
 			t.Helper()
 
-			doc, err := db.Articles.NoTracking().Where(ant.Eq(&Ar.Slug, slug)).First(ctx)
+			doc, err := db.Articles.NoTracking().Where(ant.Eq(&Articles.Slug, slug)).First(ctx)
 			require.NoError(t, err)
 
 			return doc
@@ -116,11 +116,11 @@ func TestUpsertKeepsVersions(t *testing.T) {
 			title    string
 		}{
 			{"every column", onSlug, "upserted"},
-			{"DoUpdate", onSlug.DoUpdate(ant.F(&Ar.Title)), "upserted"},
-			{"Set", onSlug.Set(ant.Set(&Ar.Title, "set")), "set"},
+			{"DoUpdate", onSlug.DoUpdate(ant.F(&Articles.Title)), "upserted"},
+			{"Set", onSlug.Set(ant.Set(&Articles.Title, "set")), "set"},
 			{
 				"DoUpdate and Set",
-				onSlug.DoUpdate(ant.F(&Ar.Title)).Set(ant.Inc(&Ar.Views, 1)),
+				onSlug.DoUpdate(ant.F(&Articles.Title)).Set(ant.Inc(&Articles.Views, 1)),
 				"upserted",
 			},
 		}
@@ -240,9 +240,9 @@ func TestUpsertKeepsVersions(t *testing.T) {
 			seed(t, "named")
 
 			for _, conflict := range []*ant.Conflict{
-				onSlug.DoUpdate(ant.F(&Ar.Version)),
-				onSlug.Set(ant.Set(&Ar.Version, int64(1))),
-				onSlug.Set(ant.Inc(&Ar.Version, 1)),
+				onSlug.DoUpdate(ant.F(&Articles.Version)),
+				onSlug.Set(ant.Set(&Articles.Version, int64(1))),
+				onSlug.Set(ant.Inc(&Articles.Version, 1)),
 			} {
 				_, err := db.Articles.Upsert(ctx, &Article{Slug: "named", Title: "x"}, conflict)
 				require.ErrorContains(t, err, "Version")
@@ -276,7 +276,7 @@ func TestUpsertKeepsVersions(t *testing.T) {
 			_, err = db.Articles.InsertMany(
 				ctx,
 				[]*Article{{Slug: "many-1", Title: "z"}},
-				ant.WithConflict(onSlug.Set(ant.Set(&Ar.Version, int64(1)))),
+				ant.WithConflict(onSlug.Set(ant.Set(&Articles.Version, int64(1)))),
 			)
 			require.ErrorContains(t, err, "Version")
 		})
@@ -290,7 +290,7 @@ func TestUpsertKeepsVersions(t *testing.T) {
 				rows[i] = &Tally{Name: fmt.Sprint(i), Note: "n"}
 			}
 
-			conflict := ant.WithConflict(ant.OnConflict(&Ta.Name))
+			conflict := ant.WithConflict(ant.OnConflict(&Tallies.Name))
 			_, err := db.Tallies.InsertMany(ctx, rows, conflict, ant.BatchSize(len(rows)))
 			require.NoError(t, err)
 
@@ -303,7 +303,7 @@ func TestUpsertKeepsVersions(t *testing.T) {
 			_, err = db.Tallies.InsertMany(ctx, again, conflict, ant.BatchSize(len(rows)))
 			require.NoError(t, err)
 
-			n, err := db.Tallies.Where(ant.Eq(&Ta.Version, int64(2))).Count(ctx)
+			n, err := db.Tallies.Where(ant.Eq(&Tallies.Version, int64(2))).Count(ctx)
 			require.NoError(t, err)
 			require.EqualValues(t, len(rows), n)
 		})
@@ -322,17 +322,17 @@ func TestUpsertKeepsVersions(t *testing.T) {
 			seed(t, "merged")
 
 			holder := ant.Session(db, ant.WithTracking(true))
-			copyOf, err := holder.Articles.Where(ant.Eq(&Ar.Slug, "merged")).First(ctx)
+			copyOf, err := holder.Articles.Where(ant.Eq(&Articles.Slug, "merged")).First(ctx)
 			require.NoError(t, err)
 
 			require.NoError(t, db.Proposals.Insert(ctx,
 				&Proposal{Slug: "merged", Title: "from a draft"},
 				&Proposal{Slug: "fresh", Title: "new from a draft"}))
 
-			on := ant.EqCol(&Ar.Slug, &Pr.Slug)
+			on := ant.EqCol(&Articles.Slug, &Proposals.Slug)
 			n, err := ant.Merge(&db.Articles, db.Proposals.Query(), on).
-				WhenMatched(ant.SetExpr(&Ar.Title, ant.Col(&Pr.Title))).
-				WhenNotMatched(ant.Into(&Ar.Slug, &Pr.Slug), ant.Into(&Ar.Title, &Pr.Title)).
+				WhenMatched(ant.SetExpr(&Articles.Title, ant.Col(&Proposals.Title))).
+				WhenNotMatched(ant.Into(&Articles.Slug, &Proposals.Slug), ant.Into(&Articles.Title, &Proposals.Title)).
 				Exec(ctx)
 			require.NoError(t, err)
 			require.EqualValues(t, 2, n)
@@ -345,7 +345,7 @@ func TestUpsertKeepsVersions(t *testing.T) {
 			require.ErrorIs(t, holder.SaveChanges(ctx), ant.ErrConcurrency)
 
 			_, err = ant.Merge(&db.Articles, db.Proposals.Query(), on).
-				WhenMatched(ant.Set(&Ar.Version, int64(1))).
+				WhenMatched(ant.Set(&Articles.Version, int64(1))).
 				Exec(ctx)
 			require.ErrorContains(t, err, "Version")
 		})

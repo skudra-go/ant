@@ -99,7 +99,7 @@ func conditions() []condition {
 	ageGt18 := atom(
 		"age>18",
 		func() ant.Cond {
-			return ant.Gt(&A.Age, 18)
+			return ant.Gt(&Authors.Age, 18)
 		},
 		age(func(v int) bool {
 			return v > 18
@@ -109,7 +109,7 @@ func conditions() []condition {
 	scoreSet := atom(
 		"score set",
 		func() ant.Cond {
-			return ant.IsNotNull(&A.Score)
+			return ant.IsNotNull(&Authors.Score)
 		},
 		func(a *Author) tri {
 			return truth(a.Score != nil)
@@ -119,7 +119,7 @@ func conditions() []condition {
 	score5 := atom(
 		"score=5",
 		func() ant.Cond {
-			return ant.Eq(&A.Score, ptr(5))
+			return ant.Eq(&Authors.Score, ptr(5))
 		},
 		func(a *Author) tri {
 			return cmpScore(a, func(v int) bool { return v == 5 })
@@ -129,7 +129,7 @@ func conditions() []condition {
 	ageNeg := atom(
 		"age<0",
 		func() ant.Cond {
-			return ant.Lt(&A.Age, 0)
+			return ant.Lt(&Authors.Age, 0)
 		},
 		age(func(v int) bool {
 			return v < 0
@@ -139,7 +139,7 @@ func conditions() []condition {
 	age30 := atom(
 		"age=30",
 		func() ant.Cond {
-			return ant.Eq(&A.Age, 30)
+			return ant.Eq(&Authors.Age, 30)
 		},
 		age(func(v int) bool {
 			return v == 30
@@ -149,7 +149,7 @@ func conditions() []condition {
 	active := atom(
 		"active",
 		func() ant.Cond {
-			return ant.Eq(&A.Active, true)
+			return ant.Eq(&Authors.Active, true)
 		},
 		func(a *Author) tri {
 			return truth(a.Active)
@@ -161,10 +161,10 @@ func conditions() []condition {
 			name: name,
 			cond: func(*MatrixDB) ant.Cond {
 				if none {
-					return ant.HasNone(&A.Posts, conds()...)
+					return ant.HasNone(&Authors.Posts, conds()...)
 				}
 
-				return ant.Has(&A.Posts, conds()...)
+				return ant.Has(&Authors.Posts, conds()...)
 			},
 			eval: func(w *world, a *Author) tri {
 				found := slices.ContainsFunc(w.postsOf(a.ID), keep)
@@ -182,7 +182,7 @@ func conditions() []condition {
 		atom(
 			"age<>30",
 			func() ant.Cond {
-				return ant.Ne(&A.Age, 30)
+				return ant.Ne(&Authors.Age, 30)
 			},
 			age(func(v int) bool {
 				return v != 30
@@ -192,7 +192,7 @@ func conditions() []condition {
 		atom(
 			"age>=18",
 			func() ant.Cond {
-				return ant.Gte(&A.Age, 18)
+				return ant.Gte(&Authors.Age, 18)
 			},
 			age(func(v int) bool {
 				return v >= 18
@@ -202,7 +202,7 @@ func conditions() []condition {
 		atom(
 			"age<=0",
 			func() ant.Cond {
-				return ant.Lte(&A.Age, 0)
+				return ant.Lte(&Authors.Age, 0)
 			},
 			age(func(v int) bool {
 				return v <= 0
@@ -211,7 +211,7 @@ func conditions() []condition {
 		atom(
 			"age 18..42",
 			func() ant.Cond {
-				return ant.Between(&A.Age, 18, 42)
+				return ant.Between(&Authors.Age, 18, 42)
 			},
 			age(func(v int) bool {
 				return v >= 18 && v <= 42
@@ -220,7 +220,7 @@ func conditions() []condition {
 		atom(
 			"age in 0,30,65",
 			func() ant.Cond {
-				return ant.In(&A.Age, 0, 30, 65)
+				return ant.In(&Authors.Age, 0, 30, 65)
 			},
 			age(func(v int) bool {
 				return v == 0 || v == 30 || v == 65
@@ -229,7 +229,7 @@ func conditions() []condition {
 		atom(
 			"age not in 0,30",
 			func() ant.Cond {
-				return ant.NotIn(&A.Age, 0, 30)
+				return ant.NotIn(&Authors.Age, 0, 30)
 			},
 			age(func(v int) bool {
 				return v != 0 && v != 30
@@ -238,7 +238,7 @@ func conditions() []condition {
 		atom(
 			"age in ()",
 			func() ant.Cond {
-				return ant.In(&A.Age)
+				return ant.In(&Authors.Age)
 			},
 			func(*Author) tri {
 				return no
@@ -248,7 +248,7 @@ func conditions() []condition {
 			c := atom(
 				"age not in ()",
 				func() ant.Cond {
-					return ant.NotIn(&A.Age)
+					return ant.NotIn(&Authors.Age)
 				},
 				func(*Author) tri {
 					return yes
@@ -261,7 +261,7 @@ func conditions() []condition {
 		atom(
 			"score null",
 			func() ant.Cond {
-				return ant.IsNull(&A.Score)
+				return ant.IsNull(&Authors.Score)
 			},
 			func(a *Author) tri {
 				return truth(a.Score == nil)
@@ -269,13 +269,19 @@ func conditions() []condition {
 		),
 		scoreSet,
 		score5,
-		atom("score<>5", func() ant.Cond { return ant.Ne(&A.Score, ptr(5)) }, func(a *Author) tri {
-			return cmpScore(a, func(v int) bool { return v != 5 })
-		}),
+		atom(
+			"score<>5",
+			func() ant.Cond {
+				return ant.Ne(&Authors.Score, ptr(5))
+			},
+			func(a *Author) tri {
+				return cmpScore(a, func(v int) bool { return v != 5 })
+			},
+		),
 		atom(
 			"score=nil",
 			func() ant.Cond {
-				return ant.Eq(&A.Score, (*int)(nil))
+				return ant.Eq(&Authors.Score, (*int)(nil))
 			},
 			func(a *Author) tri {
 				return truth(a.Score == nil)
@@ -284,7 +290,7 @@ func conditions() []condition {
 		atom(
 			"score in nil,5",
 			func() ant.Cond {
-				return ant.In(&A.Score, nil, ptr(5))
+				return ant.In(&Authors.Score, nil, ptr(5))
 			},
 			func(a *Author) tri {
 				return truth(a.Score == nil || *a.Score == 5)
@@ -293,7 +299,7 @@ func conditions() []condition {
 		atom(
 			"score not in nil,5",
 			func() ant.Cond {
-				return ant.NotIn(&A.Score, nil, ptr(5))
+				return ant.NotIn(&Authors.Score, nil, ptr(5))
 			},
 			func(a *Author) tri {
 				return truth(a.Score != nil && *a.Score != 5)
@@ -302,7 +308,7 @@ func conditions() []condition {
 		atom(
 			"score<>nil",
 			func() ant.Cond {
-				return ant.Ne(&A.Score, (*int)(nil))
+				return ant.Ne(&Authors.Score, (*int)(nil))
 			},
 			func(a *Author) tri {
 				return truth(a.Score != nil)
@@ -312,7 +318,7 @@ func conditions() []condition {
 		atom(
 			"country empty",
 			func() ant.Cond {
-				return ant.Eq(&A.Country, "")
+				return ant.Eq(&Authors.Country, "")
 			},
 			func(a *Author) tri {
 				return truth(a.Country == "")
@@ -321,7 +327,7 @@ func conditions() []condition {
 		atom(
 			"name like ann%",
 			func() ant.Cond {
-				return ant.Like(&A.Name, "ann%")
+				return ant.Like(&Authors.Name, "ann%")
 			},
 			func(a *Author) tri {
 				return truth(strings.HasPrefix(a.Name, "ann"))
@@ -330,7 +336,7 @@ func conditions() []condition {
 		atom(
 			"name like _o%",
 			func() ant.Cond {
-				return ant.Like(&A.Name, "_o%")
+				return ant.Like(&Authors.Name, "_o%")
 			},
 			func(a *Author) tri {
 				return truth(len(a.Name) >= 2 && a.Name[1] == 'o')
@@ -341,7 +347,7 @@ func conditions() []condition {
 		hasPost(
 			"has a post over 500 views",
 			func() []ant.Cond {
-				return []ant.Cond{ant.Gt(&P.Views, 500)}
+				return []ant.Cond{ant.Gt(&Posts.Views, 500)}
 			},
 			func(p *Post) bool { return p.Views > 500 },
 			false,
@@ -349,7 +355,7 @@ func conditions() []condition {
 		hasPost(
 			"has no rated post",
 			func() []ant.Cond {
-				return []ant.Cond{ant.IsNotNull(&P.Rating)}
+				return []ant.Cond{ant.IsNotNull(&Posts.Rating)}
 			},
 			func(p *Post) bool { return p.Rating != nil },
 			true,
@@ -358,8 +364,8 @@ func conditions() []condition {
 			name: "in a published post's authors",
 			cond: func(db *MatrixDB) ant.Cond {
 				return ant.InSub(
-					&A.ID,
-					ant.SubOf(db.Posts.Where(ant.Eq(&P.Draft, false)), &P.AuthorID),
+					&Authors.ID,
+					ant.SubOf(db.Posts.Where(ant.Eq(&Posts.Draft, false)), &Posts.AuthorID),
 				)
 			},
 			eval: func(w *world, a *Author) tri {
@@ -372,8 +378,8 @@ func conditions() []condition {
 			name: "not in an unrated post's authors",
 			cond: func(db *MatrixDB) ant.Cond {
 				return ant.NotInSub(
-					&A.ID,
-					ant.SubOf(db.Posts.Where(ant.IsNull(&P.Rating)), &P.AuthorID),
+					&Authors.ID,
+					ant.SubOf(db.Posts.Where(ant.IsNull(&Posts.Rating)), &Posts.AuthorID),
 				)
 			},
 			eval: func(w *world, a *Author) tri {
@@ -386,7 +392,10 @@ func conditions() []condition {
 			name: "exists a post with its age in views",
 			cond: func(db *MatrixDB) ant.Cond {
 				return ant.Exists(
-					db.Posts.Where(ant.EqCol(&P.AuthorID, &A.ID), ant.Gt(&P.Views, 0)),
+					db.Posts.Where(
+						ant.EqCol(&Posts.AuthorID, &Authors.ID),
+						ant.Gt(&Posts.Views, 0),
+					),
 				)
 			},
 			eval: func(w *world, a *Author) tri {
@@ -487,7 +496,7 @@ func sources() []source {
 		{
 			name: "From",
 			build: func(db *MatrixDB) *ant.Query[Author] {
-				return db.Authors.Query().From(db.Authors.Where(ant.Gte(&A.Age, 18)))
+				return db.Authors.Query().From(db.Authors.Where(ant.Gte(&Authors.Age, 18)))
 			},
 			rows:     func(w *world) []*Author { return where(w, adult) },
 			filtered: true,
@@ -496,7 +505,7 @@ func sources() []source {
 			name: "FromCTE",
 			build: func(db *MatrixDB) *ant.Query[Author] {
 				return db.Authors.Query().
-					FromCTE("scored", db.Authors.Where(ant.IsNotNull(&A.Score)))
+					FromCTE("scored", db.Authors.Where(ant.IsNotNull(&Authors.Score)))
 			},
 			rows:     func(w *world) []*Author { return where(w, scored) },
 			filtered: true,
@@ -504,8 +513,8 @@ func sources() []source {
 		{
 			name: "Union",
 			build: func(db *MatrixDB) *ant.Query[Author] {
-				return db.Authors.Where(ant.Lt(&A.Age, 18)).
-					Union(db.Authors.Where(ant.Eq(&A.Active, true)))
+				return db.Authors.Where(ant.Lt(&Authors.Age, 18)).
+					Union(db.Authors.Where(ant.Eq(&Authors.Active, true)))
 			},
 			rows: func(w *world) []*Author {
 				return where(w, func(a *Author) bool { return a.Age < 18 || a.Active })
@@ -515,8 +524,8 @@ func sources() []source {
 		{
 			name: "Intersect",
 			build: func(db *MatrixDB) *ant.Query[Author] {
-				return db.Authors.Where(ant.Gte(&A.Age, 18)).
-					Intersect(db.Authors.Where(ant.IsNotNull(&A.Score)))
+				return db.Authors.Where(ant.Gte(&Authors.Age, 18)).
+					Intersect(db.Authors.Where(ant.IsNotNull(&Authors.Score)))
 			},
 			rows: func(w *world) []*Author {
 				return where(w, func(a *Author) bool { return adult(a) && scored(a) })
@@ -526,7 +535,7 @@ func sources() []source {
 		{
 			name: "Except",
 			build: func(db *MatrixDB) *ant.Query[Author] {
-				return db.Authors.Query().Except(db.Authors.Where(ant.Eq(&A.Country, "lv")))
+				return db.Authors.Query().Except(db.Authors.Where(ant.Eq(&Authors.Country, "lv")))
 			},
 			rows: func(w *world) []*Author {
 				return where(w, func(a *Author) bool { return a.Country != "lv" })
@@ -535,8 +544,8 @@ func sources() []source {
 		{
 			name: "Recursive",
 			build: func(db *MatrixDB) *ant.Query[Author] {
-				return db.Authors.Where(ant.IsNull(&A.MentorID), ant.Lt(&A.Age, 30)).
-					Recursive(&A.Mentees)
+				return db.Authors.Where(ant.IsNull(&Authors.MentorID), ant.Lt(&Authors.Age, 30)).
+					Recursive(&Authors.Mentees)
 			},
 			rows:     descendants,
 			filtered: true,
@@ -544,8 +553,8 @@ func sources() []source {
 		{
 			name: "Union of paged sides",
 			build: func(db *MatrixDB) *ant.Query[Author] {
-				return db.Authors.Query().OrderBy(&A.Name).Limit(3).
-					Union(db.Authors.Query().OrderByDesc(&A.Name).Limit(2))
+				return db.Authors.Query().OrderBy(&Authors.Name).Limit(3).
+					Union(db.Authors.Query().OrderByDesc(&Authors.Name).Limit(2))
 			},
 			rows: func(w *world) []*Author {
 				byName := slices.SortedFunc(slices.Values(w.authors), func(a, b *Author) int {
@@ -591,35 +600,43 @@ func orders() []order {
 		{
 			name: "age, id",
 			apply: func(q *ant.Query[Author]) *ant.Query[Author] {
-				return q.OrderBy(&A.Age).ThenBy(&A.ID)
+				return q.OrderBy(&Authors.Age).ThenBy(&Authors.ID)
 			},
 			less: func(a, b *Author) int { return cmp.Or(cmp.Compare(a.Age, b.Age), byID(a, b)) },
 		},
 		{
 			name: "age desc, id",
 			apply: func(q *ant.Query[Author]) *ant.Query[Author] {
-				return q.OrderByDesc(&A.Age).ThenBy(&A.ID)
+				return q.OrderByDesc(&Authors.Age).ThenBy(&Authors.ID)
 			},
 			less: func(a, b *Author) int { return cmp.Or(cmp.Compare(b.Age, a.Age), byID(a, b)) },
 		},
 		{
 			name: "score nulls first, id",
 			apply: func(q *ant.Query[Author]) *ant.Query[Author] {
-				return q.Order(ant.Col(&A.Score).Asc().NullsFirst(), ant.Col(&A.ID).Asc())
+				return q.Order(
+					ant.Col(&Authors.Score).Asc().NullsFirst(),
+					ant.Col(&Authors.ID).Asc(),
+				)
 			},
 			less: func(a, b *Author) int { return cmp.Or(nullsFirst(a, b, false), byID(a, b)) },
 		},
 		{
 			name: "score desc nulls last, id",
 			apply: func(q *ant.Query[Author]) *ant.Query[Author] {
-				return q.Order(ant.Col(&A.Score).Desc().NullsLast(), ant.Col(&A.ID).Asc())
+				return q.Order(
+					ant.Col(&Authors.Score).Desc().NullsLast(),
+					ant.Col(&Authors.ID).Asc(),
+				)
 			},
 			less: func(a, b *Author) int { return cmp.Or(-nullsFirst(a, b, false), byID(a, b)) },
 		},
 		{
-			name:  "name",
-			apply: func(q *ant.Query[Author]) *ant.Query[Author] { return q.OrderBy(&A.Name) },
-			less:  func(a, b *Author) int { return cmp.Compare(a.Name, b.Name) },
+			name: "name",
+			apply: func(q *ant.Query[Author]) *ant.Query[Author] {
+				return q.OrderBy(&Authors.Name)
+			},
+			less: func(a, b *Author) int { return cmp.Compare(a.Name, b.Name) },
 		},
 	}
 }

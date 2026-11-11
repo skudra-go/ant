@@ -46,9 +46,9 @@ type ForumDB struct {
 }
 
 var (
-	Co = ant.Fields[Comment]()
-	En = ant.Fields[Entry]()
-	Wr = ant.Fields[Writer]()
+	Comments = ant.Fields[Comment]()
+	Entries  = ant.Fields[Entry]()
+	Writers  = ant.Fields[Writer]()
 )
 
 func TestMultiJoin(t *testing.T) {
@@ -75,8 +75,8 @@ func TestMultiJoin(t *testing.T) {
 		require.NoError(t, db.Likes.Insert(ctx, &Like{CommentID: liked.ID, Who: "Bob"}))
 
 		t.Run("three models", func(t *testing.T) {
-			got, err := db.Comments.Join(&Co.Entry).Join(&En.Writer).
-				Where(ant.Eq(&Wr.Name, "Ann"), ant.Eq(&Co.Text, "Nice")).
+			got, err := db.Comments.Join(&Comments.Entry).Join(&Entries.Writer).
+				Where(ant.Eq(&Writers.Name, "Ann"), ant.Eq(&Comments.Text, "Nice")).
 				Select(func(c *Comment, e *Entry, w *Writer) string {
 					return w.Name + "/" + e.Title + "/" + c.Text
 				}).
@@ -86,8 +86,10 @@ func TestMultiJoin(t *testing.T) {
 		})
 
 		t.Run("four models, with a left join", func(t *testing.T) {
-			got, err := db.Comments.Join(&Co.Entry).Join(&En.Writer).LeftJoinMany(&Co.Likes).
-				OrderBy(&Co.Text).
+			got, err := db.Comments.Join(&Comments.Entry).
+				Join(&Entries.Writer).
+				LeftJoinMany(&Comments.Likes).
+				OrderBy(&Comments.Text).
 				Select(func(c *Comment, e *Entry, w *Writer, l *Like) string {
 					if l == nil {
 						return c.Text + ": none"
@@ -102,7 +104,7 @@ func TestMultiJoin(t *testing.T) {
 
 		t.Run("a relation of a model outside the query", func(t *testing.T) {
 			//antvet:ignore another model's field, on purpose: the test checks the error
-			_, err := db.Comments.Join(&En.Writer).
+			_, err := db.Comments.Join(&Entries.Writer).
 				Select(func(c *Comment, w *Writer) string { return "" }).All(ctx)
 			require.ErrorIs(t, err, ant.ErrWrongModel)
 		})

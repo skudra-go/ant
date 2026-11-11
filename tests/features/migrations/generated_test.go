@@ -23,8 +23,8 @@ type SlugV1 struct {
 
 func (SlugV1) Configure(b *ant.ModelBuilder[SlugV1]) {
 	b.Table("badges")
-	b.Column(&S1.Slug).Generated("lower(label)").Unique().Comment("for URLs")
-	b.Index(&S1.Label).Unique().Include(&S1.Slug)
+	b.Column(&SlugV1s.Slug).Generated("lower(label)").Unique().Comment("for URLs")
+	b.Index(&SlugV1s.Label).Unique().Include(&SlugV1s.Slug)
 	b.Check("badges_slug_check", "slug <> ''")
 	b.Check("badges_slug_length_check", `length(U&"sl\0075g") < 100`)
 }
@@ -38,8 +38,8 @@ type SlugV2 struct {
 
 func (SlugV2) Configure(b *ant.ModelBuilder[SlugV2]) {
 	b.Table("badges")
-	b.Column(&S2.Slug).Generated("lower(trim(label))").Unique().Comment("for URLs")
-	b.Index(&S2.Label).Unique().Include(&S2.Slug)
+	b.Column(&SlugV2s.Slug).Generated("lower(trim(label))").Unique().Comment("for URLs")
+	b.Index(&SlugV2s.Label).Unique().Include(&SlugV2s.Slug)
 	b.Check("badges_slug_check", "slug <> ''")
 	b.Check("badges_slug_length_check", `length(U&"sl\0075g") < 100`)
 }
@@ -53,8 +53,8 @@ type SlugV3 struct {
 
 func (SlugV3) Configure(b *ant.ModelBuilder[SlugV3]) {
 	b.Table("badges")
-	b.Column(&S3.Slug).Unique().Comment("for URLs")
-	b.Index(&S3.Label).Unique().Include(&S3.Slug)
+	b.Column(&SlugV3s.Slug).Unique().Comment("for URLs")
+	b.Index(&SlugV3s.Label).Unique().Include(&SlugV3s.Slug)
 	b.Check("badges_slug_check", "slug <> ''")
 	b.Check("badges_slug_length_check", `length(U&"sl\0075g") < 100`)
 }
@@ -67,8 +67,8 @@ type Award struct {
 }
 
 func (Award) Configure(b *ant.ModelBuilder[Award]) {
-	b.ForeignKey(ant.F(&AW.BadgeSlug)).References(ant.F(&S1.Slug))
-	b.ForeignKey(ant.F(&AW.BadgeLabel)).References(ant.F(&S1.Label))
+	b.ForeignKey(ant.F(&Awards.BadgeSlug)).References(ant.F(&SlugV1s.Slug))
+	b.ForeignKey(ant.F(&Awards.BadgeLabel)).References(ant.F(&SlugV1s.Label))
 }
 
 // SlugV1DB is the application with SlugV1.
@@ -94,10 +94,10 @@ type SlugV3DB struct {
 
 // Probes for the models.
 var (
-	S1 = ant.Fields[SlugV1]()
-	S2 = ant.Fields[SlugV2]()
-	S3 = ant.Fields[SlugV3]()
-	AW = ant.Fields[Award]()
+	SlugV1s = ant.Fields[SlugV1]()
+	SlugV2s = ant.Fields[SlugV2]()
+	SlugV3s = ant.Fields[SlugV3]()
+	Awards  = ant.Fields[Award]()
 )
 
 // A new expression for a generated column means dropping the column and adding

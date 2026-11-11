@@ -295,7 +295,7 @@ func Not(c Cond) Cond {
 
 // InTuples matches rows whose columns, taken together, equal one of the tuples:
 //
-//	ant.InTuples([]ant.FieldRef{ant.F(&O.Region), ant.F(&O.Number)},
+//	ant.InTuples([]ant.FieldRef{ant.F(&Orders.Region), ant.F(&Orders.Number)},
 //		[]any{"eu", 1}, []any{"us", 7})
 //
 // As with In, an empty list matches nothing.

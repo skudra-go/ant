@@ -27,21 +27,21 @@ func TestOrderBy(t *testing.T) {
 			query *ant.Query[fixture.User]
 			want  []string
 		}{
-			{"ascending", db.Users.OrderBy(&U.Name), []string{"Abe", "Bea", "Cal"}},
-			{"descending", db.Users.OrderByDesc(&U.Name), []string{"Cal", "Bea", "Abe"}},
+			{"ascending", db.Users.OrderBy(&Users.Name), []string{"Abe", "Bea", "Cal"}},
+			{"descending", db.Users.OrderByDesc(&Users.Name), []string{"Cal", "Bea", "Abe"}},
 			{
 				"ThenBy breaks ties",
-				db.Users.OrderBy(&U.Age).ThenBy(&U.Name),
+				db.Users.OrderBy(&Users.Age).ThenBy(&Users.Name),
 				[]string{"Cal", "Abe", "Bea"},
 			},
 			{
 				"ThenByDesc breaks ties",
-				db.Users.OrderBy(&U.Age).ThenByDesc(&U.Name),
+				db.Users.OrderBy(&Users.Age).ThenByDesc(&Users.Name),
 				[]string{"Cal", "Bea", "Abe"},
 			},
 			{
 				"a later OrderBy replaces earlier ones",
-				db.Users.OrderBy(&U.Age).OrderBy(&U.Name),
+				db.Users.OrderBy(&Users.Age).OrderBy(&Users.Name),
 				[]string{"Abe", "Bea", "Cal"},
 			},
 		}
@@ -55,13 +55,13 @@ func TestOrderBy(t *testing.T) {
 		}
 
 		t.Run("ThenBy needs an OrderBy", func(t *testing.T) {
-			_, err := db.Users.Where(ant.Gt(&U.Age, 0)).ThenBy(&U.Name).All(ctx)
+			_, err := db.Users.Where(ant.Gt(&Users.Age, 0)).ThenBy(&Users.Name).All(ctx)
 			require.ErrorIs(t, err, ant.ErrThenWithoutOrder)
 		})
 
 		t.Run("a probe of another model is an error", func(t *testing.T) {
 			//antvet:ignore another model's field, on purpose: the test checks the error
-			_, err := db.Users.OrderBy(&P.Title).All(ctx)
+			_, err := db.Users.OrderBy(&Posts.Title).All(ctx)
 			require.ErrorIs(t, err, ant.ErrWrongModel)
 		})
 	})

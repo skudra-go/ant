@@ -24,10 +24,10 @@ type Seat struct {
 }
 
 func (Seat) Configure(b *ant.ModelBuilder[Seat]) {
-	b.Key(&St.Number).NotGenerated()
+	b.Key(&Seats.Number).NotGenerated()
 }
 
-var St = ant.Fields[Seat]()
+var Seats = ant.Fields[Seat]()
 
 type DeskDB struct {
 	ant.Context

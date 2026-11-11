@@ -16,20 +16,20 @@ func TestNe(t *testing.T) {
 		ctx := t.Context()
 
 		t.Run("matches", func(t *testing.T) {
-			got, err := db.Users.Where(ant.Ne(&U.Name, "Bob")).OrderBy(&U.Name).All(ctx)
+			got, err := db.Users.Where(ant.Ne(&Users.Name, "Bob")).OrderBy(&Users.Name).All(ctx)
 			require.NoError(t, err)
 			require.Equal(t, []string{"Alice", "Carol"}, fixture.Names(got))
 		})
 
 		t.Run("a nil pointer matches non-NULL", func(t *testing.T) {
-			got, err := db.Users.Where(ant.Ne(&U.Bio, nil)).All(ctx)
+			got, err := db.Users.Where(ant.Ne(&Users.Bio, nil)).All(ctx)
 			require.NoError(t, err)
 			require.Equal(t, []string{"Carol"}, fixture.Names(got))
 		})
 
 		// SQL rule: comparing NULL with a value is neither true nor false.
 		t.Run("a NULL column never matches a value", func(t *testing.T) {
-			got, err := db.Users.Where(ant.Ne(&U.Bio, new("Other"))).All(ctx)
+			got, err := db.Users.Where(ant.Ne(&Users.Bio, new("Other"))).All(ctx)
 			require.NoError(t, err)
 			require.Equal(t, []string{"Carol"}, fixture.Names(got))
 		})

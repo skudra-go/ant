@@ -10,7 +10,7 @@ import (
 
 type User = fixture.User
 
-var U = fixture.U
+var Users = fixture.Users
 
 // recorder is an Interceptor that keeps the statements it sees.
 type recorder struct {

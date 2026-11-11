@@ -24,7 +24,7 @@ type DriveDB struct {
 	Folders ant.Table[Folder]
 }
 
-var F = ant.Fields[Folder]()
+var Folders = ant.Fields[Folder]()
 
 func TestSelfReference(t *testing.T) {
 	ddl := `CREATE TABLE folders (id BIGSERIAL PRIMARY KEY, parent_id BIGINT REFERENCES folders, name TEXT NOT NULL)`
@@ -37,39 +37,42 @@ func TestSelfReference(t *testing.T) {
 		require.NoError(t, db.Folders.Insert(ctx, &Folder{Name: "2026", ParentID: &docs.ID}))
 
 		t.Run("children", func(t *testing.T) {
-			found, err := db.Folders.Where(ant.Eq(&F.Name, "root")).Include(&F.Children).Single(ctx)
+			found, err := db.Folders.Where(ant.Eq(&Folders.Name, "root")).
+				Include(&Folders.Children).
+				Single(ctx)
 			require.NoError(t, err)
 			require.Len(t, found.Children, 1)
 			require.Equal(t, "docs", found.Children[0].Name)
 		})
 
 		t.Run("parent", func(t *testing.T) {
-			found, err := db.Folders.Where(ant.Eq(&F.Name, "docs")).
-				IncludeOne(&F.Parent).
+			found, err := db.Folders.Where(ant.Eq(&Folders.Name, "docs")).
+				IncludeOne(&Folders.Parent).
 				Single(ctx)
 			require.NoError(t, err)
 			require.Equal(t, "root", found.Parent.Name)
 		})
 
 		t.Run("a NULL foreign key has no parent", func(t *testing.T) {
-			found, err := db.Folders.Where(ant.Eq(&F.Name, "root")).
-				IncludeOne(&F.Parent).
+			found, err := db.Folders.Where(ant.Eq(&Folders.Name, "root")).
+				IncludeOne(&Folders.Parent).
 				Single(ctx)
 			require.NoError(t, err)
 			require.Nil(t, found.Parent)
 		})
 
 		t.Run("levels nest", func(t *testing.T) {
-			found, err := db.Folders.Where(ant.Eq(&F.Name, "root")).
-				Include(&F.Children, func(q *ant.Query[Folder]) *ant.Query[Folder] {
-					return q.Include(&F.Children)
+			found, err := db.Folders.Where(ant.Eq(&Folders.Name, "root")).
+				Include(&Folders.Children, func(q *ant.Query[Folder]) *ant.Query[Folder] {
+					return q.Include(&Folders.Children)
 				}).Single(ctx)
 			require.NoError(t, err)
 			require.Equal(t, "2026", found.Children[0].Children[0].Name)
 		})
 
 		t.Run("Has refers to the related row, not the outer row", func(t *testing.T) {
-			got, err := db.Folders.Where(ant.Has(&F.Children, ant.Eq(&F.Name, "2026"))).Single(ctx)
+			got, err := db.Folders.Where(ant.Has(&Folders.Children, ant.Eq(&Folders.Name, "2026"))).
+				Single(ctx)
 			require.NoError(t, err)
 			require.Equal(t, "docs", got.Name)
 		})
@@ -77,8 +80,8 @@ func TestSelfReference(t *testing.T) {
 		t.Run("a self-join gives each side its own row", func(t *testing.T) {
 			type pair struct{ Child, Parent string }
 
-			got, err := db.Folders.Join(&F.Parent).
-				Where(ant.Eq(&F.Name, "docs")).
+			got, err := db.Folders.Join(&Folders.Parent).
+				Where(ant.Eq(&Folders.Name, "docs")).
 				Select(func(child, parent *Folder) pair { return pair{child.Name, parent.Name} }).
 				All(ctx)
 			require.NoError(t, err)

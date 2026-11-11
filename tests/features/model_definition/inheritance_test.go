@@ -24,7 +24,7 @@ type Dog struct {
 
 func (Dog) Configure(b *ant.ModelBuilder[Dog]) {
 	b.Table("animals")
-	b.Discriminator(&DG.Kind, "dog")
+	b.Discriminator(&Dogs.Kind, "dog")
 }
 
 // Cat shares the table.
@@ -37,7 +37,7 @@ type Cat struct {
 
 func (Cat) Configure(b *ant.ModelBuilder[Cat]) {
 	b.Table("animals")
-	b.Discriminator(&CT.Kind, "cat")
+	b.Discriminator(&Cats.Kind, "cat")
 }
 
 // AnimalsDB holds both.
@@ -49,8 +49,8 @@ type AnimalsDB struct {
 
 // Probes.
 var (
-	DG = ant.Fields[Dog]()
-	CT = ant.Fields[Cat]()
+	Dogs = ant.Fields[Dog]()
+	Cats = ant.Fields[Cat]()
 )
 
 // Single-table inheritance: inserts set the discriminator, and queries see only
@@ -124,10 +124,10 @@ type Renamed struct {
 	FullName string
 }
 
-func (Renamed) Configure(b *ant.ModelBuilder[Renamed]) { b.Key(&RN.RowID) }
+func (Renamed) Configure(b *ant.ModelBuilder[Renamed]) { b.Key(&Renameds.RowID) }
 
-// RN is Renamed's probe.
-var RN = ant.Fields[Renamed]()
+// Renameds is Renamed's probe.
+var Renameds = ant.Fields[Renamed]()
 
 // NamingDB holds it.
 type NamingDB struct {
@@ -159,7 +159,7 @@ func TestNamingStrategy(t *testing.T) {
 		require.NoError(t, db.Rows.Insert(ctx, row))
 		require.NotZero(t, row.RowID)
 
-		loaded, err := db.Rows.Where(ant.Eq(&RN.FullName, "x")).First(ctx)
+		loaded, err := db.Rows.Where(ant.Eq(&Renameds.FullName, "x")).First(ctx)
 		require.NoError(t, err)
 		require.Equal(t, row.RowID, loaded.RowID)
 	})
@@ -172,10 +172,10 @@ type Lengthy struct {
 	Note string
 }
 
-func (Lengthy) Configure(b *ant.ModelBuilder[Lengthy]) { b.Column(&LG.Note).Type("text") }
+func (Lengthy) Configure(b *ant.ModelBuilder[Lengthy]) { b.Column(&Lengthies.Note).Type("text") }
 
-// LG is Lengthy's probe.
-var LG = ant.Fields[Lengthy]()
+// Lengthies is Lengthy's probe.
+var Lengthies = ant.Fields[Lengthy]()
 
 // ConventionDB holds it.
 type ConventionDB struct {

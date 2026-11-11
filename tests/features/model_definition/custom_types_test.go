@@ -64,7 +64,7 @@ type InvoiceDB struct {
 	Invoices ant.Table[Invoice]
 }
 
-var I = ant.Fields[Invoice]()
+var Invoices = ant.Fields[Invoice]()
 
 func TestCustomTypes(t *testing.T) {
 	ddl := `CREATE TABLE invoices (
@@ -96,17 +96,17 @@ func TestCustomTypes(t *testing.T) {
 		})
 
 		t.Run("conditions use the converted value", func(t *testing.T) {
-			found, err := db.Invoices.Where(ant.Eq(&I.Total, Money{1250})).Single(ctx)
+			found, err := db.Invoices.Where(ant.Eq(&Invoices.Total, Money{1250})).Single(ctx)
 			require.NoError(t, err)
 			require.Equal(t, Status("paid"), found.Status)
 		})
 
 		t.Run("named types work in conditions", func(t *testing.T) {
-			found, err := db.Invoices.Where(ant.Eq(&I.Status, "open")).Single(ctx)
+			found, err := db.Invoices.Where(ant.Eq(&Invoices.Status, "open")).Single(ctx)
 			require.NoError(t, err)
 			require.Equal(t, Money{500}, found.Total)
 
-			_, err = db.Invoices.Where(ant.Like(&I.Status, "pa%")).Single(ctx)
+			_, err = db.Invoices.Where(ant.Like(&Invoices.Status, "pa%")).Single(ctx)
 			require.NoError(t, err)
 		})
 

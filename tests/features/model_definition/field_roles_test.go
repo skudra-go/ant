@@ -25,14 +25,14 @@ type AccountDB struct {
 	Accounts ant.Table[Account]
 }
 
-var Ac = ant.Fields[Account]()
+var Accounts = ant.Fields[Account]()
 
 // AccountRow is a source row for Merge.
 type AccountRow struct {
 	ID int64
 }
 
-var Ar = ant.Fields[AccountRow]()
+var AccountRows = ant.Fields[AccountRow]()
 
 func TestFieldRoles(t *testing.T) {
 	ddl := `CREATE TABLE accounts (
@@ -102,43 +102,43 @@ func TestFieldRoles(t *testing.T) {
 		})
 
 		t.Run("writeonly can change", func(t *testing.T) {
-			_, err := db.Accounts.Where(ant.Eq(&Ac.ID, account.ID)).
-				Update(ctx, ant.Set(&Ac.Password, "new"))
+			_, err := db.Accounts.Where(ant.Eq(&Accounts.ID, account.ID)).
+				Update(ctx, ant.Set(&Accounts.Password, "new"))
 			require.NoError(t, err)
 		})
 
 		// Fields ant never updates are refused by name in an explicit write too,
 		// before anything runs, rather than changed behind the tag's back.
 		t.Run("an explicit write refuses immutable and readonly fields", func(t *testing.T) {
-			byID := db.Accounts.Where(ant.Eq(&Ac.ID, account.ID))
+			byID := db.Accounts.Where(ant.Eq(&Accounts.ID, account.ID))
 
-			_, err := byID.Update(ctx, ant.Set(&Ac.Created, "rewritten"))
+			_, err := byID.Update(ctx, ant.Set(&Accounts.Created, "rewritten"))
 			require.ErrorContains(t, err, "Account.Created is immutable")
 
-			_, err = byID.Update(ctx, ant.Set(&Ac.Slug, "rewritten"))
+			_, err = byID.Update(ctx, ant.Set(&Accounts.Slug, "rewritten"))
 			require.ErrorContains(t, err, "Account.Slug is readonly")
 
-			_, err = db.Accounts.UpdateMany(ctx, []*Account{account}, ant.F(&Ac.Created))
+			_, err = db.Accounts.UpdateMany(ctx, []*Account{account}, ant.F(&Accounts.Created))
 			require.ErrorContains(t, err, "Account.Created is immutable")
 
 			_, err = db.Accounts.Upsert(
 				ctx,
 				&Account{ID: account.ID, Email: "A@X", Created: "x"},
-				ant.OnConflict(&Ac.ID).DoUpdate(ant.F(&Ac.Created)),
+				ant.OnConflict(&Accounts.ID).DoUpdate(ant.F(&Accounts.Created)),
 			)
 			require.ErrorContains(t, err, "Account.Created is immutable")
 
 			_, err = db.Accounts.Upsert(
 				ctx,
 				&Account{ID: account.ID, Email: "A@X", Created: "x"},
-				ant.OnConflict(&Ac.ID).Set(ant.Set(&Ac.Fee, 9)),
+				ant.OnConflict(&Accounts.ID).Set(ant.Set(&Accounts.Fee, 9)),
 			)
 			require.ErrorContains(t, err, "Account.Fee is immutable")
 
 			source := ant.Values(db, AccountRow{ID: account.ID})
 
-			_, err = ant.Merge(&db.Accounts, source, ant.EqCol(&Ac.ID, &Ar.ID)).
-				WhenMatched(ant.Set(&Ac.Created, "rewritten")).
+			_, err = ant.Merge(&db.Accounts, source, ant.EqCol(&Accounts.ID, &AccountRows.ID)).
+				WhenMatched(ant.Set(&Accounts.Created, "rewritten")).
 				Exec(ctx)
 			require.ErrorContains(t, err, "Account.Created is immutable")
 
@@ -149,7 +149,7 @@ func TestFieldRoles(t *testing.T) {
 			_, err := db.Accounts.Upsert(
 				ctx,
 				&Account{ID: account.ID, Email: "A@X", Created: "upserted"},
-				ant.OnConflict(&Ac.ID),
+				ant.OnConflict(&Accounts.ID),
 			)
 			require.NoError(t, err)
 			require.Equal(t, "now", stored().Created)

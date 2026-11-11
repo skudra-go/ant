@@ -30,7 +30,7 @@ func TestAll(t *testing.T) {
 		})
 
 		t.Run("every column is filled", func(t *testing.T) {
-			got, err := db.Users.Where(ant.Eq(&U.Name, "Carol")).All(ctx)
+			got, err := db.Users.Where(ant.Eq(&Users.Name, "Carol")).All(ctx)
 			require.NoError(t, err)
 			require.NotZero(t, got[0].ID)
 			require.Equal(t, "Carol@example.com", got[0].Email)

@@ -16,18 +16,18 @@ func TestSingle(t *testing.T) {
 		ctx := t.Context()
 
 		t.Run("one match", func(t *testing.T) {
-			user, err := db.Users.Where(ant.Eq(&U.Name, "Bob")).Single(ctx)
+			user, err := db.Users.Where(ant.Eq(&Users.Name, "Bob")).Single(ctx)
 			require.NoError(t, err)
 			require.Equal(t, 17, user.Age)
 		})
 
 		t.Run("no match", func(t *testing.T) {
-			_, err := db.Users.Where(ant.Eq(&U.Name, "Nobody")).Single(ctx)
+			_, err := db.Users.Where(ant.Eq(&Users.Name, "Nobody")).Single(ctx)
 			require.ErrorIs(t, err, ant.ErrNotFound)
 		})
 
 		t.Run("several matches", func(t *testing.T) {
-			user, err := db.Users.Where(ant.Gt(&U.Age, 18)).Single(ctx)
+			user, err := db.Users.Where(ant.Gt(&Users.Age, 18)).Single(ctx)
 			require.ErrorIs(t, err, ant.ErrMultipleRows)
 			require.Nil(t, user)
 		})

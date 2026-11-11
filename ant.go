@@ -8,10 +8,10 @@
 //		Users ant.Table[User]
 //	}
 //
-//	var U = ant.Fields[User]()
+//	var Users = ant.Fields[User]()
 //
 //	db, err := ant.Open[AppDB](ctx, postgres.Dialect, dsn)
-//	adults, err := db.Users.Where(ant.Gt(&U.Age, 18)).All(ctx)
+//	adults, err := db.Users.Where(ant.Gt(&Users.Age, 18)).All(ctx)
 package ant
 
 import (

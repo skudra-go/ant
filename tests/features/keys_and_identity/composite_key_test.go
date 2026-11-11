@@ -17,7 +17,7 @@ type Grant struct {
 }
 
 func (Grant) Configure(b *ant.ModelBuilder[Grant]) {
-	b.CompositeKey(ant.F(&Gr.UserID), ant.F(&Gr.Scope))
+	b.CompositeKey(ant.F(&Grants.UserID), ant.F(&Grants.Scope))
 }
 
 type GrantsDB struct {
@@ -25,7 +25,7 @@ type GrantsDB struct {
 	Grants ant.Table[Grant]
 }
 
-var Gr = ant.Fields[Grant]()
+var Grants = ant.Fields[Grant]()
 
 func TestCompositeKey(t *testing.T) {
 	ddl := `CREATE TABLE grants (user_id BIGINT NOT NULL, scope TEXT NOT NULL, level INT NOT NULL, PRIMARY KEY (user_id, scope))`
@@ -66,7 +66,7 @@ func TestCompositeKey(t *testing.T) {
 
 		t.Run("identity spans the whole key", func(t *testing.T) {
 			session := ant.Session(db)
-			rows, err := session.Grants.OrderBy(&Gr.Scope).All(ctx)
+			rows, err := session.Grants.OrderBy(&Grants.Scope).All(ctx)
 			require.NoError(t, err)
 			require.Len(t, rows, 2)
 			require.NotSame(t, rows[0], rows[1])
@@ -80,11 +80,11 @@ func TestCompositeKey(t *testing.T) {
 			read.Level = 9
 
 			require.NoError(t, db.SaveChanges(ctx))
-			got, err := db.Grants.NoTracking().Where(ant.Eq(&Gr.Scope, "read")).Single(ctx)
+			got, err := db.Grants.NoTracking().Where(ant.Eq(&Grants.Scope, "read")).Single(ctx)
 			require.NoError(t, err)
 			require.Equal(t, 9, got.Level)
 
-			other, err := db.Grants.NoTracking().Where(ant.Eq(&Gr.Scope, "write")).Single(ctx)
+			other, err := db.Grants.NoTracking().Where(ant.Eq(&Grants.Scope, "write")).Single(ctx)
 			require.NoError(t, err)
 			require.Equal(t, 2, other.Level)
 		})
@@ -106,7 +106,8 @@ func TestCompositeKey(t *testing.T) {
 		})
 
 		t.Run("Reload", func(t *testing.T) {
-			_, err := db.Grants.Where(ant.Eq(&Gr.Scope, "write")).Update(ctx, ant.Set(&Gr.Level, 7))
+			_, err := db.Grants.Where(ant.Eq(&Grants.Scope, "write")).
+				Update(ctx, ant.Set(&Grants.Level, 7))
 			require.NoError(t, err)
 			require.NoError(t, db.Grants.Reload(ctx, write))
 			require.Equal(t, 7, write.Level)
@@ -123,7 +124,7 @@ type Order struct {
 var nextCode = 0
 
 func (Order) Configure(b *ant.ModelBuilder[Order]) {
-	ant.GenerateKey(b, &Or.Code, func() string {
+	ant.GenerateKey(b, &Orders.Code, func() string {
 		nextCode++
 
 		return "order-" + string(rune('0'+nextCode))
@@ -135,7 +136,7 @@ type OrdersDB struct {
 	Orders ant.Table[Order]
 }
 
-var Or = ant.Fields[Order]()
+var Orders = ant.Fields[Order]()
 
 func TestGenerateKey(t *testing.T) {
 	ddl := `CREATE TABLE orders (code TEXT PRIMARY KEY, total INT NOT NULL)`

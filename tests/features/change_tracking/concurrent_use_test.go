@@ -110,7 +110,7 @@ func heldEntry[T any](t *testing.T, h *holder, db ant.Handle, entity *T) *ant.En
 }
 
 // byTitle orders included posts.
-func byTitle(q *ant.Query[Post]) *ant.Query[Post] { return q.OrderBy(&P.Title) }
+func byTitle(q *ant.Query[Post]) *ant.Query[Post] { return q.OrderBy(&Posts.Title) }
 
 // postTitles returns the titles of a user's loaded posts.
 func postTitles(u *User) []string {
@@ -140,7 +140,7 @@ func TestConcurrentUse(t *testing.T) {
 			&Post{UserID: bob.ID, Title: "B1"}))
 
 		load := func(ctx context.Context) error {
-			_, err := db.Users.Include(&U.Posts).All(ctx)
+			_, err := db.Users.Include(&Users.Posts).All(ctx)
 
 			return err
 		}
@@ -158,12 +158,12 @@ func TestConcurrentUse(t *testing.T) {
 					return err
 				}},
 				{"First", func(ctx context.Context) error {
-					_, err := db.Users.OrderBy(&U.Name).First(ctx)
+					_, err := db.Users.OrderBy(&Users.Name).First(ctx)
 
 					return err
 				}},
 				{"Single", func(ctx context.Context) error {
-					_, err := db.Users.Where(ant.Eq(&U.Name, "Alice")).Single(ctx)
+					_, err := db.Users.Where(ant.Eq(&Users.Name, "Alice")).Single(ctx)
 
 					return err
 				}},
@@ -178,7 +178,7 @@ func TestConcurrentUse(t *testing.T) {
 					return err
 				}},
 				{"Page", func(ctx context.Context) error {
-					_, err := db.Users.OrderBy(&U.ID).Page(ctx, 1, 2)
+					_, err := db.Users.OrderBy(&Users.ID).Page(ctx, 1, 2)
 
 					return err
 				}},
@@ -187,29 +187,33 @@ func TestConcurrentUse(t *testing.T) {
 				}},
 				{"Include", load},
 				{"IncludeOne", func(ctx context.Context) error {
-					_, err := db.Posts.IncludeOne(&P.User).All(ctx)
+					_, err := db.Posts.IncludeOne(&Posts.User).All(ctx)
 
 					return err
 				}},
 				{"IncludeJoined", func(ctx context.Context) error {
-					_, err := db.Posts.IncludeJoined(&P.User).All(ctx)
+					_, err := db.Posts.IncludeJoined(&Posts.User).All(ctx)
 
 					return err
 				}},
 				{"Load", func(ctx context.Context) error {
-					return db.Users.Load(ctx, &U.Posts, &User{Base: ant.Base{ID: bob.ID}})
+					return db.Users.Load(ctx, &Users.Posts, &User{Base: ant.Base{ID: bob.ID}})
 				}},
 				{"LoadOne", func(ctx context.Context) error {
-					return db.Posts.LoadOne(ctx, &P.User, &Post{UserID: bob.ID})
+					return db.Posts.LoadOne(ctx, &Posts.User, &Post{UserID: bob.ID})
 				}},
 				{"LoadMissing, before it reads the relation", func(ctx context.Context) error {
-					return db.Users.LoadMissing(ctx, &U.Posts, bob)
+					return db.Users.LoadMissing(ctx, &Users.Posts, bob)
 				}},
 				{"Insert", func(ctx context.Context) error {
 					return db.Users.Insert(ctx, stranger())
 				}},
 				{"Upsert", func(ctx context.Context) error {
-					_, err := db.Users.Upsert(ctx, stranger(), ant.OnConflict(&U.Email).DoNothing())
+					_, err := db.Users.Upsert(
+						ctx,
+						stranger(),
+						ant.OnConflict(&Users.Email).DoNothing(),
+					)
 
 					return err
 				}},
@@ -276,7 +280,7 @@ func TestConcurrentUse(t *testing.T) {
 				finished <- db.Tx(ctx, func(tx *AppDB) error {
 					var err error
 
-					carol, err = tx.Users.Where(ant.Eq(&U.Name, "Carol")).First(ctx)
+					carol, err = tx.Users.Where(ant.Eq(&Users.Name, "Carol")).First(ctx)
 					if err != nil {
 						return err
 					}
@@ -409,7 +413,7 @@ func TestConcurrentUse(t *testing.T) {
 			require.NoError(t, db.SaveChanges(ctx), "and is not inserted again")
 			require.Equal(t, ant.Unchanged, fixture.Entry(t, db, dan).State())
 
-			n, err := db.Users.Where(ant.Eq(&U.Email, dan.Email)).Count(ctx)
+			n, err := db.Users.Where(ant.Eq(&Users.Email, dan.Email)).Count(ctx)
 			require.NoError(t, err)
 			require.EqualValues(t, 1, n)
 		})
@@ -465,7 +469,7 @@ func TestConcurrentUse(t *testing.T) {
 			require.Equal(t, ant.Added, fixture.Entry(t, db, eve).State(), "neither insert stayed")
 			require.NoError(t, db.SaveChanges(ctx))
 
-			n, err := db.Users.Where(ant.Eq(&U.Email, eve.Email)).Count(ctx)
+			n, err := db.Users.Where(ant.Eq(&Users.Email, eve.Email)).Count(ctx)
 			require.NoError(t, err)
 			require.EqualValues(t, 1, n)
 		})
@@ -624,7 +628,7 @@ func TestConcurrentUse(t *testing.T) {
 		t.Run("a late rollback keeps a newer save's members", func(t *testing.T) {
 			uma := &User{Name: "Uma", Email: "uma.late@example.com"}
 			require.NoError(t, db.Users.Insert(ctx, uma))
-			require.NoError(t, db.Users.Load(ctx, &U.Posts, uma))
+			require.NoError(t, db.Users.Load(ctx, &Users.Posts, uma))
 
 			saved, abort := make(chan struct{}), make(chan struct{})
 			finished := make(chan error, 1)
@@ -676,12 +680,12 @@ func TestConcurrentUse(t *testing.T) {
 			vic := &User{Name: "Vic", Email: "vic.reload@example.com"}
 			require.NoError(t, db.Users.Insert(ctx, vic))
 			require.NoError(t, db.Posts.Insert(ctx, &Post{UserID: vic.ID, Title: "V1"}))
-			require.NoError(t, db.Users.Load(ctx, &U.Posts, vic))
+			require.NoError(t, db.Users.Load(ctx, &Users.Posts, vic))
 			require.Len(t, vic.Posts, 1)
 
 			err := db.Tx(ctx, func(tx *AppDB) error {
-				_, err := tx.Posts.Where(ant.Eq(&P.UserID, vic.ID)).
-					Update(ctx, ant.Set(&P.Title, "V1 changed"))
+				_, err := tx.Posts.Where(ant.Eq(&Posts.UserID, vic.ID)).
+					Update(ctx, ant.Set(&Posts.Title, "V1 changed"))
 				require.NoError(t, err)
 				require.NoError(t, tx.Posts.Reload(ctx, &vic.Posts[0]))
 
@@ -714,10 +718,10 @@ func TestConcurrentUse(t *testing.T) {
 			err := db.Tx(ctx, func(tx *AppDB) error {
 				require.NoError(t, ant.Add(ctx, tx, fay))
 				require.NoError(t, tx.SaveChanges(ctx))
-				require.NoError(t, tx.Users.Load(ctx, &U.Posts, fay))
+				require.NoError(t, tx.Users.Load(ctx, &Users.Posts, fay))
 
 				require.NoError(t, tx.Users.Insert(ctx, gus))
-				require.NoError(t, tx.Users.Load(ctx, &U.Posts, gus))
+				require.NoError(t, tx.Users.Load(ctx, &Users.Posts, gus))
 
 				return errors.New("roll back")
 			})
@@ -769,7 +773,7 @@ func TestConcurrentUse(t *testing.T) {
 
 			require.NoError(t, db.SaveChanges(ctx))
 
-			n, err := db.Users.Where(ant.In(&U.Email, hal.Email, ivy.Email)).Count(ctx)
+			n, err := db.Users.Where(ant.In(&Users.Email, hal.Email, ivy.Email)).Count(ctx)
 			require.NoError(t, err)
 			require.Zero(t, n, "Hal was never stored, and Ivy is deleted")
 		})
@@ -799,7 +803,7 @@ func TestConcurrentUse(t *testing.T) {
 
 				require.NoError(t, db.SaveChanges(ctx))
 
-				n, err := db.Users.Where(ant.Eq(&U.Email, jo.Email)).Count(ctx)
+				n, err := db.Users.Where(ant.Eq(&Users.Email, jo.Email)).Count(ctx)
 				require.NoError(t, err)
 				require.EqualValues(t, 1, n)
 			},
@@ -810,7 +814,8 @@ func TestConcurrentUse(t *testing.T) {
 			require.NoError(t, db.Users.Insert(ctx, kim))
 
 			err := db.Tx(ctx, func(tx *AppDB) error {
-				_, err := tx.Users.Where(ant.Eq(&U.ID, kim.ID)).Update(ctx, ant.Set(&U.Age, 50))
+				_, err := tx.Users.Where(ant.Eq(&Users.ID, kim.ID)).
+					Update(ctx, ant.Set(&Users.Age, 50))
 				require.NoError(t, err)
 				require.NoError(t, tx.Users.Reload(ctx, kim))
 				require.Equal(t, 50, kim.Age)
@@ -860,7 +865,7 @@ func TestConcurrentUse(t *testing.T) {
 			require.Equal(t, ant.Deleted, fixture.Entry(t, db, ned).State())
 
 			require.NoError(t, db.SaveChanges(ctx))
-			n, err := db.Users.Where(ant.Eq(&U.Email, ned.Email)).Count(ctx)
+			n, err := db.Users.Where(ant.Eq(&Users.Email, ned.Email)).Count(ctx)
 			require.NoError(t, err)
 			require.Zero(t, n)
 		})
@@ -877,14 +882,14 @@ func TestConcurrentUse(t *testing.T) {
 					&Post{UserID: lee.ID, Title: "L2"},
 				))
 
-				require.NoError(t, db.Users.Load(ctx, &U.Posts, lee))
+				require.NoError(t, db.Users.Load(ctx, &Users.Posts, lee))
 				require.Len(t, lee.Posts, 2)
 
 				lee.Posts = lee.Posts[1:]
 
 				err := db.Tx(ctx, func(tx *AppDB) error {
 					require.NoError(t, tx.SaveChanges(ctx))
-					require.NoError(t, tx.Users.Load(ctx, &U.Posts, lee))
+					require.NoError(t, tx.Users.Load(ctx, &Users.Posts, lee))
 					require.Len(t, lee.Posts, 1, "inside, the post is gone")
 
 					return errors.New("roll back")
@@ -910,7 +915,7 @@ func TestConcurrentUse(t *testing.T) {
 				finished <- db.Tx(ctx, func(tx *AppDB) error {
 					session := ant.Session(tx)
 
-					bob, err := session.Users.Where(ant.Eq(&U.Name, "Bob")).First(ctx)
+					bob, err := session.Users.Where(ant.Eq(&Users.Name, "Bob")).First(ctx)
 					if err != nil {
 						return err
 					}
@@ -1024,27 +1029,27 @@ func TestConcurrentUse(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, count, n)
 
-				found, err := db.Users.Where(ant.Eq(&U.Name, "Bob")).Exists(ctx)
+				found, err := db.Users.Where(ant.Eq(&Users.Name, "Bob")).Exists(ctx)
 				require.NoError(t, err)
 				require.True(t, found)
 
 				users, err := db.Users.NoTracking().
-					Include(&U.Posts, byTitle).
-					OrderBy(&U.Name).
+					Include(&Users.Posts, byTitle).
+					OrderBy(&Users.Name).
 					All(ctx)
 				require.NoError(t, err)
 				require.Equal(t, []string{"A1", "A2"}, postTitles(users[0]))
 
-				names, err := db.Users.Query().Column(&U.Name).All(ctx)
+				names, err := db.Users.Query().Column(&Users.Name).All(ctx)
 				require.NoError(t, err)
 				require.Len(t, names, int(count), "a partial row is never tracked")
 
-				changed, err := db.Users.Where(ant.Eq(&U.Name, "nobody")).
-					Update(ctx, ant.Set(&U.Age, 1))
+				changed, err := db.Users.Where(ant.Eq(&Users.Name, "nobody")).
+					Update(ctx, ant.Set(&Users.Age, 1))
 				require.NoError(t, err)
 				require.Zero(t, changed)
 
-				session, err := ant.Session(db).Users.Include(&U.Posts).All(ctx)
+				session, err := ant.Session(db).Users.Include(&Users.Posts).All(ctx)
 				require.NoError(t, err, "a session has a tracker of its own")
 				require.Len(t, session, int(count))
 			})
@@ -1055,7 +1060,7 @@ func TestConcurrentUse(t *testing.T) {
 			canceled, cancel := context.WithCancel(ctx)
 			cancel()
 
-			_, err := db.Users.Include(&U.Posts).All(canceled)
+			_, err := db.Users.Include(&Users.Posts).All(canceled)
 			require.ErrorIs(t, err, context.Canceled)
 
 			_, err = db.Users.Where(ant.SQLCond("no_such_column")).All(ctx)
@@ -1065,9 +1070,9 @@ func TestConcurrentUse(t *testing.T) {
 		})
 
 		t.Run("a query inside the operation shares its claim", func(t *testing.T) {
-			users, err := db.Users.Include(&U.Posts, func(q *ant.Query[Post]) *ant.Query[Post] {
-				return byTitle(q).IncludeOne(&P.User)
-			}).OrderBy(&U.Name).All(ctx)
+			users, err := db.Users.Include(&Users.Posts, func(q *ant.Query[Post]) *ant.Query[Post] {
+				return byTitle(q).IncludeOne(&Posts.User)
+			}).OrderBy(&Users.Name).All(ctx)
 			require.NoError(t, err, "a nested include")
 			require.Equal(t, []string{"A1", "A2"}, postTitles(users[0]))
 			require.Equal(t, "Alice", users[0].Posts[0].User.Name)
@@ -1076,9 +1081,9 @@ func TestConcurrentUse(t *testing.T) {
 			require.NoError(t, err)
 
 			seen := 0
-			err = db.Users.OrderBy(&U.ID).Chunk(ctx, 2, func(batch []*User) error {
+			err = db.Users.OrderBy(&Users.ID).Chunk(ctx, 2, func(batch []*User) error {
 				for _, u := range batch {
-					if err := db.Users.Load(ctx, &U.Posts, u); err != nil {
+					if err := db.Users.Load(ctx, &Users.Posts, u); err != nil {
 						return err
 					}
 
@@ -1130,7 +1135,7 @@ func TestConcurrentUseWithTrackingOff(t *testing.T) {
 
 					require.NoError(
 						t,
-						db.Users.Load(ctx, &U.Posts, &User{Base: ant.Base{ID: bob.ID}}),
+						db.Users.Load(ctx, &Users.Posts, &User{Base: ant.Base{ID: bob.ID}}),
 					)
 				},
 			)
@@ -1150,14 +1155,14 @@ func TestConcurrentUseWithTrackingOff(t *testing.T) {
 				_, err := db.Users.Upsert(
 					ctx,
 					&User{Name: "Gus", Email: "gus@example.com"},
-					ant.OnConflict(&U.Email).DoNothing(),
+					ant.OnConflict(&Users.Email).DoNothing(),
 				)
 
 				return err
 			}},
 			{"Reload", func(ctx context.Context) error { return db.Users.Reload(ctx, alice) }},
 			{"Load", func(ctx context.Context) error {
-				return db.Users.Load(ctx, &U.Posts, alice)
+				return db.Users.Load(ctx, &Users.Posts, alice)
 			}},
 			{"SaveChanges", db.SaveChanges},
 		}
@@ -1210,7 +1215,7 @@ func TestConcurrentRequests(t *testing.T) {
 		// a handler would. With check, it also reads what it loaded: each
 		// relation must hold exactly its rows.
 		request := func(db *AppDB, check bool) error {
-			users, err := db.Users.Include(&U.Posts, byTitle).All(ctx)
+			users, err := db.Users.Include(&Users.Posts, byTitle).All(ctx)
 			if err != nil || !check {
 				return err
 			}
@@ -1221,7 +1226,9 @@ func TestConcurrentRequests(t *testing.T) {
 				}
 			}
 
-			posts, err := db.Posts.IncludeOne(&P.User).Where(ant.Eq(&P.Title, "B1")).All(ctx)
+			posts, err := db.Posts.IncludeOne(&Posts.User).
+				Where(ant.Eq(&Posts.Title, "B1")).
+				All(ctx)
 			if err != nil {
 				return err
 			}
@@ -1290,7 +1297,7 @@ func TestConcurrentRequests(t *testing.T) {
 				wg.Go(func() {
 					session := ant.Session(tracked)
 
-					users, err := session.Users.Include(&U.Posts).OrderBy(&U.ID).All(ctx)
+					users, err := session.Users.Include(&Users.Posts).OrderBy(&Users.ID).All(ctx)
 					if err != nil {
 						errs <- err
 
@@ -1311,7 +1318,7 @@ func TestConcurrentRequests(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			n, err := untracked.Posts.Where(ant.Eq(&P.Title, "new")).Count(ctx)
+			n, err := untracked.Posts.Where(ant.Eq(&Posts.Title, "new")).Count(ctx)
 			require.NoError(t, err)
 			require.EqualValues(t, requests, n, "no post was saved twice or lost")
 		})
@@ -1355,11 +1362,11 @@ func TestLoadRepeatedParent(t *testing.T) {
 			&Post{UserID: alice.ID, Title: "A1"},
 			&Post{UserID: alice.ID, Title: "A2"}))
 
-		require.NoError(t, db.Users.Load(ctx, &U.Posts, alice, alice))
+		require.NoError(t, db.Users.Load(ctx, &Users.Posts, alice, alice))
 		require.Len(t, alice.Posts, 2)
 
 		posts := []*Post{{UserID: alice.ID}, {UserID: alice.ID}}
-		require.NoError(t, db.Posts.LoadOne(ctx, &P.User, posts[0], posts[0], posts[1]))
+		require.NoError(t, db.Posts.LoadOne(ctx, &Posts.User, posts[0], posts[0], posts[1]))
 		require.Equal(t, "Alice", posts[0].User.Name)
 		require.Equal(t, "Alice", posts[1].User.Name)
 	})
@@ -1413,7 +1420,7 @@ func TestConcurrentUseInHooks(t *testing.T) {
 		require.NoError(t, db.Notes.Insert(ctx, &Note{Author: "ann"}, &Note{Author: "ben"}))
 
 		others := func(ctx context.Context) error {
-			_, err := db.Notes.Where(ant.Eq(&N.Author, "ben")).All(ctx)
+			_, err := db.Notes.Where(ant.Eq(&Notes.Author, "ben")).All(ctx)
 
 			return err
 		}
@@ -1421,7 +1428,7 @@ func TestConcurrentUseInHooks(t *testing.T) {
 		t.Run("with the hook's context", func(t *testing.T) {
 			noteHook = others
 
-			notes, err := db.Notes.OrderBy(&N.Author).All(ctx)
+			notes, err := db.Notes.OrderBy(&Notes.Author).All(ctx)
 			require.NoError(t, err, "AfterLoad inside a load")
 
 			notes[0].Author = "anne"
@@ -1471,5 +1478,5 @@ func TestConcurrentUseInHooks(t *testing.T) {
 	})
 }
 
-// N is the probe for Note.
-var N = ant.Fields[Note]()
+// Notes is the probe for Note.
+var Notes = ant.Fields[Note]()

@@ -29,7 +29,9 @@ func TestLike(t *testing.T) {
 
 		for _, c := range cases {
 			t.Run(c.name, func(t *testing.T) {
-				got, err := db.Users.Where(ant.Like(&U.Name, c.pattern)).OrderBy(&U.Name).All(ctx)
+				got, err := db.Users.Where(ant.Like(&Users.Name, c.pattern)).
+					OrderBy(&Users.Name).
+					All(ctx)
 				require.NoError(t, err)
 				require.Equal(t, c.want, fixture.Names(got))
 			})

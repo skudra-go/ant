@@ -50,8 +50,8 @@ type TypesDB struct {
 
 // Probes.
 var (
-	ST = ant.Fields[Stamped]()
-	DC = ant.Fields[Doc]()
+	Stampeds = ant.Fields[Stamped]()
+	Docs     = ant.Fields[Doc]()
 )
 
 const typesDDL = `
@@ -83,7 +83,8 @@ func TestStoredTypes(t *testing.T) {
 			require.NoError(t, err)
 			require.Greater(t, *raw, int64(1_000_000_000), "an integer in the database")
 
-			_, err = db.Stamped.Where(ant.Eq(&ST.Name, "x")).Update(ctx, ant.Set(&ST.Name, "y"))
+			_, err = db.Stamped.Where(ant.Eq(&Stampeds.Name, "x")).
+				Update(ctx, ant.Set(&Stampeds.Name, "y"))
 			require.NoError(t, err, "bulk updates stamp it too")
 		})
 
@@ -106,8 +107,8 @@ func TestStoredTypes(t *testing.T) {
 			}
 			require.NoError(t, db.Docs.Insert(ctx, row))
 
-			_, err := db.Docs.Where(ant.Eq(&DC.ID, row.ID)).
-				Update(ctx, ant.SetExpr(&DC.Meta, postgres.JSONSet(&DC.Meta, 2, "level")))
+			_, err := db.Docs.Where(ant.Eq(&Docs.ID, row.ID)).
+				Update(ctx, ant.SetExpr(&Docs.Meta, postgres.JSONSet(&Docs.Meta, 2, "level")))
 			require.NoError(t, err)
 			loaded, err := db.Docs.NoTracking().Find(ctx, row.ID)
 			require.NoError(t, err)
@@ -165,8 +166,8 @@ type Place struct {
 	At   postgres.Point
 }
 
-// PL is Place's probe.
-var PL = ant.Fields[Place]()
+// Places is Place's probe.
+var Places = ant.Fields[Place]()
 
 // PlaceDB holds it.
 type PlaceDB struct {
@@ -182,12 +183,12 @@ func TestPoints(t *testing.T) {
 			&Place{Name: "near", At: postgres.Point{X: 1, Y: 1}},
 			&Place{Name: "far", At: postgres.Point{X: 50, Y: 50}}))
 
-		found, err := db.Places.Where(postgres.Near(&PL.At, postgres.Point{}, 5)).All(ctx)
+		found, err := db.Places.Where(postgres.Near(&Places.At, postgres.Point{}, 5)).All(ctx)
 		require.NoError(t, err)
 		require.Len(t, found, 1)
 		require.Equal(t, postgres.Point{X: 1, Y: 1}, found[0].At)
 
-		byDistance := postgres.Distance(&PL.At, postgres.Point{X: 49, Y: 49}).Asc()
+		byDistance := postgres.Distance(&Places.At, postgres.Point{X: 49, Y: 49}).Asc()
 
 		ordered, err := db.Places.Order(byDistance).
 			First(ctx)
@@ -204,7 +205,7 @@ func TestJSONPathsAreQuoted(t *testing.T) {
 		require.NoError(t, db.Docs.Insert(ctx, row))
 
 		value, err := ant.Project[DocValue](db.Docs.Query(),
-			ant.IntoExpr(&DV.Value, postgres.JSONText(&DC.Meta, "a,b"))).First(ctx)
+			ant.IntoExpr(&DocValues.Value, postgres.JSONText(&Docs.Meta, "a,b"))).First(ctx)
 		require.NoError(t, err)
 		require.Equal(t, "found", value.Value)
 	})
@@ -213,8 +214,8 @@ func TestJSONPathsAreQuoted(t *testing.T) {
 // DocValue is one value read from a document.
 type DocValue struct{ Value string }
 
-// DV is DocValue's probe.
-var DV = ant.Fields[DocValue]()
+// DocValues is DocValue's probe.
+var DocValues = ant.Fields[DocValue]()
 
 // Embedded holds a pgvector column.
 type Embedded struct {
@@ -222,8 +223,8 @@ type Embedded struct {
 	Embedding postgres.Vector
 }
 
-// EM is Embedded's probe.
-var EM = ant.Fields[Embedded]()
+// Embeddeds is Embedded's probe.
+var Embeddeds = ant.Fields[Embedded]()
 
 // VectorDB holds it.
 type VectorDB struct {
@@ -265,7 +266,8 @@ func TestVectors(t *testing.T) {
 			),
 		)
 
-		bySimilarity := postgres.CosineDistance(&EM.Embedding, postgres.Vector{0.9, 0.1}).Asc()
+		bySimilarity := postgres.CosineDistance(&Embeddeds.Embedding, postgres.Vector{0.9, 0.1}).
+			Asc()
 
 		nearest, err := db.Rows.Order(bySimilarity).
 			First(ctx)

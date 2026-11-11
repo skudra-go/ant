@@ -6,11 +6,13 @@ import (
 )
 
 // Fields returns a probe for T. A probe holds no data. Its field addresses
-// identify columns, so &U.Age names the age column of User:
+// identify columns, so &Users.Age names the age column of User:
 //
-//	var U = ant.Fields[User]()
+//	var Users = ant.Fields[User]()
 //
-// Declare one probe per model at package level.
+// Declare one probe per model at package level. By convention it is named after
+// the model in the plural, as its table is, so the names never clash. Any name
+// works.
 func Fields[T any]() *T {
 	return meta.Probe[T]()
 }

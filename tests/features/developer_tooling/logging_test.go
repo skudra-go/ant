@@ -24,7 +24,7 @@ func TestLogging(t *testing.T) {
 			out.Reset()
 
 			db := fixture.Open[fixture.AppDB](t, target, ant.WithLogger(logger))
-			_, err := db.Users.Where(ant.Eq(&U.Name, "secret-value")).All(ctx)
+			_, err := db.Users.Where(ant.Eq(&Users.Name, "secret-value")).All(ctx)
 			require.NoError(t, err)
 			require.Contains(t, out.String(), "level=DEBUG")
 			require.Contains(t, out.String(), "SELECT")
@@ -41,7 +41,7 @@ func TestLogging(t *testing.T) {
 			out.Reset()
 
 			db := fixture.Open[fixture.AppDB](t, target, ant.WithLogger(logger, ant.LogValues()))
-			_, err := db.Users.Where(ant.Eq(&U.Name, "visible-value")).All(ctx)
+			_, err := db.Users.Where(ant.Eq(&Users.Name, "visible-value")).All(ctx)
 			require.NoError(t, err)
 			require.Contains(t, out.String(), "visible-value")
 		})
@@ -73,7 +73,7 @@ func TestLogging(t *testing.T) {
 // ToSQL shows a query's statement, and Explain the database's plan for it.
 func TestInspection(t *testing.T) {
 	fixture.Run(t, func(t *testing.T, db *fixture.AppDB) {
-		q := db.Users.Where(ant.Gt(&U.Age, 18)).OrderBy(&U.Name).Limit(5)
+		q := db.Users.Where(ant.Gt(&Users.Age, 18)).OrderBy(&Users.Name).Limit(5)
 
 		text, args, err := q.ToSQL()
 		require.NoError(t, err)

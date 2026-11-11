@@ -147,20 +147,20 @@ type Tuned struct {
 }
 
 func (Tuned) Configure(b *ant.ModelBuilder[Tuned]) {
-	b.Column(&T.Code).Length(8).Collation("C").Unique("tuned_code")
-	b.Column(&T.Amount).Precision(12, 4)
-	b.Column(&T.Required).NotNull()
-	b.Column(&T.Title).Type("citext").Nullable()
-	b.Column(&T.Status).Default("'draft'")
-	b.Column(&T.Upper).Generated("upper(code)")
-	b.Index(&T.Code).And(&T.Amount).Desc()
+	b.Column(&Tuneds.Code).Length(8).Collation("C").Unique("tuned_code")
+	b.Column(&Tuneds.Amount).Precision(12, 4)
+	b.Column(&Tuneds.Required).NotNull()
+	b.Column(&Tuneds.Title).Type("citext").Nullable()
+	b.Column(&Tuneds.Status).Default("'draft'")
+	b.Column(&Tuneds.Upper).Generated("upper(code)")
+	b.Index(&Tuneds.Code).And(&Tuneds.Amount).Desc()
 
-	b.Index(&T.Status).
+	b.Index(&Tuneds.Status).
 		Unique().
 		Where("status = 'draft'").
 		Name("one_draft").
 		Using("btree").
-		Include(&T.Title).
+		Include(&Tuneds.Title).
 		Concurrently()
 
 	b.IndexExpr("lower(code)").Name("tuned_lower").AndExpr("upper(code)").Unique()
@@ -173,8 +173,8 @@ type TunedDB struct {
 	Rows ant.Table[Tuned]
 }
 
-// T is Tuned's probe.
-var T = ant.Fields[Tuned]()
+// Tuneds is Tuned's probe.
+var Tuneds = ant.Fields[Tuned]()
 
 func TestColumnConfiguration(t *testing.T) {
 	table := schemaOf[TunedDB](t).Table(schema.Ref{Name: "tuneds"})

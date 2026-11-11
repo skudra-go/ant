@@ -14,8 +14,8 @@ type (
 )
 
 var (
-	U = fixture.U
-	P = fixture.P
+	Users = fixture.Users
+	Posts = fixture.Posts
 )
 
 // seed adds Alice with posts A1, A2, and A3, Bob with B1, and Carol with none.

@@ -38,8 +38,8 @@ func TestRetryPolicy(t *testing.T) {
 						return err
 					}
 
-					_, err = tx.Users.Where(ant.Eq(&U.ID, alice.ID)).
-						Update(ctx, ant.Set(&U.Age, stored.Age+1))
+					_, err = tx.Users.Where(ant.Eq(&Users.ID, alice.ID)).
+						Update(ctx, ant.Set(&Users.Age, stored.Age+1))
 
 					return err
 				})

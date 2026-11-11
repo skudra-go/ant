@@ -29,7 +29,7 @@ type DevicesDB struct {
 	Devices ant.Table[Device]
 }
 
-var D = ant.Fields[Device]()
+var Devices = ant.Fields[Device]()
 
 func TestJSON(t *testing.T) {
 	ddl := `CREATE TABLE devices (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, prefs JSONB NOT NULL, extra JSONB)`
@@ -65,25 +65,30 @@ func TestJSON(t *testing.T) {
 
 		t.Run("JSONText reads inside the column", func(t *testing.T) {
 			got, err := db.Devices.NoTracking().
-				Where(postgres.JSONText(&D.Prefs, "theme").Eq("dark")).
+				Where(postgres.JSONText(&Devices.Prefs, "theme").Eq("dark")).
 				Single(ctx)
 			require.NoError(t, err)
 			require.Equal(t, "phone", got.Name)
 		})
 
 		t.Run("JSONText with a deeper path", func(t *testing.T) {
-			first, err := ant.Pluck(ctx, db.Devices.Where(ant.Eq(&D.Name, "phone")), &D.Name)
+			first, err := ant.Pluck(
+				ctx,
+				db.Devices.Where(ant.Eq(&Devices.Name, "phone")),
+				&Devices.Name,
+			)
 			require.NoError(t, err)
 			require.Len(t, first, 1)
 
-			n, err := db.Devices.Where(postgres.JSONText(&D.Prefs, "tags", "1").Eq("b")).Count(ctx)
+			n, err := db.Devices.Where(postgres.JSONText(&Devices.Prefs, "tags", "1").Eq("b")).
+				Count(ctx)
 			require.NoError(t, err)
 			require.EqualValues(t, 1, n)
 		})
 
 		t.Run("JSONContains", func(t *testing.T) {
 			n, err := db.Devices.Where(postgres.JSONContains(
-				&D.Prefs,
+				&Devices.Prefs,
 				map[string]any{"theme": "light"},
 			)).
 				Count(ctx)
@@ -92,21 +97,22 @@ func TestJSON(t *testing.T) {
 		})
 
 		t.Run("a value that cannot be JSON is an error", func(t *testing.T) {
-			_, err := db.Devices.Where(postgres.JSONContains(&D.Prefs, make(chan int))).All(ctx)
+			_, err := db.Devices.Where(postgres.JSONContains(&Devices.Prefs, make(chan int))).
+				All(ctx)
 			require.Error(t, err)
 		})
 
 		t.Run("JSONHasKey", func(t *testing.T) {
-			n, err := db.Devices.Where(postgres.JSONHasKey(&D.Prefs, "size")).Count(ctx)
+			n, err := db.Devices.Where(postgres.JSONHasKey(&Devices.Prefs, "size")).Count(ctx)
 			require.NoError(t, err)
 			require.EqualValues(t, 2, n)
-			n, err = db.Devices.Where(postgres.JSONHasKey(&D.Prefs, "missing")).Count(ctx)
+			n, err = db.Devices.Where(postgres.JSONHasKey(&Devices.Prefs, "missing")).Count(ctx)
 			require.NoError(t, err)
 			require.Zero(t, n)
 		})
 
 		t.Run("JSONLength", func(t *testing.T) {
-			n, err := db.Devices.Where(postgres.JSONLength(&D.Extra).Gt(1)).Count(ctx)
+			n, err := db.Devices.Where(postgres.JSONLength(&Devices.Extra).Gt(1)).Count(ctx)
 			require.NoError(t, err, "NULL has no length, so no row matches")
 			require.Zero(t, n)
 		})

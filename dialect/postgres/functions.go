@@ -32,7 +32,7 @@ func pathLiteral(path []string) string {
 // JSONSet returns a jsonb column with the value at path replaced, or added if the
 // path's parent exists, for updating part of a document in one statement:
 //
-//	ant.SetExpr(&U.Meta, postgres.JSONSet(&U.Meta, 2, "profile", "level"))
+//	ant.SetExpr(&Users.Meta, postgres.JSONSet(&Users.Meta, 2, "profile", "level"))
 func JSONSet[V any](field *V, value any, path ...string) ant.Expr[V] {
 	text, err := json.Marshal(value)
 	if err != nil {
@@ -152,7 +152,7 @@ func Near(field *Point, p Point, radius float64) ant.Cond {
 
 // Vector is a column of the pgvector extension, for similarity search. Run CREATE
 // EXTENSION vector in a migration first, and give the size with
-// b.Column(&D.Embedding).Type("vector(1536)").
+// b.Column(&Documents.Embedding).Type("vector(1536)").
 type Vector []float32
 
 // ColumnType implements schema.Typed.
@@ -221,7 +221,7 @@ func (v *Vector) Scan(src any) error {
 }
 
 // CosineDistance returns the distance from a vector column to v, for ordering by
-// similarity: Order(postgres.CosineDistance(&D.Embedding, query).Asc()).Limit(10).
+// similarity: Order(postgres.CosineDistance(&Documents.Embedding, query).Asc()).Limit(10).
 func CosineDistance(field *Vector, v Vector) ant.Expr[float64] {
 	return ant.SQL[float64]("? <=> ?::vector", ant.Col(field), v.text())
 }

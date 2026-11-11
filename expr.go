@@ -507,7 +507,7 @@ type CaseExpr[V any] struct {
 
 // Case starts a CASE expression:
 //
-//	ant.Case[string]().When(ant.Lt(&U.Age, 18), "minor").Else("adult")
+//	ant.Case[string]().When(ant.Lt(&Users.Age, 18), "minor").Else("adult")
 func Case[V any]() CaseExpr[V] { return CaseExpr[V]{} }
 
 // When adds a branch.

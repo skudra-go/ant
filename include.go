@@ -39,8 +39,8 @@ type include struct {
 // The optional function shapes the related query. It can filter, order, and
 // limit, per parent, and call Include again for nested relations:
 //
-//	db.Users.Include(&U.Posts, func(q *ant.Query[Post]) *ant.Query[Post] {
-//		return q.Where(ant.Eq(&P.Published, true)).OrderByDesc(&P.ID).Limit(3)
+//	db.Users.Include(&Users.Posts, func(q *ant.Query[Post]) *ant.Query[Post] {
+//		return q.Where(ant.Eq(&Posts.Published, true)).OrderByDesc(&Posts.ID).Limit(3)
 //	})
 func (q *Query[T]) Include[R any](rel *[]R, shape ...func(*Query[R]) *Query[R]) *Query[T] {
 	n := q.next()

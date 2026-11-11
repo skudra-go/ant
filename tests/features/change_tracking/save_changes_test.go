@@ -67,7 +67,8 @@ func TestSaveChanges(t *testing.T) {
 
 		t.Run("only changed columns are written", func(t *testing.T) {
 			// Another writer changes a column this context also loaded.
-			_, err := db.Users.Where(ant.Eq(&U.ID, alice.ID)).Update(ctx, ant.Set(&U.Name, "Ally"))
+			_, err := db.Users.Where(ant.Eq(&Users.ID, alice.ID)).
+				Update(ctx, ant.Set(&Users.Name, "Ally"))
 			require.NoError(t, err)
 
 			alice.Age = 51
@@ -100,7 +101,7 @@ func TestNoTracking(t *testing.T) {
 		ctx := t.Context()
 		session := ant.Session(db)
 
-		user, err := session.Users.NoTracking().Where(ant.Eq(&U.Name, "Bob")).Single(ctx)
+		user, err := session.Users.NoTracking().Where(ant.Eq(&Users.Name, "Bob")).Single(ctx)
 		require.NoError(t, err)
 
 		user.Age = 99
@@ -119,15 +120,15 @@ func TestNoTrackingCoversIncludes(t *testing.T) {
 
 		for name, q := range map[string]func(*AppDB) *ant.Query[User]{
 			"NoTracking first": func(s *AppDB) *ant.Query[User] {
-				return s.Users.NoTracking().Include(&U.Posts)
+				return s.Users.NoTracking().Include(&Users.Posts)
 			},
 			"NoTracking last": func(s *AppDB) *ant.Query[User] {
-				return s.Users.Include(&U.Posts).NoTracking()
+				return s.Users.Include(&Users.Posts).NoTracking()
 			},
 		} {
 			t.Run(name, func(t *testing.T) {
 				session := ant.Session(db)
-				users, err := q(session).Where(ant.Eq(&U.Name, "Alice")).All(ctx)
+				users, err := q(session).Where(ant.Eq(&Users.Name, "Alice")).All(ctx)
 				require.NoError(t, err)
 				require.NotEmpty(t, users[0].Posts)
 				require.Empty(t, fixture.Tracked[Post](t, session))
@@ -143,9 +144,9 @@ func TestPartialRowsAreNotTracked(t *testing.T) {
 		ctx := t.Context()
 		session := ant.Session(db)
 
-		partial, err := session.Users.Where(ant.Eq(&U.Name, "Carol")).
-			Column(&U.ID).
-			Column(&U.Name).
+		partial, err := session.Users.Where(ant.Eq(&Users.Name, "Carol")).
+			Column(&Users.ID).
+			Column(&Users.Name).
 			Single(ctx)
 		require.NoError(t, err)
 		require.Equal(t, ant.Detached, fixture.Entry(t, session, partial).State())

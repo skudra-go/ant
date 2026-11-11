@@ -655,7 +655,7 @@ func (t *Table[T]) insertBatch(
 // projection's mappings name the columns:
 //
 //	db.Archive.InsertFrom(ctx, ant.Project[Archive](db.Posts.Where(old),
-//		ant.Into(&A.Title, &P.Title)))
+//		ant.Into(&Archives.Title, &Posts.Title)))
 func (t *Table[T]) InsertFrom(ctx context.Context, rows *Projection[T]) (int64, error) {
 	model, err := t.model()
 	if err != nil {

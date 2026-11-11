@@ -20,8 +20,8 @@ type Country struct {
 }
 
 func (Country) Configure(b *ant.ModelBuilder[Country]) {
-	b.HasManyThrough(&Cn.Articles, &Mb.CountryID, &Ar.MemberID)
-	b.HasOneThrough(&Cn.Top, &Mb.CountryID, &Ar.MemberID)
+	b.HasManyThrough(&Countries.Articles, &Members.CountryID, &Articles.MemberID)
+	b.HasOneThrough(&Countries.Top, &Members.CountryID, &Articles.MemberID)
 }
 
 // Member belongs to a country.
@@ -49,9 +49,9 @@ type ThroughDB struct {
 
 // Probes.
 var (
-	Cn = ant.Fields[Country]()
-	Mb = ant.Fields[Member]()
-	Ar = ant.Fields[Article]()
+	Countries = ant.Fields[Country]()
+	Members   = ant.Fields[Member]()
+	Articles  = ant.Fields[Article]()
 )
 
 const throughDDL = `
@@ -78,9 +78,9 @@ func TestThrough(t *testing.T) {
 		require.NoError(t, db.ClearTracked(ctx))
 
 		t.Run("Include loads across the middle table", func(t *testing.T) {
-			countries, err := db.Countries.OrderBy(&Cn.Name).
-				Include(&Cn.Articles, func(q *ant.Query[Article]) *ant.Query[Article] {
-					return q.OrderBy(&Ar.Title)
+			countries, err := db.Countries.OrderBy(&Countries.Name).
+				Include(&Countries.Articles, func(q *ant.Query[Article]) *ant.Query[Article] {
+					return q.OrderBy(&Articles.Title)
 				}).
 				NoTracking().
 				All(ctx)
@@ -98,7 +98,7 @@ func TestThrough(t *testing.T) {
 		})
 
 		t.Run("Has and counts work", func(t *testing.T) {
-			countries, err := db.Countries.Where(ant.Has(&Cn.Articles, ant.Eq(&Ar.Title, "three"))).
+			countries, err := db.Countries.Where(ant.Has(&Countries.Articles, ant.Eq(&Articles.Title, "three"))).
 				NoTracking().
 				All(ctx)
 			require.NoError(t, err)
@@ -107,8 +107,8 @@ func TestThrough(t *testing.T) {
 		})
 
 		t.Run("IncludeOne reads one row", func(t *testing.T) {
-			country, err := db.Countries.IncludeOne(&Cn.Top).
-				Where(ant.Eq(&Cn.Name, "Latvia")).
+			country, err := db.Countries.IncludeOne(&Countries.Top).
+				Where(ant.Eq(&Countries.Name, "Latvia")).
 				NoTracking().
 				First(ctx)
 			require.NoError(t, err)
@@ -116,8 +116,8 @@ func TestThrough(t *testing.T) {
 		})
 
 		t.Run("saving does not touch the relation", func(t *testing.T) {
-			country, err := db.Countries.Include(&Cn.Articles).
-				Where(ant.Eq(&Cn.Name, "Latvia")).
+			country, err := db.Countries.Include(&Countries.Articles).
+				Where(ant.Eq(&Countries.Name, "Latvia")).
 				First(ctx)
 			require.NoError(t, err)
 
@@ -143,8 +143,8 @@ type Remark struct {
 }
 
 func (Remark) Configure(b *ant.ModelBuilder[Remark]) {
-	b.BelongsTo(&Rk.Post).ForeignKey(&Rk.OwnerID).Morph(&Rk.OwnerType, "post")
-	b.BelongsTo(&Rk.Video).ForeignKey(&Rk.OwnerID).Morph(&Rk.OwnerType, "video")
+	b.BelongsTo(&Remarks.Post).ForeignKey(&Remarks.OwnerID).Morph(&Remarks.OwnerType, "post")
+	b.BelongsTo(&Remarks.Video).ForeignKey(&Remarks.OwnerID).Morph(&Remarks.OwnerType, "video")
 }
 
 // Essay has comments, recognised by their OwnerType.
@@ -155,7 +155,7 @@ type Essay struct {
 }
 
 func (Essay) Configure(b *ant.ModelBuilder[Essay]) {
-	b.HasMany(&Es.Remarks).ForeignKey(&Rk.OwnerID).Morph(&Rk.OwnerType, "post")
+	b.HasMany(&Essays.Remarks).ForeignKey(&Remarks.OwnerID).Morph(&Remarks.OwnerType, "post")
 }
 
 // Video has comments too, with the same keys as some blog.
@@ -166,7 +166,7 @@ type Video struct {
 }
 
 func (Video) Configure(b *ant.ModelBuilder[Video]) {
-	b.HasMany(&Vd.Remarks).ForeignKey(&Rk.OwnerID).Morph(&Rk.OwnerType, "video")
+	b.HasMany(&Videos.Remarks).ForeignKey(&Remarks.OwnerID).Morph(&Remarks.OwnerType, "video")
 }
 
 // MorphDB holds them.
@@ -179,9 +179,9 @@ type MorphDB struct {
 
 // Probes.
 var (
-	Rk = ant.Fields[Remark]()
-	Es = ant.Fields[Essay]()
-	Vd = ant.Fields[Video]()
+	Remarks = ant.Fields[Remark]()
+	Essays  = ant.Fields[Essay]()
+	Videos  = ant.Fields[Video]()
 )
 
 const morphDDL = `
@@ -203,22 +203,22 @@ func TestPolymorphicRelations(t *testing.T) {
 		require.NoError(t, db.ClearTracked(ctx))
 
 		t.Run("saving through the relation sets the type", func(t *testing.T) {
-			count, err := db.Remarks.Where(ant.Eq(&Rk.OwnerType, "video")).Count(ctx)
+			count, err := db.Remarks.Where(ant.Eq(&Remarks.OwnerType, "video")).Count(ctx)
 			require.NoError(t, err)
 			require.EqualValues(t, 2, count)
 		})
 
 		t.Run("Include sees only its own type", func(t *testing.T) {
-			loaded, err := db.Essays.Include(&Es.Remarks).NoTracking().First(ctx)
+			loaded, err := db.Essays.Include(&Essays.Remarks).NoTracking().First(ctx)
 			require.NoError(t, err)
 			require.Len(t, loaded.Remarks, 1)
 			require.Equal(t, "on the blog", loaded.Remarks[0].Text)
 		})
 
 		t.Run("the other direction loads the right parent", func(t *testing.T) {
-			comments, err := db.Remarks.IncludeOne(&Rk.Post).
-				IncludeOne(&Rk.Video).
-				OrderBy(&Rk.ID).
+			comments, err := db.Remarks.IncludeOne(&Remarks.Post).
+				IncludeOne(&Remarks.Video).
+				OrderBy(&Remarks.ID).
 				NoTracking().
 				All(ctx)
 			require.NoError(t, err)
@@ -229,13 +229,13 @@ func TestPolymorphicRelations(t *testing.T) {
 		})
 
 		t.Run("Has and joins are scoped", func(t *testing.T) {
-			blogs, err := db.Essays.Where(ant.Has(&Es.Remarks, ant.Eq(&Rk.Text, "on the video"))).
+			blogs, err := db.Essays.Where(ant.Has(&Essays.Remarks, ant.Eq(&Remarks.Text, "on the video"))).
 				NoTracking().
 				All(ctx)
 			require.NoError(t, err)
 			require.Empty(t, blogs)
 
-			pairs, err := db.Essays.JoinMany(&Es.Remarks).
+			pairs, err := db.Essays.JoinMany(&Essays.Remarks).
 				Select(func(b *Essay, c *Remark) string { return c.Text }).
 				All(ctx)
 			require.NoError(t, err)
@@ -255,10 +255,10 @@ type Novelist struct {
 }
 
 func (Novelist) Configure(b *ant.ModelBuilder[Novelist]) {
-	b.HasMany(&Nv.Novels).ForeignKey(&Nl.NovelistID).Inverse(&Nl.Novelist)
-	b.HasMany(&Nv.Live).ForeignKey(&Nl.NovelistID).Where(ant.Eq(&Nl.Published, true))
-	b.HasOne(&Nv.Newest).ForeignKey(&Nl.NovelistID).Latest(&Nl.Year)
-	b.HasOne(&Nv.Earliest).ForeignKey(&Nl.NovelistID).Oldest(&Nl.Year)
+	b.HasMany(&Novelists.Novels).ForeignKey(&Novels.NovelistID).Inverse(&Novels.Novelist)
+	b.HasMany(&Novelists.Live).ForeignKey(&Novels.NovelistID).Where(ant.Eq(&Novels.Published, true))
+	b.HasOne(&Novelists.Newest).ForeignKey(&Novels.NovelistID).Latest(&Novels.Year)
+	b.HasOne(&Novelists.Earliest).ForeignKey(&Novels.NovelistID).Oldest(&Novels.Year)
 }
 
 // Novel belongs to an author, and touches it when written.
@@ -280,8 +280,8 @@ type LibraryDB struct {
 
 // Probes.
 var (
-	Nv = ant.Fields[Novelist]()
-	Nl = ant.Fields[Novel]()
+	Novelists = ant.Fields[Novelist]()
+	Novels    = ant.Fields[Novel]()
 )
 
 const libraryDDL = `
@@ -312,22 +312,22 @@ func TestScopedAndChosenRelations(t *testing.T) {
 			&Novel{NovelistID: other.ID, Title: "only", Year: 2005}))
 
 		t.Run("a scoped relation sees what its condition allows", func(t *testing.T) {
-			loaded, err := db.Novelists.Include(&Nv.Live).Find(ctx, author.ID)
+			loaded, err := db.Novelists.Include(&Novelists.Live).Find(ctx, author.ID)
 			require.NoError(t, err)
 			require.Len(t, loaded.Live, 2)
 		})
 
 		t.Run("counts and Has follow the scope", func(t *testing.T) {
-			authors, err := db.Novelists.Where(ant.Has(&Nv.Live)).All(ctx)
+			authors, err := db.Novelists.Where(ant.Has(&Novelists.Live)).All(ctx)
 			require.NoError(t, err)
 			require.Len(t, authors, 1)
 			require.Equal(t, "A", authors[0].Name)
 		})
 
 		t.Run("Latest and Oldest choose one row per parent", func(t *testing.T) {
-			authors, err := db.Novelists.IncludeOne(&Nv.Newest).
-				IncludeOne(&Nv.Earliest).
-				OrderBy(&Nv.Name).
+			authors, err := db.Novelists.IncludeOne(&Novelists.Newest).
+				IncludeOne(&Novelists.Earliest).
+				OrderBy(&Novelists.Name).
 				All(ctx)
 			require.NoError(t, err)
 			require.Equal(t, "third", authors[0].Newest.Title)
@@ -336,7 +336,7 @@ func TestScopedAndChosenRelations(t *testing.T) {
 		})
 
 		t.Run("Inverse fills the pointer back with no query", func(t *testing.T) {
-			loaded, err := db.Novelists.Include(&Nv.Novels).Find(ctx, author.ID)
+			loaded, err := db.Novelists.Include(&Novelists.Novels).Find(ctx, author.ID)
 			require.NoError(t, err)
 			require.Same(t, loaded, loaded.Novels[0].Novelist)
 		})
@@ -358,7 +358,7 @@ type Answer struct {
 	Discussion   *Discussion
 }
 
-func (Answer) Configure(b *ant.ModelBuilder[Answer]) { b.BelongsTo(&An.Discussion).Touch() }
+func (Answer) Configure(b *ant.ModelBuilder[Answer]) { b.BelongsTo(&Answers.Discussion).Touch() }
 
 // BoardDB holds them.
 type BoardDB struct {
@@ -367,8 +367,8 @@ type BoardDB struct {
 	Answers     ant.Table[Answer]
 }
 
-// An is Answer's probe.
-var An = ant.Fields[Answer]()
+// Answers is Answer's probe.
+var Answers = ant.Fields[Answer]()
 
 func TestTouch(t *testing.T) {
 	const ddl = `

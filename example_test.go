@@ -40,8 +40,8 @@ type AppDB struct {
 }
 
 var (
-	Us = ant.Fields[User]()
-	Ps = ant.Fields[Post]()
+	Users = ant.Fields[User]()
+	Posts = ant.Fields[Post]()
 )
 
 func db() *AppDB {
@@ -70,49 +70,57 @@ func show(text string, args []any, err error) {
 }
 
 func ExampleEq() {
-	show(db().Users.Where(ant.Eq(&Us.Name, "Ada")).ToSQL())
+	show(db().Users.Where(ant.Eq(&Users.Name, "Ada")).ToSQL())
 	// Output:
 	// SELECT "users"."id", "users"."created_at", "users"."updated_at", "users"."name", "users"."email", "users"."age", "users"."bio" FROM "users" WHERE "users"."name" = $1
 	// [Ada]
 }
 
 func ExampleOr() {
-	show(db().Users.Column(&Us.ID).Where(ant.Or(ant.Lt(&Us.Age, 18), ant.IsNull(&Us.Bio))).ToSQL())
+	show(
+		db().Users.Column(&Users.ID).
+			Where(ant.Or(ant.Lt(&Users.Age, 18), ant.IsNull(&Users.Bio))).
+			ToSQL(),
+	)
 	// Output:
 	// SELECT "users"."id" FROM "users" WHERE ("users"."age" < $1 OR "users"."bio" IS NULL)
 	// [18]
 }
 
 func ExampleIn() {
-	show(db().Users.Column(&Us.ID).Where(ant.In(&Us.Age, 18, 21)).ToSQL())
+	show(db().Users.Column(&Users.ID).Where(ant.In(&Users.Age, 18, 21)).ToSQL())
 	// Output:
 	// SELECT "users"."id" FROM "users" WHERE "users"."age" IN ($1, $2)
 	// [18 21]
 }
 
 func ExampleQuery_OrderByDesc() {
-	show(db().Users.Column(&Us.ID).OrderByDesc(&Us.Age).ThenBy(&Us.Name).Limit(10).ToSQL())
+	show(db().Users.Column(&Users.ID).OrderByDesc(&Users.Age).ThenBy(&Users.Name).Limit(10).ToSQL())
 	// Output:
 	// SELECT "users"."id" FROM "users" ORDER BY "users"."age" DESC, "users"."name" LIMIT $1
 	// [10]
 }
 
 func ExampleHas() {
-	show(db().Users.Column(&Us.ID).Where(ant.Has(&Us.Posts, ant.Eq(&Ps.Published, true))).ToSQL())
+	show(
+		db().Users.Column(&Users.ID).
+			Where(ant.Has(&Users.Posts, ant.Eq(&Posts.Published, true))).
+			ToSQL(),
+	)
 	// Output:
 	// SELECT "users"."id" FROM "users" WHERE EXISTS (SELECT 1 FROM "posts" AS "ant_related" WHERE "ant_related"."user_id" = "users"."id" AND ("ant_related"."published" = $1))
 	// [true]
 }
 
 func ExampleQuery_DeleteSQL() {
-	show(db().Posts.Where(ant.Eq(&Ps.Published, false)).DeleteSQL(ctx()))
+	show(db().Posts.Where(ant.Eq(&Posts.Published, false)).DeleteSQL(ctx()))
 	// Output:
 	// DELETE FROM "posts" WHERE "posts"."published" = $1
 	// [false]
 }
 
 func ExampleQuery_IncludeJoined() {
-	text, _, err := db().Posts.Column(&Ps.ID).IncludeJoined(&Ps.User).ToSQL()
+	text, _, err := db().Posts.Column(&Posts.ID).IncludeJoined(&Posts.User).ToSQL()
 	if err != nil {
 		log.Fatal(err)
 	}

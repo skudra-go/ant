@@ -42,8 +42,8 @@ func TestRetry(t *testing.T) {
 								return err
 							}
 
-							_, err = tx.Users.Where(ant.Eq(&U.ID, counter.ID)).
-								Update(ctx, ant.Set(&U.Age, u.Age+1))
+							_, err = tx.Users.Where(ant.Eq(&Users.ID, counter.ID)).
+								Update(ctx, ant.Set(&Users.Age, u.Age+1))
 
 							return err
 						},
@@ -139,7 +139,7 @@ func TestRetry(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			count, err := db.Users.Where(ant.Eq(&U.Email, "added-once@example.com")).Count(ctx)
+			count, err := db.Users.Where(ant.Eq(&Users.Email, "added-once@example.com")).Count(ctx)
 			require.NoError(t, err)
 			require.EqualValues(t, 1, count)
 			require.False(t, fixture.HasChanges(t, session))
@@ -221,11 +221,11 @@ func serializationFailure(t *testing.T, db *AppDB) error {
 	require.NoError(t, err)
 	_, err = two.Users.NoTracking().Find(ctx, row.ID)
 	require.NoError(t, err)
-	_, err = one.Users.Where(ant.Eq(&U.ID, row.ID)).Update(ctx, ant.Set(&U.Age, 1))
+	_, err = one.Users.Where(ant.Eq(&Users.ID, row.ID)).Update(ctx, ant.Set(&Users.Age, 1))
 	require.NoError(t, err)
 	require.NoError(t, one.Commit())
 
-	_, err = two.Users.Where(ant.Eq(&U.ID, row.ID)).Update(ctx, ant.Set(&U.Age, 2))
+	_, err = two.Users.Where(ant.Eq(&Users.ID, row.ID)).Update(ctx, ant.Set(&Users.Age, 2))
 
 	return err
 }

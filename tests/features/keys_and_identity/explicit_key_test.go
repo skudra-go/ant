@@ -16,10 +16,10 @@ type Country struct {
 }
 
 func (Country) Configure(b *ant.ModelBuilder[Country]) {
-	b.Key(&Co.Code)
+	b.Key(&Countries.Code)
 }
 
-var Co = ant.Fields[Country]()
+var Countries = ant.Fields[Country]()
 
 type GeoDB struct {
 	ant.Context

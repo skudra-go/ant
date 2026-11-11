@@ -91,7 +91,7 @@ func TestDiagnostics(t *testing.T) {
 			scope := ant.Watch(ctx)
 
 			for range 6 {
-				_, err := db.Users.Where(ant.Eq(&U.ID, alice.ID)).First(scope)
+				_, err := db.Users.Where(ant.Eq(&Users.ID, alice.ID)).First(scope)
 				require.NoError(t, err)
 			}
 
@@ -102,7 +102,7 @@ func TestDiagnostics(t *testing.T) {
 			before := len(found.kinds())
 
 			for range 6 {
-				_, err := db.Users.Where(ant.Eq(&U.ID, alice.ID)).First(ctx)
+				_, err := db.Users.Where(ant.Eq(&Users.ID, alice.ID)).First(ctx)
 				require.NoError(t, err)
 			}
 
@@ -141,8 +141,8 @@ func TestCartesianWarning(t *testing.T) {
 			target,
 			ant.WithDiagnostics(ant.Diagnostics{Alert: found.add}),
 		)
-		_, err := db.Users.JoinMany(&U.Posts).
-			JoinMany(&U.Posts).
+		_, err := db.Users.JoinMany(&Users.Posts).
+			JoinMany(&Users.Posts).
 			Select(func(*fixture.User, *fixture.Post, *fixture.Post) int { return 0 }).
 			All(ctx)
 		require.NoError(t, err)
@@ -182,7 +182,7 @@ func TestDebugQuery(t *testing.T) {
 		slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
 		defer slog.SetDefault(previous)
 
-		_, err := db.Users.Where(ant.Eq(&U.Name, "Alice")).Debug().All(t.Context())
+		_, err := db.Users.Where(ant.Eq(&Users.Name, "Alice")).Debug().All(t.Context())
 		require.NoError(t, err)
 		require.Contains(t, logs.String(), "SELECT")
 		require.Contains(t, logs.String(), "Alice")

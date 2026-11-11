@@ -35,15 +35,15 @@ func TestAllocationBudgets(t *testing.T) {
 		budget float64
 		run    func()
 	}{
-		{"a condition", 5, func() { _ = ant.Eq(&U.Age, 18) }},
+		{"a condition", 5, func() { _ = ant.Eq(&Users.Age, 18) }},
 		{"building a query", 35, func() {
-			_ = db.Users.Where(ant.Eq(&U.Age, 18), ant.Like(&U.Name, "A%")).
-				OrderBy(&U.Name).
+			_ = db.Users.Where(ant.Eq(&Users.Age, 18), ant.Like(&Users.Name, "A%")).
+				OrderBy(&Users.Name).
 				Limit(10)
 		}},
 		{"building and rendering a query", 85, func() {
-			q := db.Users.Where(ant.Eq(&U.Age, 18), ant.Like(&U.Name, "A%")).
-				OrderBy(&U.Name).
+			q := db.Users.Where(ant.Eq(&Users.Age, 18), ant.Like(&Users.Name, "A%")).
+				OrderBy(&Users.Name).
 				Limit(10)
 
 			if _, _, err := q.ToSQL(); err != nil {
@@ -67,7 +67,10 @@ func BenchmarkBuildQuery(b *testing.B) {
 	b.ReportAllocs()
 
 	for b.Loop() {
-		q := db.Users.Where(ant.Eq(&U.Age, 18), ant.Like(&U.Name, "A%")).OrderBy(&U.Name).Limit(10)
+		q := db.Users.Where(ant.Eq(&Users.Age, 18), ant.Like(&Users.Name, "A%")).
+			OrderBy(&Users.Name).
+			Limit(10)
+
 		if _, _, err := q.ToSQL(); err != nil {
 			b.Fatal(err)
 		}
@@ -80,6 +83,6 @@ func BenchmarkProbeResolution(b *testing.B) {
 	b.ReportAllocs()
 
 	for b.Loop() {
-		_ = ant.F(&U.Age)
+		_ = ant.F(&Users.Age)
 	}
 }

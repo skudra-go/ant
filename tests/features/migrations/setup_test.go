@@ -63,7 +63,7 @@ type V3Account struct {
 
 func (V3Account) Configure(b *ant.ModelBuilder[V3Account]) {
 	b.Table("accounts")
-	b.HasMany(&A3.Notes).ForeignKey(&N3.AccountID).OnDelete(ant.Cascade)
+	b.HasMany(&V3Accounts.Notes).ForeignKey(&V3Notes.AccountID).OnDelete(ant.Cascade)
 }
 
 // V3Note belongs to an account.
@@ -84,8 +84,8 @@ type V3DB struct {
 
 // Probes for the models.
 var (
-	A3 = ant.Fields[V3Account]()
-	N3 = ant.Fields[V3Note]()
+	V3Accounts = ant.Fields[V3Account]()
+	V3Notes    = ant.Fields[V3Note]()
 )
 
 // project is a folder of migrations and an empty database.

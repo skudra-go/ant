@@ -41,8 +41,8 @@ type AppDB struct {
 
 // Field probes for the example models.
 var (
-	U = ant.Fields[User]()
-	P = ant.Fields[Post]()
+	Users = ant.Fields[User]()
+	Posts = ant.Fields[Post]()
 )
 
 // Target is a database under test.

@@ -24,7 +24,7 @@ type ItemsDB struct {
 	Items ant.Table[Item]
 }
 
-var It = ant.Fields[Item]()
+var Items = ant.Fields[Item]()
 
 func TestArrays(t *testing.T) {
 	ddl := `CREATE TABLE items (id BIGSERIAL PRIMARY KEY, title TEXT NOT NULL, labels TEXT[], scores INT[], flags BOOL[])`
@@ -90,8 +90,8 @@ func TestFullText(t *testing.T) {
 		search := func(query string) []string {
 			got, err := ant.Pluck(
 				ctx,
-				db.Posts.Where(postgres.Match(&fixture.P.Title, "english", query)),
-				&fixture.P.Title,
+				db.Posts.Where(postgres.Match(&fixture.Posts.Title, "english", query)),
+				&fixture.Posts.Title,
 			)
 			require.NoError(t, err)
 

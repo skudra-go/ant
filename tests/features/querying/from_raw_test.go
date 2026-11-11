@@ -17,7 +17,7 @@ func TestFromRaw(t *testing.T) {
 		adults := ant.FromRaw[fixture.User](db, `SELECT * FROM users WHERE age > ?`, 18)
 
 		t.Run("conditions, ordering, and paging apply", func(t *testing.T) {
-			got, err := adults.Where(ant.Lt(&U.Age, 35)).OrderBy(&U.Name).All(ctx)
+			got, err := adults.Where(ant.Lt(&Users.Age, 35)).OrderBy(&Users.Name).All(ctx)
 			require.NoError(t, err)
 			require.Equal(t, []string{"Alice"}, fixture.Names(got))
 		})

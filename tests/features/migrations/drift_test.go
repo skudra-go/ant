@@ -23,15 +23,20 @@ type Item struct {
 }
 
 func (Item) Configure(b *ant.ModelBuilder[Item]) {
-	b.Column(&I.Price).Precision(10, 2)
-	b.Column(&I.Label).Length(50).Default("'none'")
-	b.Column(&I.Lower).Generated("lower(label)")
+	b.Column(&Items.Price).Precision(10, 2)
+	b.Column(&Items.Label).Length(50).Default("'none'")
+	b.Column(&Items.Lower).Generated("lower(label)")
 	b.Check("items_kind_check", "kind IN ('plain', 'fancy')")
 	b.Check("items_weight_check", "weight BETWEEN 0 AND 100")
-	b.Index(&I.Kind).And(&I.Weight).Desc().Where("kind <> 'plain'").Include(&I.Price)
+	b.Index(&Items.Kind).And(&Items.Weight).Desc().Where("kind <> 'plain'").Include(&Items.Price)
 	b.IndexExpr("lower(label)").Name("items_label_lower_idx").Unique()
 	// NULLS FIRST going up and NULLS LAST going down are not the defaults.
-	b.Index(&I.Weight).NullsFirst().And(&I.Price).Desc().NullsLast().Name("items_weight_nulls_idx")
+	b.Index(&Items.Weight).
+		NullsFirst().
+		And(&Items.Price).
+		Desc().
+		NullsLast().
+		Name("items_weight_nulls_idx")
 }
 
 // ItemDB holds Item.
@@ -40,8 +45,8 @@ type ItemDB struct {
 	Items ant.Table[Item]
 }
 
-// I is Item's probe.
-var I = ant.Fields[Item]()
+// Items is Item's probe.
+var Items = ant.Fields[Item]()
 
 // drift compares the live database with what migrations describe. PostgreSQL
 // rewrites much of what it is given, so both sides are read back from the server.

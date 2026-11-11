@@ -20,18 +20,18 @@ type Ticket struct {
 
 func (Ticket) Configure(b *ant.ModelBuilder[Ticket]) {
 	b.Comment("Support tickets")
-	b.Column(&TK.Number).Sequence("ticket_numbers", ant.StartAt(1000))
+	b.Column(&Tickets.Number).Sequence("ticket_numbers", ant.StartAt(1000))
 
-	b.Column(&TK.Status).
+	b.Column(&Tickets.Status).
 		Enum("ticket_status", "open", "closed").
 		Default("'open'").
 		Comment("Where it stands")
 
-	b.Column(&TK.Code).Fixed(4)
+	b.Column(&Tickets.Code).Fixed(4)
 }
 
-// TK is Ticket's probe.
-var TK = ant.Fields[Ticket]()
+// Tickets is Ticket's probe.
+var Tickets = ant.Fields[Ticket]()
 
 // TicketDB holds it.
 type TicketDB struct {
@@ -50,18 +50,18 @@ type Ticket2 struct {
 func (Ticket2) Configure(b *ant.ModelBuilder[Ticket2]) {
 	b.Table("tickets")
 	b.Comment("Support tickets")
-	b.Column(&TK2.Number).Sequence("ticket_numbers", ant.StartAt(1000))
+	b.Column(&Ticket2s.Number).Sequence("ticket_numbers", ant.StartAt(1000))
 
-	b.Column(&TK2.Status).
+	b.Column(&Ticket2s.Status).
 		Enum("ticket_status", "open", "pending", "closed").
 		Default("'open'").
 		Comment("Where it stands")
 
-	b.Column(&TK2.Code).Fixed(4)
+	b.Column(&Ticket2s.Code).Fixed(4)
 }
 
-// TK2 is Ticket2's probe.
-var TK2 = ant.Fields[Ticket2]()
+// Ticket2s is Ticket2's probe.
+var Ticket2s = ant.Fields[Ticket2]()
 
 // Ticket2DB holds it.
 type Ticket2DB struct {
@@ -80,18 +80,18 @@ type Ticket3 struct {
 func (Ticket3) Configure(b *ant.ModelBuilder[Ticket3]) {
 	b.Table("tickets")
 	b.Comment("Support tickets")
-	b.Column(&TK3.Number).Sequence("ticket_numbers", ant.StartAt(1000))
+	b.Column(&Ticket3s.Number).Sequence("ticket_numbers", ant.StartAt(1000))
 
-	b.Column(&TK3.Status).
+	b.Column(&Ticket3s.Status).
 		Enum("ticket_status", "open", "pending").
 		Default("'open'").
 		Comment("Where it stands")
 
-	b.Column(&TK3.Code).Fixed(4)
+	b.Column(&Ticket3s.Code).Fixed(4)
 }
 
-// TK3 is Ticket3's probe.
-var TK3 = ant.Fields[Ticket3]()
+// Ticket3s is Ticket3's probe.
+var Ticket3s = ant.Fields[Ticket3]()
 
 // Ticket3DB holds it.
 type Ticket3DB struct {
@@ -150,8 +150,8 @@ type LineItem struct {
 }
 
 func (LineItem) Configure(b *ant.ModelBuilder[LineItem]) {
-	b.ForeignKey(ant.F(&LI.OrderID), ant.F(&LI.Region)).
-		References(ant.F(&SO.ID), ant.F(&SO.Region)).
+	b.ForeignKey(ant.F(&LineItems.OrderID), ant.F(&LineItems.Region)).
+		References(ant.F(&ShardedOrders.ID), ant.F(&ShardedOrders.Region)).
 		OnDelete(ant.Cascade)
 }
 
@@ -162,13 +162,13 @@ type ShardedOrder struct {
 }
 
 func (ShardedOrder) Configure(b *ant.ModelBuilder[ShardedOrder]) {
-	b.CompositeKey(ant.F(&SO.ID), ant.F(&SO.Region))
+	b.CompositeKey(ant.F(&ShardedOrders.ID), ant.F(&ShardedOrders.Region))
 }
 
 // Probes.
 var (
-	LI = ant.Fields[LineItem]()
-	SO = ant.Fields[ShardedOrder]()
+	LineItems     = ant.Fields[LineItem]()
+	ShardedOrders = ant.Fields[ShardedOrder]()
 )
 
 // ShardDB holds them.
@@ -201,13 +201,13 @@ type Reading struct {
 }
 
 func (Reading) Configure(b *ant.ModelBuilder[Reading]) {
-	b.Key(&RD2.ID).NotGenerated()
-	b.CompositeKey(ant.F(&RD2.ID), ant.F(&RD2.At))
-	b.PartitionByRange(ant.F(&RD2.At))
+	b.Key(&Readings.ID).NotGenerated()
+	b.CompositeKey(ant.F(&Readings.ID), ant.F(&Readings.At))
+	b.PartitionByRange(ant.F(&Readings.At))
 }
 
-// RD2 is Reading's probe.
-var RD2 = ant.Fields[Reading]()
+// Readings is Reading's probe.
+var Readings = ant.Fields[Reading]()
 
 // PartitionDB holds it.
 type PartitionDB struct {

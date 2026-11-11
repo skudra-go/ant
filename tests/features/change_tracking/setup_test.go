@@ -16,8 +16,8 @@ type (
 )
 
 var (
-	U = fixture.U
-	P = fixture.P
+	Users = fixture.Users
+	Posts = fixture.Posts
 )
 
 // stored reads a user straight from the database, past the tracker.
@@ -34,8 +34,8 @@ func storedTitles(t *testing.T, db *AppDB, id int64) []string {
 	t.Helper()
 
 	posts, err := db.Posts.NoTracking().
-		Where(ant.Eq(&P.UserID, id)).
-		OrderBy(&P.Title).
+		Where(ant.Eq(&Posts.UserID, id)).
+		OrderBy(&Posts.Title).
 		All(t.Context())
 	require.NoError(t, err)
 
@@ -59,8 +59,8 @@ func loaded(t *testing.T, db *AppDB) (*AppDB, *User) {
 		&Post{UserID: alice.ID, Title: "C"}))
 
 	session := ant.Session(db)
-	user, err := session.Users.Include(&U.Posts, func(q *ant.Query[Post]) *ant.Query[Post] {
-		return q.OrderBy(&P.Title)
+	user, err := session.Users.Include(&Users.Posts, func(q *ant.Query[Post]) *ant.Query[Post] {
+		return q.OrderBy(&Posts.Title)
 	}).Find(ctx, alice.ID)
 	require.NoError(t, err)
 

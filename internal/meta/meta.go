@@ -816,7 +816,7 @@ func Resolve[V any](ptr *V) (Ref, bool) {
 }
 
 // deletionTime reports whether t is the time inside a DeletedAt field, so that
-// &N.DeletedAt.V names the column for a condition on when a row was deleted.
+// &Notes.DeletedAt.V names the column for a condition on when a row was deleted.
 func (f *Field) deletionTime(t reflect.Type) bool {
 	return f.Type == deletedAtType && t == timeType
 }

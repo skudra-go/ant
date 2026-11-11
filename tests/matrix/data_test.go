@@ -36,8 +36,8 @@ type Author struct {
 
 func (Author) Configure(b *ant.ModelBuilder[Author]) {
 	b.Table("mx_authors")
-	b.HasMany(&A.Posts).ForeignKey(&P.AuthorID).OnDelete(ant.Cascade)
-	b.HasMany(&A.Mentees).ForeignKey(&A.MentorID)
+	b.HasMany(&Authors.Posts).ForeignKey(&Posts.AuthorID).OnDelete(ant.Cascade)
+	b.HasMany(&Authors.Mentees).ForeignKey(&Authors.MentorID)
 }
 
 // Post belongs to an Author.
@@ -62,8 +62,8 @@ type MatrixDB struct {
 
 // Probes for the models.
 var (
-	A = ant.Fields[Author]()
-	P = ant.Fields[Post]()
+	Authors = ant.Fields[Author]()
+	Posts   = ant.Fields[Post]()
 )
 
 // ddl holds the column types that differ between databases.
@@ -207,8 +207,8 @@ func seed(t *testing.T, db *MatrixDB) *world {
 			mentor := w.authors[r.IntN(i)].ID
 			a.MentorID = &mentor
 
-			_, err := db.Authors.Where(ant.Eq(&A.ID, a.ID)).
-				Update(ctx, ant.Set(&A.MentorID, a.MentorID))
+			_, err := db.Authors.Where(ant.Eq(&Authors.ID, a.ID)).
+				Update(ctx, ant.Set(&Authors.MentorID, a.MentorID))
 			require.NoError(t, err)
 		}
 	}

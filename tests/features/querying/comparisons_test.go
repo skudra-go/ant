@@ -21,23 +21,23 @@ func TestComparisons(t *testing.T) {
 			cond ant.Cond
 			want []string
 		}{
-			{"Gt excludes the value", ant.Gt(&U.Age, 30), []string{"Carol"}},
-			{"Gte includes the value", ant.Gte(&U.Age, 30), []string{"Alice", "Carol"}},
-			{"Lt excludes the value", ant.Lt(&U.Age, 30), []string{"Bob"}},
-			{"Lte includes the value", ant.Lte(&U.Age, 30), []string{"Alice", "Bob"}},
-			{"strings compare too", ant.Gt(&U.Name, "Bob"), []string{"Carol"}},
+			{"Gt excludes the value", ant.Gt(&Users.Age, 30), []string{"Carol"}},
+			{"Gte includes the value", ant.Gte(&Users.Age, 30), []string{"Alice", "Carol"}},
+			{"Lt excludes the value", ant.Lt(&Users.Age, 30), []string{"Bob"}},
+			{"Lte includes the value", ant.Lte(&Users.Age, 30), []string{"Alice", "Bob"}},
+			{"strings compare too", ant.Gt(&Users.Name, "Bob"), []string{"Carol"}},
 		}
 
 		for _, c := range cases {
 			t.Run(c.name, func(t *testing.T) {
-				got, err := db.Users.Where(c.cond).OrderBy(&U.Name).All(ctx)
+				got, err := db.Users.Where(c.cond).OrderBy(&Users.Name).All(ctx)
 				require.NoError(t, err)
 				require.Equal(t, c.want, fixture.Names(got))
 			})
 		}
 
 		t.Run("time.Time", func(t *testing.T) {
-			got, err := db.Users.Where(ant.Lt(&U.CreatedAt, time.Now())).All(ctx)
+			got, err := db.Users.Where(ant.Lt(&Users.CreatedAt, time.Now())).All(ctx)
 			require.NoError(t, err)
 			require.Len(t, got, 3)
 		})

@@ -47,7 +47,7 @@ type Counter struct {
 
 func (Counter) Configure(b *ant.ModelBuilder[Counter]) {
 	b.Table("cc_counters")
-	b.Key(&C.Name)
+	b.Key(&Counters.Name)
 }
 
 // Ticket has hooks, which run on whichever goroutine writes or loads it.
@@ -69,9 +69,9 @@ type BankDB struct {
 }
 
 var (
-	A = ant.Fields[Account]()
-	P = ant.Fields[Payment]()
-	C = ant.Fields[Counter]()
+	Accounts = ant.Fields[Account]()
+	Payments = ant.Fields[Payment]()
+	Counters = ant.Fields[Counter]()
 )
 
 // ddl holds the column types that differ between databases.
@@ -212,7 +212,7 @@ func seedAccounts(t *testing.T, db *BankDB, n int, balance int64) []*Account {
 
 	if accounts[0].ID == 0 {
 		// Bulk inserts on some databases do not return keys.
-		stored, err := db.Accounts.NoTracking().OrderBy(&A.ID).All(t.Context())
+		stored, err := db.Accounts.NoTracking().OrderBy(&Accounts.ID).All(t.Context())
 		require.NoError(t, err)
 
 		accounts = stored

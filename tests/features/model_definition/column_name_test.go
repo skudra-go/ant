@@ -23,7 +23,7 @@ type DeviceDB struct {
 	Devices ant.Table[Device]
 }
 
-var D = ant.Fields[Device]()
+var Devices = ant.Fields[Device]()
 
 func TestColumnName(t *testing.T) {
 	ddl := `CREATE TABLE devices (
@@ -39,7 +39,7 @@ func TestColumnName(t *testing.T) {
 		)
 
 		t.Run("queries use the mapped column", func(t *testing.T) {
-			found, err := db.Devices.Where(ant.Eq(&D.Name, "Router"), ant.Eq(&D.HTTPPort, 8080)).
+			found, err := db.Devices.Where(ant.Eq(&Devices.Name, "Router"), ant.Eq(&Devices.HTTPPort, 8080)).
 				Single(ctx)
 			require.NoError(t, err)
 			require.EqualValues(t, 7, found.OwnerID)

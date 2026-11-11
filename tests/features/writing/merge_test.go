@@ -34,8 +34,8 @@ type MergeDB struct {
 
 // Probes.
 var (
-	ST = ant.Fields[Stock]()
-	SG = ant.Fields[Staged]()
+	Stocks  = ant.Fields[Stock]()
+	Stageds = ant.Fields[Staged]()
 )
 
 const mergeDDL = `
@@ -69,15 +69,16 @@ func TestMerge(t *testing.T) {
 			&Staged{SKU: "new", Count: 3},
 		))
 
-		changed, err := ant.Merge(&db.Stock, db.Staged.Query(), ant.EqCol(&ST.SKU, &SG.SKU)).
-			WhenMatchedIf(ant.Eq(&SG.Count, 0)).Delete().
-			WhenMatched(ant.SetExpr(&ST.Count, ant.Col(&SG.Count))).
-			WhenNotMatched(ant.Into(&ST.SKU, &SG.SKU), ant.Into(&ST.Count, &SG.Count)).
+		changed, err := ant.Merge(&db.Stock, db.Staged.Query(), ant.EqCol(&Stocks.SKU, &Stageds.SKU)).
+			WhenMatchedIf(ant.Eq(&Stageds.Count, 0)).
+			Delete().
+			WhenMatched(ant.SetExpr(&Stocks.Count, ant.Col(&Stageds.Count))).
+			WhenNotMatched(ant.Into(&Stocks.SKU, &Stageds.SKU), ant.Into(&Stocks.Count, &Stageds.Count)).
 			Exec(ctx)
 		require.NoError(t, err)
 		require.EqualValues(t, 3, changed)
 
-		rows, err := db.Stock.OrderBy(&ST.SKU).All(ctx)
+		rows, err := db.Stock.OrderBy(&Stocks.SKU).All(ctx)
 		require.NoError(t, err)
 		require.Len(t, rows, 2)
 		require.Equal(t, "kept", rows[0].SKU)
@@ -91,7 +92,7 @@ func TestMerge(t *testing.T) {
 
 		t.Run("Delete only follows a matched clause with no assignments", func(t *testing.T) {
 			_, err := ant.Merge(&db.Stock, db.Staged.Query()).
-				WhenMatched(ant.Set(&ST.Count, 1)).
+				WhenMatched(ant.Set(&Stocks.Count, 1)).
 				Delete().
 				Exec(ctx)
 			require.ErrorContains(t, err, "Delete follows WhenMatched")
@@ -117,7 +118,7 @@ func TestCopy(t *testing.T) {
 		require.NoError(t, err)
 		require.EqualValues(t, 1000, copied)
 
-		loaded, err := db.Users.Where(ant.Eq(&U.Age, 7)).First(ctx)
+		loaded, err := db.Users.Where(ant.Eq(&Users.Age, 7)).First(ctx)
 		require.NoError(t, err)
 		require.False(t, loaded.CreatedAt.IsZero())
 		require.NotZero(t, loaded.ID, "the database assigned it")
@@ -136,8 +137,11 @@ func TestBatch(t *testing.T) {
 		alice, bob, _ := fixture.Seed(t, db)
 
 		var batch pgxext.Batch
-		batch.Add(db.Users.Where(ant.Eq(&U.ID, alice.ID)).UpdateSQL(ctx, ant.Set(&U.Age, 41)))
-		batch.Add(db.Users.Where(ant.Eq(&U.ID, bob.ID)).DeleteSQL(ctx))
+		batch.Add(
+			db.Users.Where(ant.Eq(&Users.ID, alice.ID)).UpdateSQL(ctx, ant.Set(&Users.Age, 41)),
+		)
+
+		batch.Add(db.Users.Where(ant.Eq(&Users.ID, bob.ID)).DeleteSQL(ctx))
 		batch.Exec("UPDATE users SET age = age + 1 WHERE id = $1", alice.ID)
 
 		affected, err := batch.Send(ctx, db)

@@ -269,7 +269,7 @@ func TestInterceptorsOnManyGoroutines(t *testing.T) {
 		})
 		noErrors(t, errs)
 
-		count, err := db.Accounts.Where(ant.Like(&A.Owner, "dry-%")).Count(t.Context())
+		count, err := db.Accounts.Where(ant.Like(&Accounts.Owner, "dry-%")).Count(t.Context())
 		require.NoError(t, err)
 		require.Zero(t, count, "a dry run left a row")
 
@@ -434,8 +434,8 @@ func TestReplicasOnManyGoroutines(t *testing.T) {
 
 			for i := range 6 {
 				if w%3 == 0 && i == 3 {
-					_, err := session.Accounts.Where(ant.Eq(&A.ID, b.accounts[w%4].ID)).
-						Update(ctx, ant.Inc(&A.Balance, int64(0)))
+					_, err := session.Accounts.Where(ant.Eq(&Accounts.ID, b.accounts[w%4].ID)).
+						Update(ctx, ant.Inc(&Accounts.Balance, int64(0)))
 					if err != nil {
 						return err
 					}

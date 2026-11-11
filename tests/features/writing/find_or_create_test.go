@@ -13,7 +13,7 @@ import (
 func TestFirstOrCreate(t *testing.T) {
 	fixture.Run(t, func(t *testing.T, db *fixture.AppDB) {
 		ctx := t.Context()
-		byEmail := ant.Eq(&U.Email, "a@x")
+		byEmail := ant.Eq(&Users.Email, "a@x")
 		user := func() *fixture.User { return &fixture.User{Name: "a", Email: "a@x"} }
 
 		t.Run("creates when missing", func(t *testing.T) {
@@ -36,21 +36,21 @@ func TestFirstOrCreate(t *testing.T) {
 			got, created, err := db.Users.FirstOrCreate(
 				ctx,
 				user(),
-				ant.Eq(&U.Email, "a@x"),
-				ant.Eq(&U.Name, "a"),
+				ant.Eq(&Users.Email, "a@x"),
+				ant.Eq(&Users.Name, "a"),
 			)
 			require.NoError(t, err)
 			require.False(t, created)
 			require.Equal(t, "a", got.Name)
 
-			mismatch := ant.Eq(&U.Name, "not there")
+			mismatch := ant.Eq(&Users.Name, "not there")
 			_, _, err = db.Users.FirstOrCreate(ctx, user(), mismatch)
 			require.ErrorContains(t, err, "duplicate key", "the conflict is not a matching row")
 		})
 
 		t.Run("inside a transaction", func(t *testing.T) {
 			err := db.Tx(ctx, func(tx *fixture.AppDB) error {
-				_, _, err := tx.Users.FirstOrCreate(ctx, user(), ant.Eq(&U.Name, "nope"))
+				_, _, err := tx.Users.FirstOrCreate(ctx, user(), ant.Eq(&Users.Name, "nope"))
 				require.Error(t, err)
 				n, err := tx.Users.Count(ctx)
 				require.NoError(t, err, "the transaction survives the failed insert")
@@ -63,7 +63,7 @@ func TestFirstOrCreate(t *testing.T) {
 
 		t.Run("FirstOrNew does not save", func(t *testing.T) {
 			fresh := &fixture.User{Name: "new", Email: "new@x"}
-			got, found, err := db.Users.FirstOrNew(ctx, fresh, ant.Eq(&U.Email, "new@x"))
+			got, found, err := db.Users.FirstOrNew(ctx, fresh, ant.Eq(&Users.Email, "new@x"))
 			require.NoError(t, err)
 			require.False(t, found)
 			require.Same(t, fresh, got)

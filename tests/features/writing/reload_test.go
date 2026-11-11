@@ -22,7 +22,8 @@ func TestReload(t *testing.T) {
 		ctx := t.Context()
 
 		t.Run("picks up changes", func(t *testing.T) {
-			_, err := db.Users.Where(ant.Eq(&U.ID, alice.ID)).Update(ctx, ant.Set(&U.Age, 31))
+			_, err := db.Users.Where(ant.Eq(&Users.ID, alice.ID)).
+				Update(ctx, ant.Set(&Users.Age, 31))
 			require.NoError(t, err)
 			require.NoError(t, db.Users.Reload(ctx, alice))
 			require.Equal(t, 31, alice.Age)
@@ -35,7 +36,8 @@ func TestReload(t *testing.T) {
 		})
 
 		t.Run("a NULL clears a pointer", func(t *testing.T) {
-			_, err := db.Users.Where(ant.Eq(&U.ID, carol.ID)).Update(ctx, ant.Set(&U.Bio, nil))
+			_, err := db.Users.Where(ant.Eq(&Users.ID, carol.ID)).
+				Update(ctx, ant.Set(&Users.Bio, nil))
 			require.NoError(t, err)
 			require.NoError(t, db.Users.Reload(ctx, carol))
 			require.Nil(t, carol.Bio)
@@ -104,7 +106,7 @@ type BoxDB struct {
 	Boxes ant.Table[Box]
 }
 
-var B = ant.Fields[Box]()
+var Boxes = ant.Fields[Box]()
 
 // A rollback takes a reload back to the values it replaced, even a map that the
 // column's Scan fills in place.
@@ -116,8 +118,8 @@ func TestReloadRollbackKeepsScannedMaps(t *testing.T) {
 		require.NoError(t, db.Boxes.Insert(ctx, box))
 
 		err := db.Tx(ctx, func(tx *BoxDB) error {
-			_, err := tx.Boxes.Where(ant.Eq(&B.ID, box.ID)).
-				Update(ctx, ant.Set(&B.Labels, Labels{"color": "blue"}))
+			_, err := tx.Boxes.Where(ant.Eq(&Boxes.ID, box.ID)).
+				Update(ctx, ant.Set(&Boxes.Labels, Labels{"color": "blue"}))
 			require.NoError(t, err)
 			require.NoError(t, tx.Boxes.Reload(ctx, box))
 			require.Equal(t, Labels{"color": "blue"}, box.Labels)

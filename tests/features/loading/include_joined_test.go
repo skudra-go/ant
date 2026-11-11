@@ -30,8 +30,8 @@ type ChainDB struct {
 	Parents  ant.Table[Parent]
 }
 
-// CH is Child's probe.
-var CH = ant.Fields[Child]()
+// Childs is Child's probe.
+var Childs = ant.Fields[Child]()
 
 const chainDDL = `
 	CREATE TABLE parents (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);
@@ -52,20 +52,22 @@ func TestIncludeJoined(t *testing.T) {
 			),
 		)
 
-		posts, err := db.Posts.IncludeJoined(&P.User).OrderBy(&P.Title).All(ctx)
+		posts, err := db.Posts.IncludeJoined(&Posts.User).OrderBy(&Posts.Title).All(ctx)
 		require.NoError(t, err)
 		require.Len(t, posts, 2)
 		require.Equal(t, "Alice", posts[0].User.Name)
 		require.Equal(t, "one", posts[0].Title)
 
 		t.Run("the join is in one statement", func(t *testing.T) {
-			text, _, err := db.Posts.IncludeJoined(&P.User).ToSQL()
+			text, _, err := db.Posts.IncludeJoined(&Posts.User).ToSQL()
 			require.NoError(t, err)
 			require.Contains(t, text, `LEFT JOIN "users" AS "ant_joined0"`)
 		})
 
 		t.Run("it works with First and conditions", func(t *testing.T) {
-			post, err := db.Posts.IncludeJoined(&P.User).Where(ant.Eq(&P.Title, "two")).First(ctx)
+			post, err := db.Posts.IncludeJoined(&Posts.User).
+				Where(ant.Eq(&Posts.Title, "two")).
+				First(ctx)
 			require.NoError(t, err)
 			require.Equal(t, alice.Email, post.User.Email)
 		})
@@ -77,7 +79,7 @@ func TestIncludeJoinedWithNoParent(t *testing.T) {
 	fixture.RunWith(t, chainDDL, func(t *testing.T, db *ChainDB) {
 		ctx := t.Context()
 		require.NoError(t, db.Children.Insert(ctx, &Child{Name: "orphan"}))
-		children, err := db.Children.IncludeJoined(&CH.Parent).All(ctx)
+		children, err := db.Children.IncludeJoined(&Childs.Parent).All(ctx)
 		require.NoError(t, err)
 		require.Len(t, children, 1)
 		require.Nil(t, children[0].Parent)
@@ -92,7 +94,7 @@ func TestIncludeJoinedTracked(t *testing.T) {
 		alice, _, _ := fixture.Seed(t, db)
 		require.NoError(t, db.Posts.Insert(ctx, &fixture.Post{UserID: alice.ID, Title: "one"}))
 		require.NoError(t, db.ClearTracked(ctx))
-		post, err := db.Posts.IncludeJoined(&P.User).First(ctx)
+		post, err := db.Posts.IncludeJoined(&Posts.User).First(ctx)
 		require.NoError(t, err)
 
 		post.User.Age = 50
@@ -116,8 +118,8 @@ func TestNoTrackingResolved(t *testing.T) {
 	fixture.Run(t, func(t *testing.T, db *fixture.AppDB) {
 		ctx := t.Context()
 		alice, bob, _ := fixture.Seed(t, db)
-		both := db.Users.Where(ant.In(&U.ID, alice.ID, bob.ID))
-		twice := both.UnionAll(both).OrderBy(&U.Name)
+		both := db.Users.Where(ant.In(&Users.ID, alice.ID, bob.ID))
+		twice := both.UnionAll(both).OrderBy(&Users.Name)
 
 		plain, err := twice.All(ctx)
 		require.NoError(t, err)

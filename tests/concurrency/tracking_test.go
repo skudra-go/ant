@@ -27,7 +27,7 @@ func TestSharedTrackingContext(t *testing.T) {
 
 		ops := []func(w, i int) error{
 			func(int, int) error {
-				_, err := db.Accounts.Include(&A.Payments).All(ctx)
+				_, err := db.Accounts.Include(&Accounts.Payments).All(ctx)
 
 				return err
 			},
@@ -37,13 +37,13 @@ func TestSharedTrackingContext(t *testing.T) {
 				return err
 			},
 			func(w, _ int) error {
-				_, err := db.Payments.IncludeOne(&P.Account).
-					Where(ant.Eq(&P.AccountID, b.accounts[w%4].ID)).All(ctx)
+				_, err := db.Payments.IncludeOne(&Payments.Account).
+					Where(ant.Eq(&Payments.AccountID, b.accounts[w%4].ID)).All(ctx)
 
 				return err
 			},
 			func(w, _ int) error {
-				return db.Accounts.Load(ctx, &A.Payments, &Account{ID: b.accounts[w%4].ID})
+				return db.Accounts.Load(ctx, &Accounts.Payments, &Account{ID: b.accounts[w%4].ID})
 			},
 			func(w, i int) error {
 				return db.Tickets.Insert(ctx, &Ticket{Title: fmt.Sprintf("hammer %d-%d", w, i)})
@@ -52,7 +52,7 @@ func TestSharedTrackingContext(t *testing.T) {
 				_, err := db.Counters.Upsert(
 					ctx,
 					&Counter{Name: fmt.Sprintf("hammer-%d-%d", w, i), Hits: 1},
-					ant.OnConflict(&C.Name).DoNothing(),
+					ant.OnConflict(&Counters.Name).DoNothing(),
 				)
 				if errors.Is(err, ant.ErrUnsupported) {
 					return nil
@@ -78,7 +78,7 @@ func TestSharedTrackingContext(t *testing.T) {
 					return err
 				}
 
-				return db.Accounts.LoadMissing(ctx, &A.Payments, a)
+				return db.Accounts.LoadMissing(ctx, &Accounts.Payments, a)
 			},
 			func(int, int) error { return db.SaveChanges(ctx) },
 			func(w, i int) error {
@@ -108,7 +108,7 @@ func TestSharedTrackingContext(t *testing.T) {
 			},
 			func(int, int) error {
 				// Untracked work never claims, so it always runs.
-				_, err := db.Accounts.NoTracking().Include(&A.Payments).All(ctx)
+				_, err := db.Accounts.NoTracking().Include(&Accounts.Payments).All(ctx)
 				if errors.Is(err, ant.ErrConcurrentUse) {
 					return errors.New("an untracked read was refused")
 				}
@@ -144,7 +144,7 @@ func TestSharedTrackingContext(t *testing.T) {
 		require.NoError(t, err)
 		require.False(t, changed)
 
-		accounts, err := db.Accounts.Include(&A.Payments).OrderBy(&A.ID).All(ctx)
+		accounts, err := db.Accounts.Include(&Accounts.Payments).OrderBy(&Accounts.ID).All(ctx)
 		require.NoError(t, err)
 		require.NoError(t, b.checkAll(accounts, 4))
 
@@ -205,8 +205,8 @@ func TestWorkersHandEntitiesToOneSession(t *testing.T) {
 		require.Len(t, tracked, n)
 		require.NoError(t, session.SaveChanges(ctx))
 
-		accounts, err := db.Accounts.Include(&A.Payments).
-			Where(ant.Like(&A.Owner, "added-%")).
+		accounts, err := db.Accounts.Include(&Accounts.Payments).
+			Where(ant.Like(&Accounts.Owner, "added-%")).
 			All(ctx)
 		require.NoError(t, err)
 		require.Len(t, accounts, n)
@@ -316,7 +316,7 @@ func TestTrackingSessionTakingTurns(t *testing.T) {
 					mu.Lock()
 					defer mu.Unlock()
 
-					a, err := session.Accounts.Include(&A.Payments).
+					a, err := session.Accounts.Include(&Accounts.Payments).
 						Find(ctx, b.accounts[(w+i)%4].ID)
 					if err != nil {
 						return err
@@ -336,7 +336,7 @@ func TestTrackingSessionTakingTurns(t *testing.T) {
 		})
 		noErrors(t, errs)
 
-		accounts, err := db.Accounts.Include(&A.Payments).OrderBy(&A.ID).All(ctx)
+		accounts, err := db.Accounts.Include(&Accounts.Payments).OrderBy(&Accounts.ID).All(ctx)
 		require.NoError(t, err)
 
 		for _, a := range accounts {
@@ -382,7 +382,7 @@ func (a *Account) AfterLoad(ctx context.Context) error {
 	counts := make([]int64, 3)
 
 	errs := workers(3, func(i int) error {
-		n, err := db.Payments.Where(ant.Eq(&P.AccountID, a.ID)).Count(ctx)
+		n, err := db.Payments.Where(ant.Eq(&Payments.AccountID, a.ID)).Count(ctx)
 		counts[i] = n
 
 		return err

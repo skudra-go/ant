@@ -90,7 +90,7 @@ func snapshot(t *testing.T, db *MatrixDB) string {
 		text, args, err := q.ToSQL()
 		line(&b, name+" read", text, args, err)
 
-		text, args, err = q.UpdateSQL(ctx, ant.Set(&A.Marked, true))
+		text, args, err = q.UpdateSQL(ctx, ant.Set(&Authors.Marked, true))
 		line(&b, name+" update", text, args, err)
 
 		text, args, err = q.DeleteSQL(ctx)

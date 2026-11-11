@@ -43,8 +43,8 @@ func TestBulkUpdate(t *testing.T) {
 		alice := seedUsers(t, app, "Alice", 30)[0]
 		require.NoError(t, app.Posts.Insert(t.Context(), &Post{UserID: alice.ID, Title: "Hello"}))
 
-		n, err := app.Posts.Where(ant.Eq(&P.UserID, alice.ID)).
-			Update(t.Context(), ant.Set(&P.Published, true))
+		n, err := app.Posts.Where(ant.Eq(&Posts.UserID, alice.ID)).
+			Update(t.Context(), ant.Set(&Posts.Published, true))
 		require.NoError(t, err)
 		require.EqualValues(t, 1, n)
 	})
@@ -54,9 +54,11 @@ func TestBulkUpdateWritesZeroValues(t *testing.T) {
 	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
 		app := openApp(t, target)
 		seedUsers(t, app, "Alice", 30)
-		_, err := app.Users.Where(ant.Eq(&U.Name, "Alice")).Update(t.Context(), ant.Set(&U.Age, 0))
+
+		_, err := app.Users.Where(ant.Eq(&Users.Name, "Alice")).
+			Update(t.Context(), ant.Set(&Users.Age, 0))
 		require.NoError(t, err)
-		got, err := app.Users.Where(ant.Eq(&U.Age, 0)).All(t.Context())
+		got, err := app.Users.Where(ant.Eq(&Users.Age, 0)).All(t.Context())
 		require.NoError(t, err)
 		require.Equal(t, []string{"Alice"}, names(got))
 	})
@@ -72,7 +74,7 @@ func TestBulkDelete(t *testing.T) {
 			&Post{UserID: alice.ID, Title: "Hello"},
 		))
 
-		n, err := app.Posts.Where(ant.Like(&P.Title, "Draft%")).Delete(t.Context())
+		n, err := app.Posts.Where(ant.Like(&Posts.Title, "Draft%")).Delete(t.Context())
 		require.NoError(t, err)
 		require.EqualValues(t, 1, n)
 	})

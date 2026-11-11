@@ -41,11 +41,11 @@ func TestConformancePaging(t *testing.T) {
 		app := openAndSeed(t, target)
 		ctx := t.Context()
 
-		page, err := app.Users.OrderBy(&U.Name).Limit(2).Offset(1).All(ctx)
+		page, err := app.Users.OrderBy(&Users.Name).Limit(2).Offset(1).All(ctx)
 		require.NoError(t, err)
 		require.Equal(t, []string{"bob", "carol"}, names(page))
 
-		rest, err := app.Users.OrderBy(&U.Name).Offset(2).All(ctx)
+		rest, err := app.Users.OrderBy(&Users.Name).Offset(2).All(ctx)
 		require.NoError(t, err)
 		require.Equal(t, []string{"carol"}, names(rest), "OFFSET alone")
 
@@ -53,7 +53,7 @@ func TestConformancePaging(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, some, 2, "LIMIT with no ORDER BY")
 
-		first, err := app.Users.OrderByDesc(&U.Age).First(ctx)
+		first, err := app.Users.OrderByDesc(&Users.Age).First(ctx)
 		require.NoError(t, err)
 		require.Equal(t, "carol", first.Name)
 	})
@@ -64,16 +64,16 @@ func TestConformanceConditions(t *testing.T) {
 		app := openAndSeed(t, target)
 		ctx := t.Context()
 
-		found, err := app.Users.Where(ant.ILike(&U.Name, "ALI%")).All(ctx)
+		found, err := app.Users.Where(ant.ILike(&Users.Name, "ALI%")).All(ctx)
 		require.NoError(t, err)
 		require.Equal(t, []string{"alice"}, names(found), "ILIKE")
 
-		found, err = app.Users.Where(ant.Between(&U.Age, 26, 34)).All(ctx)
+		found, err = app.Users.Where(ant.Between(&Users.Age, 26, 34)).All(ctx)
 		require.NoError(t, err)
 		require.Equal(t, []string{"alice"}, names(found))
 
 		found, err = app.Users.Where(ant.InTuples(
-			[]ant.FieldRef{ant.F(&U.Name), ant.F(&U.Age)},
+			[]ant.FieldRef{ant.F(&Users.Name), ant.F(&Users.Age)},
 			[]any{"alice", 30},
 			[]any{"bob", 99},
 		)).
@@ -81,11 +81,11 @@ func TestConformanceConditions(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, []string{"alice"}, names(found), "multi-column IN")
 
-		exists, err := app.Users.Where(ant.Eq(&U.Name, "bob")).Exists(ctx)
+		exists, err := app.Users.Where(ant.Eq(&Users.Name, "bob")).Exists(ctx)
 		require.NoError(t, err)
 		require.True(t, exists)
 
-		exists, err = app.Users.Where(ant.Eq(&U.Name, "nobody")).Exists(ctx)
+		exists, err = app.Users.Where(ant.Eq(&Users.Name, "nobody")).Exists(ctx)
 		require.NoError(t, err)
 		require.False(t, exists)
 	})
@@ -106,11 +106,11 @@ func TestConformanceNullsOrder(t *testing.T) {
 			app.Users.Insert(ctx, &User{Name: "without", Email: "without@example.com"}),
 		)
 
-		found, err := app.Users.Order(ant.Col(&U.Bio).Asc().NullsFirst()).All(ctx)
+		found, err := app.Users.Order(ant.Col(&Users.Bio).Asc().NullsFirst()).All(ctx)
 		require.NoError(t, err)
 		require.Equal(t, []string{"without", "with"}, names(found))
 
-		found, err = app.Users.Order(ant.Col(&U.Bio).Asc().NullsLast()).All(ctx)
+		found, err = app.Users.Order(ant.Col(&Users.Bio).Asc().NullsLast()).All(ctx)
 		require.NoError(t, err)
 		require.Equal(t, []string{"with", "without"}, names(found))
 	})
@@ -127,16 +127,16 @@ func TestConformanceAggregates(t *testing.T) {
 		}
 
 		R := ant.Fields[row]()
-		rows, err := ant.Project[row](app.Users.Where(ant.Gte(&U.Age, 0)),
+		rows, err := ant.Project[row](app.Users.Where(ant.Gte(&Users.Age, 0)),
 			ant.IntoExpr(&R.Total, ant.Count()),
-			ant.IntoExpr(&R.Adults, ant.Count().Filter(ant.Gte(&U.Age, 30))),
-			ant.IntoExpr(&R.Young, ant.CountOf(&U.Age).Filter(ant.Lt(&U.Age, 30))),
+			ant.IntoExpr(&R.Adults, ant.Count().Filter(ant.Gte(&Users.Age, 30))),
+			ant.IntoExpr(&R.Young, ant.CountOf(&Users.Age).Filter(ant.Lt(&Users.Age, 30))),
 		).All(ctx)
 		require.NoError(t, err)
 		require.Equal(t, row{Total: 3, Adults: 2, Young: 1}, rows[0], "FILTER")
 
-		lengths, err := ant.Project[row](app.Users.Where(ant.Eq(&U.Name, "carol")),
-			ant.IntoExpr(&R.Longest, ant.Length(&U.Name))).All(ctx)
+		lengths, err := ant.Project[row](app.Users.Where(ant.Eq(&Users.Name, "carol")),
+			ant.IntoExpr(&R.Longest, ant.Length(&Users.Name))).All(ctx)
 		require.NoError(t, err)
 		require.Equal(t, 5, lengths[0].Longest, "LENGTH")
 	})
@@ -146,8 +146,8 @@ func TestConformanceSets(t *testing.T) {
 	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
 		app := openAndSeed(t, target)
 		ctx := t.Context()
-		found, err := app.Users.Where(ant.Eq(&U.Name, "alice")).
-			Union(app.Users.Where(ant.Eq(&U.Name, "bob"))).All(ctx)
+		found, err := app.Users.Where(ant.Eq(&Users.Name, "alice")).
+			Union(app.Users.Where(ant.Eq(&Users.Name, "bob"))).All(ctx)
 		require.NoError(t, err)
 		require.ElementsMatch(t, []string{"alice", "bob"}, names(found))
 	})
@@ -159,7 +159,7 @@ type Wanted struct {
 	Rank int
 }
 
-var W = ant.Fields[Wanted]()
+var Wanteds = ant.Fields[Wanted]()
 
 func TestConformanceValuesSource(t *testing.T) {
 	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
@@ -167,12 +167,13 @@ func TestConformanceValuesSource(t *testing.T) {
 		ctx := t.Context()
 		wanted := ant.Values(app, Wanted{"alice", 1}, Wanted{"carol", 2})
 
-		listed, err := wanted.OrderBy(&W.Rank).All(ctx)
+		listed, err := wanted.OrderBy(&Wanteds.Rank).All(ctx)
 		require.NoError(t, err)
 		require.Equal(t, "carol", listed[1].Name)
 
-		found, err := ant.JoinSub(app.Users.OrderBy(&U.Name), wanted, ant.EqCol(&U.Name, &W.Name)).
-			Select(func(u *User, w *Wanted) string { return u.Name }).All(ctx)
+		found, err := ant.JoinSub(app.Users.OrderBy(&Users.Name), wanted, ant.EqCol(&Users.Name, &Wanteds.Name)).
+			Select(func(u *User, w *Wanted) string { return u.Name }).
+			All(ctx)
 		require.NoError(t, err)
 		require.Equal(t, []string{"alice", "carol"}, found)
 	})
@@ -220,7 +221,7 @@ func TestConformanceUpsert(t *testing.T) {
 		app := openApp(t, target)
 		ctx := t.Context()
 
-		conflict := ant.OnConflict(&U.Email).DoUpdate(ant.F(&U.Age))
+		conflict := ant.OnConflict(&Users.Email).DoUpdate(ant.F(&Users.Age))
 
 		if !has(target, dialect.OnConflict) {
 			_, err := app.Users.Upsert(ctx, &User{Name: "a", Email: "a@x", Age: 1}, conflict)
@@ -241,12 +242,12 @@ func TestConformanceUpsert(t *testing.T) {
 		require.Equal(t, first.ID, second.ID, "the stored row came back")
 		require.Equal(t, "first", second.Name)
 
-		stored, err := app.Users.NoTracking().Where(ant.Eq(&U.ID, first.ID)).First(ctx)
+		stored, err := app.Users.NoTracking().Where(ant.Eq(&Users.ID, first.ID)).First(ctx)
 		require.NoError(t, err)
 		require.Equal(t, 2, stored.Age)
 
 		third := &User{Name: "third", Email: "same@x", Age: 3}
-		wrote, err := app.Users.Upsert(ctx, third, ant.OnConflict(&U.Email).DoNothing())
+		wrote, err := app.Users.Upsert(ctx, third, ant.OnConflict(&Users.Email).DoNothing())
 		require.NoError(t, err)
 		require.False(t, wrote)
 		require.Zero(t, third.ID)
@@ -254,7 +255,7 @@ func TestConformanceUpsert(t *testing.T) {
 		n, err := app.Users.InsertMany(
 			ctx,
 			[]*User{{Name: "fourth", Email: "same@x"}, {Name: "fifth", Email: "new@x"}},
-			ant.WithConflict(ant.OnConflict(&U.Email).DoNothing()),
+			ant.WithConflict(ant.OnConflict(&Users.Email).DoNothing()),
 		)
 		require.NoError(t, err)
 		require.EqualValues(t, 1, n)
@@ -266,8 +267,8 @@ func TestConformanceReturning(t *testing.T) {
 		app := openAndSeed(t, target)
 		ctx := t.Context()
 
-		updated, err := app.Users.Where(ant.Eq(&U.Name, "bob")).
-			UpdateReturning(ctx, ant.Set(&U.Age, 26))
+		updated, err := app.Users.Where(ant.Eq(&Users.Name, "bob")).
+			UpdateReturning(ctx, ant.Set(&Users.Age, 26))
 
 		if has(target, dialect.ReturningUpdate) {
 			require.NoError(t, err)
@@ -276,7 +277,7 @@ func TestConformanceReturning(t *testing.T) {
 			require.ErrorIs(t, err, ant.ErrUnsupported)
 		}
 
-		removed, err := app.Users.Where(ant.Eq(&U.Name, "bob")).DeleteReturning(ctx)
+		removed, err := app.Users.Where(ant.Eq(&Users.Name, "bob")).DeleteReturning(ctx)
 
 		if has(target, dialect.ReturningDelete) {
 			require.NoError(t, err)
@@ -291,18 +292,21 @@ func TestConformanceLimitedWrites(t *testing.T) {
 	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
 		app := openAndSeed(t, target)
 		ctx := t.Context()
-		changed, err := app.Users.Where(ant.Gt(&U.Age, 0)).
-			OrderBy(&U.Age).
+		changed, err := app.Users.Where(ant.Gt(&Users.Age, 0)).
+			OrderBy(&Users.Age).
 			Limit(1).
-			Update(ctx, ant.Set(&U.Age, 99))
+			Update(ctx, ant.Set(&Users.Age, 99))
 		require.NoError(t, err)
 		require.EqualValues(t, 1, changed)
 
-		youngest, err := app.Users.NoTracking().Where(ant.Eq(&U.Name, "bob")).First(ctx)
+		youngest, err := app.Users.NoTracking().Where(ant.Eq(&Users.Name, "bob")).First(ctx)
 		require.NoError(t, err)
 		require.Equal(t, 99, youngest.Age)
 
-		removed, err := app.Users.Where(ant.Gt(&U.Age, 0)).OrderBy(&U.Name).Limit(2).Delete(ctx)
+		removed, err := app.Users.Where(ant.Gt(&Users.Age, 0)).
+			OrderBy(&Users.Name).
+			Limit(2).
+			Delete(ctx)
 		require.NoError(t, err)
 		require.EqualValues(t, 2, removed)
 
@@ -318,10 +322,10 @@ func TestConformanceDerivedWrites(t *testing.T) {
 	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
 		app := openAndSeed(t, target)
 		ctx := t.Context()
-		older := app.Users.Where(ant.Gt(&U.Age, 28))
+		older := app.Users.Where(ant.Gt(&Users.Age, 28))
 
 		age := func(name string) int {
-			u, err := app.Users.NoTracking().Where(ant.Eq(&U.Name, name)).First(ctx)
+			u, err := app.Users.NoTracking().Where(ant.Eq(&Users.Name, name)).First(ctx)
 			require.NoError(t, err)
 
 			return u.Age
@@ -331,8 +335,8 @@ func TestConformanceDerivedWrites(t *testing.T) {
 		// Server refuses it.
 		changed, err := app.Users.Query().
 			From(older).
-			OrderBy(&U.Name).
-			Update(ctx, ant.Inc(&U.Age, 1))
+			OrderBy(&Users.Name).
+			Update(ctx, ant.Inc(&Users.Age, 1))
 		require.NoError(t, err)
 		require.EqualValues(t, 2, changed, "From")
 		require.Equal(t, 25, age("bob"))
@@ -341,22 +345,22 @@ func TestConformanceDerivedWrites(t *testing.T) {
 		// databases would match the key to the table being written, and change
 		// every row.
 		_, err = app.Users.Query().
-			From(older.Column(&U.Name)).
-			Where(ant.Eq(&U.Name, "alice")).
-			Update(ctx, ant.Set(&U.Age, 99))
+			From(older.Column(&Users.Name)).
+			Where(ant.Eq(&Users.Name, "alice")).
+			Update(ctx, ant.Set(&Users.Age, 99))
 		require.ErrorContains(t, err, "need it to select User.ID")
 
 		// A set operation matches columns by position, so ages from the right side
 		// would land in the left side's key.
-		_, err = app.Users.Where(ant.Eq(&U.Name, "alice")).
-			Column(&U.ID).
-			Column(&U.Age).
-			Union(app.Users.Where(ant.Eq(&U.Name, "bob")).Column(&U.Age).Column(&U.ID)).
+		_, err = app.Users.Where(ant.Eq(&Users.Name, "alice")).
+			Column(&Users.ID).
+			Column(&Users.Age).
+			Union(app.Users.Where(ant.Eq(&Users.Name, "bob")).Column(&Users.Age).Column(&Users.ID)).
 			Delete(ctx)
 		require.ErrorContains(t, err, "need it to select User.ID")
 
 		_, err = ant.FromRaw[User](app, "SELECT * FROM users").
-			Where(ant.Eq(&U.Name, "bob")).
+			Where(ant.Eq(&Users.Name, "bob")).
 			Delete(ctx)
 		require.ErrorContains(t, err, "cannot use FromRaw")
 		require.Equal(t, 25, age("bob"))
@@ -365,8 +369,8 @@ func TestConformanceDerivedWrites(t *testing.T) {
 		// start of a statement.
 		changed, err = app.Users.Query().
 			FromCTE("older", older).
-			Where(ant.Eq(&U.Name, "carol")).
-			Update(ctx, ant.Set(&U.Age, 50))
+			Where(ant.Eq(&Users.Name, "carol")).
+			Update(ctx, ant.Set(&Users.Age, 50))
 
 		if has(target, dialect.SubqueryWith) {
 			require.NoError(t, err)
@@ -377,8 +381,8 @@ func TestConformanceDerivedWrites(t *testing.T) {
 
 		require.Equal(t, 31, age("alice"))
 
-		removed, err := app.Users.Where(ant.Eq(&U.Name, "alice")).
-			Union(app.Users.Where(ant.Eq(&U.Name, "bob"))).
+		removed, err := app.Users.Where(ant.Eq(&Users.Name, "alice")).
+			Union(app.Users.Where(ant.Eq(&Users.Name, "bob"))).
 			Delete(ctx)
 		require.NoError(t, err)
 		require.EqualValues(t, 2, removed, "Union")
@@ -393,7 +397,7 @@ func TestConformanceLocks(t *testing.T) {
 	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
 		app := openAndSeed(t, target)
 		err := app.Tx(t.Context(), func(tx *AppDB) error {
-			_, err := tx.Users.Where(ant.Eq(&U.Name, "bob")).ForUpdate().First(t.Context())
+			_, err := tx.Users.Where(ant.Eq(&Users.Name, "bob")).ForUpdate().First(t.Context())
 
 			return err
 		})
@@ -410,7 +414,7 @@ func TestConformanceMissingFeatures(t *testing.T) {
 	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
 		app := openAndSeed(t, target)
 		ctx := t.Context()
-		_, err := app.Users.FullJoinOn[Post](ant.EqCol(&U.ID, &P.UserID)).
+		_, err := app.Users.FullJoinOn[Post](ant.EqCol(&Users.ID, &Posts.UserID)).
 			Select(func(u *User, p *Post) string { return u.Name }).All(ctx)
 
 		if has(target, dialect.FullJoin) {
@@ -444,7 +448,7 @@ func TestConformanceSavepoints(t *testing.T) {
 			return tx.Users.Insert(ctx, &User{Name: "after", Email: "after@x"})
 		})
 		require.NoError(t, err)
-		found, err := app.Users.OrderBy(&U.Name).All(ctx)
+		found, err := app.Users.OrderBy(&Users.Name).All(ctx)
 		require.NoError(t, err)
 		require.Equal(t, []string{"after", "kept"}, names(found))
 	})
@@ -476,7 +480,7 @@ func TestConformanceTimes(t *testing.T) {
 		require.NoError(t, err)
 		require.WithinDuration(t, time.Now(), stored.CreatedAt, 2*time.Minute)
 
-		found, err := app.Users.Where(ant.Gt(&U.CreatedAt, before)).Count(ctx)
+		found, err := app.Users.Where(ant.Gt(&Users.CreatedAt, before)).Count(ctx)
 		require.NoError(t, err)
 		require.EqualValues(t, 1, found, "a time compares as a time")
 	})
@@ -489,7 +493,7 @@ func TestConformanceQuoting(t *testing.T) {
 		tricky := `it's "quoted" ` + "`and`" + ` [bracketed]`
 		u := &User{Name: tricky, Email: strings.Repeat("e", 40) + "@x"}
 		require.NoError(t, app.Users.Insert(ctx, u))
-		stored, err := app.Users.Where(ant.Eq(&U.Name, tricky)).First(ctx)
+		stored, err := app.Users.Where(ant.Eq(&Users.Name, tricky)).First(ctx)
 		require.NoError(t, err)
 		require.Equal(t, tricky, stored.Name)
 	})
@@ -502,12 +506,12 @@ func TestConformanceDates(t *testing.T) {
 
 		// An hour away, as CURRENT_TIMESTAMP has whole seconds on some databases.
 		for _, shift := range []time.Duration{-time.Hour, time.Hour} {
-			_, err := app.Users.Where(ant.Gt(&U.Age, 0)).
-				Update(ctx, ant.Set(&U.CreatedAt, time.Now().Add(shift)))
+			_, err := app.Users.Where(ant.Gt(&Users.Age, 0)).
+				Update(ctx, ant.Set(&Users.CreatedAt, time.Now().Add(shift)))
 			require.NoError(t, err)
-			past, err := app.Users.Where(ant.Past(&U.CreatedAt)).Count(ctx)
+			past, err := app.Users.Where(ant.Past(&Users.CreatedAt)).Count(ctx)
 			require.NoError(t, err)
-			future, err := app.Users.Where(ant.Future(&U.CreatedAt)).Count(ctx)
+			future, err := app.Users.Where(ant.Future(&Users.CreatedAt)).Count(ctx)
 			require.NoError(t, err)
 
 			if shift < 0 {
@@ -517,7 +521,7 @@ func TestConformanceDates(t *testing.T) {
 			}
 		}
 
-		_, err := app.Users.Where(ant.Today(&U.CreatedAt)).Count(ctx)
+		_, err := app.Users.Where(ant.Today(&Users.CreatedAt)).Count(ctx)
 
 		if has(target, dialect.DateCast) {
 			require.NoError(t, err)
@@ -531,7 +535,7 @@ func TestConformanceDates(t *testing.T) {
 
 		years, err := ant.Project[row](
 			app.Users.Limit(1),
-			ant.IntoExpr(&R.Year, ant.DatePart(&U.CreatedAt, "year")),
+			ant.IntoExpr(&R.Year, ant.DatePart(&Users.CreatedAt, "year")),
 		).All(ctx)
 
 		if has(target, dialect.DatePart) {
@@ -556,10 +560,10 @@ func TestConformanceCursorPaging(t *testing.T) {
 	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
 		app := openAndSeed(t, target)
 		ctx := t.Context()
-		first, err := app.Users.OrderBy(&U.ID).After(ctx, "", 2)
+		first, err := app.Users.OrderBy(&Users.ID).After(ctx, "", 2)
 		require.NoError(t, err)
 		require.Equal(t, []string{"alice", "bob"}, names(first.Items))
-		next, err := app.Users.OrderBy(&U.ID).After(ctx, first.Next, 2)
+		next, err := app.Users.OrderBy(&Users.ID).After(ctx, first.Next, 2)
 		require.NoError(t, err)
 		require.Equal(t, []string{"carol"}, names(next.Items))
 	})
@@ -578,8 +582,8 @@ func TestConformanceGroups(t *testing.T) {
 
 		B := ant.Fields[bucket]()
 		got, err := ant.Project[bucket](
-			app.Users.GroupBy(&U.Age).Having(ant.Count().Gt(1)),
-			ant.Into(&B.Age, &U.Age),
+			app.Users.GroupBy(&Users.Age).Having(ant.Count().Gt(1)),
+			ant.Into(&B.Age, &Users.Age),
 			ant.IntoExpr(&B.Users, ant.Count()),
 		).All(ctx)
 		require.NoError(t, err)
@@ -598,11 +602,11 @@ func TestConformanceWindows(t *testing.T) {
 
 		R := ant.Fields[row]()
 		got, err := ant.Project[row](
-			app.Users.OrderBy(&U.Name),
-			ant.Into(&R.Name, &U.Name),
+			app.Users.OrderBy(&Users.Name),
+			ant.Into(&R.Name, &Users.Name),
 			ant.IntoExpr(
 				&R.Position,
-				ant.RowNumber().Over(ant.OrderedBy(ant.Col(&U.Age).Asc())),
+				ant.RowNumber().Over(ant.OrderedBy(ant.Col(&Users.Age).Asc())),
 			),
 		).All(t.Context())
 		require.NoError(t, err)
@@ -614,7 +618,7 @@ func TestConformanceRelations(t *testing.T) {
 	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
 		app := openAndSeed(t, target)
 		ctx := t.Context()
-		users, err := app.Users.OrderBy(&U.Name).NoTracking().All(ctx)
+		users, err := app.Users.OrderBy(&Users.Name).NoTracking().All(ctx)
 		require.NoError(t, err)
 
 		for i, title := range []string{"one", "two", "three"} {
@@ -624,15 +628,15 @@ func TestConformanceRelations(t *testing.T) {
 			)
 		}
 
-		writers, err := app.Users.Where(ant.Has(&U.Posts, ant.Eq(&P.Published, true))).
+		writers, err := app.Users.Where(ant.Has(&Users.Posts, ant.Eq(&Posts.Published, true))).
 			NoTracking().
 			All(ctx)
 		require.NoError(t, err)
 		require.Equal(t, []string{"alice"}, names(writers), "EXISTS with a boolean")
 
-		top, err := app.Users.Where(ant.Eq(&U.Name, "alice")).NoTracking().
-			Include(&U.Posts, func(q *ant.Query[Post]) *ant.Query[Post] {
-				return q.OrderByDesc(&P.Title).Limit(2)
+		top, err := app.Users.Where(ant.Eq(&Users.Name, "alice")).NoTracking().
+			Include(&Users.Posts, func(q *ant.Query[Post]) *ant.Query[Post] {
+				return q.OrderByDesc(&Posts.Title).Limit(2)
 			}).
 			All(ctx)
 		require.NoError(t, err)
@@ -645,8 +649,8 @@ func TestConformanceMerge(t *testing.T) {
 		app := openAndSeed(t, target)
 		ctx := t.Context()
 		source := ant.Values(app, Wanted{"alice", 41})
-		merge := ant.Merge(&app.Users, source, ant.EqCol(&U.Name, &W.Name)).
-			WhenMatched(ant.SetExpr(&U.Age, ant.Col(&W.Rank)))
+		merge := ant.Merge(&app.Users, source, ant.EqCol(&Users.Name, &Wanteds.Name)).
+			WhenMatched(ant.SetExpr(&Users.Age, ant.Col(&Wanteds.Rank)))
 		changed, err := merge.Exec(ctx)
 
 		if !has(target, dialect.Merge) {
@@ -670,21 +674,21 @@ func TestConformanceMerge(t *testing.T) {
 		require.NoError(t, err)
 		require.EqualValues(t, 1, changed)
 
-		alice, err := app.Users.NoTracking().Where(ant.Eq(&U.Name, "alice")).First(ctx)
+		alice, err := app.Users.NoTracking().Where(ant.Eq(&Users.Name, "alice")).First(ctx)
 		require.NoError(t, err)
 		require.Equal(t, 41, alice.Age)
 
 		// An inserted row gets its timestamps, as from Insert.
-		_, err = ant.Merge(&app.Users, ant.Values(app, Wanted{"dora", 22}), ant.EqCol(&U.Name, &W.Name)).
+		_, err = ant.Merge(&app.Users, ant.Values(app, Wanted{"dora", 22}), ant.EqCol(&Users.Name, &Wanteds.Name)).
 			WhenNotMatched(
-				ant.Into(&U.Name, &W.Name),
-				ant.Into(&U.Email, &W.Name),
-				ant.Into(&U.Age, &W.Rank),
+				ant.Into(&Users.Name, &Wanteds.Name),
+				ant.Into(&Users.Email, &Wanteds.Name),
+				ant.Into(&Users.Age, &Wanteds.Rank),
 			).
 			Exec(ctx)
 		require.NoError(t, err)
 
-		dora, err := app.Users.NoTracking().Where(ant.Eq(&U.Name, "dora")).First(ctx)
+		dora, err := app.Users.NoTracking().Where(ant.Eq(&Users.Name, "dora")).First(ctx)
 		require.NoError(t, err)
 		require.False(t, dora.CreatedAt.IsZero())
 		require.True(t, dora.UpdatedAt.Equal(dora.CreatedAt))
@@ -711,7 +715,7 @@ func TestConformanceParameterLimits(t *testing.T) {
 			app.Posts.Insert(ctx, &Post{UserID: users[len(users)-1].ID, Title: "last"}),
 		)
 
-		loaded, err := app.Users.NoTracking().OrderBy(&U.ID).Include(&U.Posts).All(ctx)
+		loaded, err := app.Users.NoTracking().OrderBy(&Users.ID).Include(&Users.Posts).All(ctx)
 		require.NoError(t, err)
 		require.Len(t, loaded, len(users))
 		require.Equal(t, []string{"last"}, titles(loaded[len(loaded)-1].Posts))
@@ -722,14 +726,14 @@ func TestConformanceLateralJoin(t *testing.T) {
 	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
 		app := openAndSeed(t, target)
 		ctx := t.Context()
-		alice, err := app.Users.NoTracking().Where(ant.Eq(&U.Name, "alice")).First(ctx)
+		alice, err := app.Users.NoTracking().Where(ant.Eq(&Users.Name, "alice")).First(ctx)
 		require.NoError(t, err)
 
 		for _, title := range []string{"older", "newer"} {
 			require.NoError(t, app.Posts.Insert(ctx, &Post{UserID: alice.ID, Title: title}))
 		}
 
-		first := app.Posts.Where(ant.EqCol(&P.UserID, &U.ID)).OrderBy(&P.Title).Limit(1)
+		first := app.Posts.Where(ant.EqCol(&Posts.UserID, &Users.ID)).OrderBy(&Posts.Title).Limit(1)
 
 		newest, err := ant.JoinLateral(app.Users.Query(), first).
 			Select(func(u *User, p *Post) string { return p.Title }).
@@ -801,35 +805,35 @@ func TestConformanceSetMembers(t *testing.T) {
 	}{
 		{
 			"filtered",
-			func(q *ant.Query[User]) *ant.Query[User] { return q.Where(ant.Gt(&U.Age, 22)) },
+			func(q *ant.Query[User]) *ant.Query[User] { return q.Where(ant.Gt(&Users.Age, 22)) },
 			pick(func(age int) bool { return age > 22 }, byName, 0, -1),
 		},
 		{
 			"youngest two",
-			func(q *ant.Query[User]) *ant.Query[User] { return q.OrderBy(&U.Age).Limit(2) },
+			func(q *ant.Query[User]) *ant.Query[User] { return q.OrderBy(&Users.Age).Limit(2) },
 			pick(all, byAge, 0, 2),
 		},
 		{
 			"second oldest",
 			func(q *ant.Query[User]) *ant.Query[User] {
-				return q.OrderByDesc(&U.Age).Offset(1).Limit(1)
+				return q.OrderByDesc(&Users.Age).Offset(1).Limit(1)
 			},
 			pick(all, byAgeDesc, 1, 1),
 		},
 		{
 			"ordered, not paged",
-			func(q *ant.Query[User]) *ant.Query[User] { return q.OrderByDesc(&U.Name) },
+			func(q *ant.Query[User]) *ant.Query[User] { return q.OrderByDesc(&Users.Name) },
 			pick(all, byName, 0, -1),
 		},
 		{
 			"offset alone",
-			func(q *ant.Query[User]) *ant.Query[User] { return q.OrderBy(&U.Name).Offset(3) },
+			func(q *ant.Query[User]) *ant.Query[User] { return q.OrderBy(&Users.Name).Offset(3) },
 			pick(all, byName, 3, -1),
 		},
 		{
 			"filtered and paged",
 			func(q *ant.Query[User]) *ant.Query[User] {
-				return q.Where(ant.Lt(&U.Age, 30)).OrderByDesc(&U.Age).Limit(1)
+				return q.Where(ant.Lt(&Users.Age, 30)).OrderByDesc(&Users.Age).Limit(1)
 			},
 			pick(func(age int) bool { return age < 30 }, byAgeDesc, 0, 1),
 		},
@@ -881,7 +885,7 @@ func TestConformanceSetMembers(t *testing.T) {
 							right.shape(app.Users.Query()),
 						)
 
-						got, err := q.OrderBy(&U.Name).All(ctx)
+						got, err := q.OrderBy(&Users.Name).All(ctx)
 						require.NoError(t, err)
 
 						want := kind.rows(left.rows, right.rows)
@@ -895,14 +899,14 @@ func TestConformanceSetMembers(t *testing.T) {
 			}
 		}
 
-		youngTwo := app.Users.OrderBy(&U.Age).Limit(2)   // eve, bob
-		oldest := app.Users.OrderByDesc(&U.Age).Limit(1) // dan
-		thirty := app.Users.Where(ant.Eq(&U.Age, 30))    // alice
+		youngTwo := app.Users.OrderBy(&Users.Age).Limit(2)   // eve, bob
+		oldest := app.Users.OrderByDesc(&Users.Age).Limit(1) // dan
+		thirty := app.Users.Where(ant.Eq(&Users.Age, 30))    // alice
 
 		byName := func(t *testing.T, q *ant.Query[User]) []string {
 			t.Helper()
 
-			got, err := q.OrderBy(&U.Name).All(ctx)
+			got, err := q.OrderBy(&Users.Name).All(ctx)
 			require.NoError(t, err)
 
 			return names(got)
@@ -915,7 +919,7 @@ func TestConformanceSetMembers(t *testing.T) {
 		})
 
 		t.Run("a paged set as a member", func(t *testing.T) {
-			firstTwo := youngTwo.Union(oldest).OrderBy(&U.Name).Limit(2) // bob, dan
+			firstTwo := youngTwo.Union(oldest).OrderBy(&Users.Name).Limit(2) // bob, dan
 			require.Equal(t, []string{"alice", "bob", "dan"}, byName(t, firstTwo.Union(thirty)))
 			require.Equal(t, []string{"bob"}, byName(t, firstTwo.Intersect(youngTwo)))
 		})
@@ -928,24 +932,24 @@ func TestConformanceSetMembers(t *testing.T) {
 
 		// A limit is not a condition, so each side has one for the write guard.
 		t.Run("an update changes the members' rows only", func(t *testing.T) {
-			adults := app.Users.Where(ant.Gt(&U.Age, 0))
-			changed, err := adults.OrderBy(&U.Age).Limit(2).
-				Union(adults.OrderByDesc(&U.Age).Limit(1)).
-				Update(ctx, ant.Inc(&U.Age, 100))
+			adults := app.Users.Where(ant.Gt(&Users.Age, 0))
+			changed, err := adults.OrderBy(&Users.Age).Limit(2).
+				Union(adults.OrderByDesc(&Users.Age).Limit(1)).
+				Update(ctx, ant.Inc(&Users.Age, 100))
 			require.NoError(t, err)
 			require.EqualValues(t, 3, changed)
 
-			old, err := app.Users.Where(ant.Gt(&U.Age, 100)).OrderBy(&U.Name).All(ctx)
+			old, err := app.Users.Where(ant.Gt(&Users.Age, 100)).OrderBy(&Users.Name).All(ctx)
 			require.NoError(t, err)
 			require.Equal(t, []string{"bob", "dan", "eve"}, names(old))
 
-			_, err = app.Users.Where(ant.Gt(&U.Age, 100)).Update(ctx, ant.Inc(&U.Age, -100))
+			_, err = app.Users.Where(ant.Gt(&Users.Age, 100)).Update(ctx, ant.Inc(&Users.Age, -100))
 			require.NoError(t, err)
 		})
 
 		t.Run("a delete removes the members' rows only", func(t *testing.T) {
-			removed, err := app.Users.OrderBy(&U.Age).Limit(3). // eve, bob, alice
-										Intersect(app.Users.Where(ant.Gt(&U.Age, 22))).
+			removed, err := app.Users.OrderBy(&Users.Age).Limit(3). // eve, bob, alice
+										Intersect(app.Users.Where(ant.Gt(&Users.Age, 22))).
 										Delete(ctx)
 			require.NoError(t, err)
 			require.EqualValues(t, 2, removed)
@@ -964,10 +968,10 @@ type Ledger struct {
 
 func (Ledger) Configure(b *ant.ModelBuilder[Ledger]) {
 	b.Table("ledgers")
-	b.Index(&Lg.Code).Unique()
+	b.Index(&Ledgers.Code).Unique()
 }
 
-var Lg = ant.Fields[Ledger]()
+var Ledgers = ant.Fields[Ledger]()
 
 type LedgerDB struct {
 	ant.Context
@@ -996,7 +1000,7 @@ func TestConformanceUpsertVersion(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { db.Close() })
 
-		onCode := ant.OnConflict(&Lg.Code)
+		onCode := ant.OnConflict(&Ledgers.Code)
 
 		if !has(target, dialect.OnConflict) {
 			_, err := db.Ledgers.Upsert(ctx, &Ledger{ID: 1, Code: "a"}, onCode)
@@ -1006,7 +1010,7 @@ func TestConformanceUpsertVersion(t *testing.T) {
 		}
 
 		version := func() int64 {
-			stored, err := db.Ledgers.NoTracking().Where(ant.Eq(&Lg.Code, "a")).First(ctx)
+			stored, err := db.Ledgers.NoTracking().Where(ant.Eq(&Ledgers.Code, "a")).First(ctx)
 			require.NoError(t, err)
 
 			return stored.Version
@@ -1018,8 +1022,8 @@ func TestConformanceUpsertVersion(t *testing.T) {
 
 		for i, conflict := range []*ant.Conflict{
 			onCode,
-			onCode.DoUpdate(ant.F(&Lg.Total)),
-			onCode.Set(ant.Inc(&Lg.Total, 1)),
+			onCode.DoUpdate(ant.F(&Ledgers.Total)),
+			onCode.Set(ant.Inc(&Ledgers.Total, 1)),
 		} {
 			fresh := &Ledger{ID: 2, Code: "a", Total: 5}
 			_, err = db.Ledgers.Upsert(ctx, fresh, conflict)
@@ -1029,7 +1033,7 @@ func TestConformanceUpsertVersion(t *testing.T) {
 		}
 
 		total := func() int {
-			stored, err := db.Ledgers.NoTracking().Where(ant.Eq(&Lg.Code, "a")).First(ctx)
+			stored, err := db.Ledgers.NoTracking().Where(ant.Eq(&Ledgers.Code, "a")).First(ctx)
 			require.NoError(t, err)
 
 			return stored.Total
@@ -1039,8 +1043,8 @@ func TestConformanceUpsertVersion(t *testing.T) {
 		// the version itself.
 		for _, conflict := range []*ant.Conflict{
 			onCode,
-			onCode.DoUpdate(ant.F(&Lg.Total)),
-			onCode.Set(ant.Inc(&Lg.Total, 1)),
+			onCode.DoUpdate(ant.F(&Ledgers.Total)),
+			onCode.Set(ant.Inc(&Ledgers.Total, 1)),
 		} {
 			stale := &Ledger{
 				ID:      1,
@@ -1072,7 +1076,7 @@ func TestConformanceUpsertVersion(t *testing.T) {
 		require.NoError(t, err)
 		require.Positive(t, n)
 
-		stored, err := db.Ledgers.NoTracking().OrderBy(&Lg.Code).All(ctx)
+		stored, err := db.Ledgers.NoTracking().OrderBy(&Ledgers.Code).All(ctx)
 		require.NoError(t, err)
 		require.Equal(t, version(), stored[0].Version)
 		require.Greater(t, stored[0].Version, int64(1), "InsertMany moved it on too")
@@ -1092,7 +1096,7 @@ type Moment struct {
 
 func (Moment) Configure(b *ant.ModelBuilder[Moment]) { b.Table("moments") }
 
-var Mo = ant.Fields[Moment]()
+var Moments = ant.Fields[Moment]()
 
 type MomentDB struct {
 	ant.Context
@@ -1154,7 +1158,7 @@ func TestConformanceTimeShapes(t *testing.T) {
 		read := func(id int64) *Moment {
 			t.Helper()
 
-			m, err := db.Moments.WithDeleted().Where(ant.Eq(&Mo.ID, id)).First(ctx)
+			m, err := db.Moments.WithDeleted().Where(ant.Eq(&Moments.ID, id)).First(ctx)
 			require.NoError(t, err)
 
 			return m
@@ -1178,12 +1182,12 @@ func TestConformanceTimeShapes(t *testing.T) {
 
 		t.Run("each shape finds its row", func(t *testing.T) {
 			conds := map[string]ant.Cond{
-				"time.Time":    ant.Eq(&Mo.At, at),
-				"*time.Time":   ant.Eq(&Mo.Maybe, &at),
-				"sql.Null":     ant.Eq(&Mo.Opt, sql.Null[time.Time]{V: at, Valid: true}),
-				"sql.NullTime": ant.Eq(&Mo.Legacy, sql.NullTime{Time: at, Valid: true}),
+				"time.Time":    ant.Eq(&Moments.At, at),
+				"*time.Time":   ant.Eq(&Moments.Maybe, &at),
+				"sql.Null":     ant.Eq(&Moments.Opt, sql.Null[time.Time]{V: at, Valid: true}),
+				"sql.NullTime": ant.Eq(&Moments.Legacy, sql.NullTime{Time: at, Valid: true}),
 				"ant.DeletedAt": ant.Eq(
-					&Mo.DeletedAt,
+					&Moments.DeletedAt,
 					ant.DeletedAt{Null: sql.Null[time.Time]{V: at, Valid: true}},
 				),
 			}
@@ -1191,7 +1195,7 @@ func TestConformanceTimeShapes(t *testing.T) {
 			for name, cond := range conds {
 				n, err := db.Moments.WithDeleted().
 					Where(cond).
-					Where(ant.Eq(&Mo.ID, int64(1))).
+					Where(ant.Eq(&Moments.ID, int64(1))).
 					Count(ctx)
 				require.NoError(t, err, name)
 				require.EqualValues(t, 1, n, name)
@@ -1199,10 +1203,10 @@ func TestConformanceTimeShapes(t *testing.T) {
 		})
 
 		t.Run("an update stores the same instant", func(t *testing.T) {
-			_, err := db.Moments.WithDeleted().Where(ant.Eq(&Mo.ID, int64(2))).Update(ctx,
-				ant.Set(&Mo.Maybe, &later),
-				ant.Set(&Mo.Opt, sql.Null[time.Time]{V: later, Valid: true}),
-				ant.Set(&Mo.Legacy, sql.NullTime{Time: later, Valid: true}))
+			_, err := db.Moments.WithDeleted().Where(ant.Eq(&Moments.ID, int64(2))).Update(ctx,
+				ant.Set(&Moments.Maybe, &later),
+				ant.Set(&Moments.Opt, sql.Null[time.Time]{V: later, Valid: true}),
+				ant.Set(&Moments.Legacy, sql.NullTime{Time: later, Valid: true}))
 			require.NoError(t, err)
 
 			m := read(2)
@@ -1265,8 +1269,8 @@ func TestConformanceTimeShapes(t *testing.T) {
 				require.NoError(t, err)
 
 				_, err = db.Moments.WithDeleted().
-					Where(ant.Eq(&Mo.ID, int64(2))).
-					Update(ctx, ant.SetExpr(&Mo.Legacy, ant.SQL[sql.NullTime]("?", arg)))
+					Where(ant.Eq(&Moments.ID, int64(2))).
+					Update(ctx, ant.SetExpr(&Moments.Legacy, ant.SQL[sql.NullTime]("?", arg)))
 				require.NoError(t, err, name)
 				require.True(t, at.Equal(storedAt(t)), "%s, rendered: stored %v", name, storedAt(t))
 			}
@@ -1321,12 +1325,13 @@ func TestConformanceWritesReadingTheirTable(t *testing.T) {
 		}
 
 		older := func(app *AppDB) ant.Sub[int64] {
-			return ant.SubOf(app.Users.Where(ant.Gt(&U.Age, 28)), &U.ID)
+			return ant.SubOf(app.Users.Where(ant.Gt(&Users.Age, 28)), &Users.ID)
 		}
 
 		t.Run("IN a subquery of the same table", func(t *testing.T) {
 			app := fresh(t)
-			n, err := app.Users.Where(ant.InSub(&U.ID, older(app))).Update(ctx, ant.Inc(&U.Age, 1))
+			n, err := app.Users.Where(ant.InSub(&Users.ID, older(app))).
+				Update(ctx, ant.Inc(&Users.Age, 1))
 			require.NoError(t, err)
 			require.EqualValues(t, 2, n)
 			require.Equal(t, map[string]int{"alice": 31, "bob": 25, "carol": 36}, ages(t, app))
@@ -1334,7 +1339,7 @@ func TestConformanceWritesReadingTheirTable(t *testing.T) {
 
 		t.Run("NOT IN, in a delete", func(t *testing.T) {
 			app := fresh(t)
-			n, err := app.Users.Where(ant.NotInSub(&U.ID, older(app))).Delete(ctx)
+			n, err := app.Users.Where(ant.NotInSub(&Users.ID, older(app))).Delete(ctx)
 			require.NoError(t, err)
 			require.EqualValues(t, 1, n)
 			require.Equal(t, map[string]int{"alice": 30, "carol": 35}, ages(t, app))
@@ -1342,9 +1347,9 @@ func TestConformanceWritesReadingTheirTable(t *testing.T) {
 
 		t.Run("a value from the same table", func(t *testing.T) {
 			app := fresh(t)
-			oldest := ant.SubExpr(app.Users.Query(), ant.Max(&U.Age)).Expr()
-			n, err := app.Users.Where(ant.Eq(&U.Name, "bob")).
-				Update(ctx, ant.SetExpr(&U.Age, oldest))
+			oldest := ant.SubExpr(app.Users.Query(), ant.Max(&Users.Age)).Expr()
+			n, err := app.Users.Where(ant.Eq(&Users.Name, "bob")).
+				Update(ctx, ant.SetExpr(&Users.Age, oldest))
 			require.NoError(t, err)
 			require.EqualValues(t, 1, n)
 			require.Equal(t, 35, ages(t, app)["bob"])
@@ -1355,8 +1360,8 @@ func TestConformanceWritesReadingTheirTable(t *testing.T) {
 		t.Run("a raw value from the same table", func(t *testing.T) {
 			app := fresh(t)
 			oldest := ant.SubExpr(app.Users.Query(), ant.SQL[int]("MAX(age)")).Expr()
-			n, err := app.Users.Where(ant.Eq(&U.Name, "bob")).
-				Update(ctx, ant.SetExpr(&U.Age, oldest))
+			n, err := app.Users.Where(ant.Eq(&Users.Name, "bob")).
+				Update(ctx, ant.SetExpr(&Users.Age, oldest))
 			require.NoError(t, err)
 			require.EqualValues(t, 1, n)
 			require.Equal(t, 35, ages(t, app)["bob"])
@@ -1366,8 +1371,8 @@ func TestConformanceWritesReadingTheirTable(t *testing.T) {
 		// from a SELECT, which it allows.
 		t.Run("an upsert whose Set reads the table", func(t *testing.T) {
 			app := fresh(t)
-			oldest := ant.SubExpr(app.Users.Query(), ant.Max(&U.Age)).Expr()
-			onEmail := ant.OnConflict(&U.Email).Set(ant.SetExpr(&U.Age, oldest))
+			oldest := ant.SubExpr(app.Users.Query(), ant.Max(&Users.Age)).Expr()
+			onEmail := ant.OnConflict(&Users.Email).Set(ant.SetExpr(&Users.Age, oldest))
 			bob := &User{Name: "bob", Email: "bob@example.com", Age: 1}
 
 			_, err := app.Users.Upsert(ctx, bob, onEmail)
@@ -1407,10 +1412,10 @@ func TestConformanceWritesReadingTheirTable(t *testing.T) {
 		t.Run("a read through another table's subquery", func(t *testing.T) {
 			app := fresh(t)
 			byOlder := app.Posts.Where(
-				ant.EqCol(&P.UserID, &U.ID),
-				ant.InSub(&P.UserID, older(app)),
+				ant.EqCol(&Posts.UserID, &Users.ID),
+				ant.InSub(&Posts.UserID, older(app)),
 			)
-			n, err := app.Users.Where(ant.Exists(byOlder)).Update(ctx, ant.Inc(&U.Age, 1))
+			n, err := app.Users.Where(ant.Exists(byOlder)).Update(ctx, ant.Inc(&Users.Age, 1))
 			require.NoError(t, err)
 			require.EqualValues(t, 1, n, "carol, who is older and has a post")
 			require.Equal(t, 36, ages(t, app)["carol"])
@@ -1419,19 +1424,19 @@ func TestConformanceWritesReadingTheirTable(t *testing.T) {
 		t.Run("a derived source and a read of the table", func(t *testing.T) {
 			app := fresh(t)
 			n, err := app.Users.Query().
-				From(app.Users.Where(ant.Gt(&U.Age, 20))).
-				Where(ant.InSub(&U.ID, older(app))).
-				Update(ctx, ant.Inc(&U.Age, 1))
+				From(app.Users.Where(ant.Gt(&Users.Age, 20))).
+				Where(ant.InSub(&Users.ID, older(app))).
+				Update(ctx, ant.Inc(&Users.Age, 1))
 			require.NoError(t, err)
 			require.EqualValues(t, 2, n)
 		})
 
 		t.Run("a limited write and a read of the table", func(t *testing.T) {
 			app := fresh(t)
-			n, err := app.Users.Where(ant.InSub(&U.ID, older(app))).
-				OrderBy(&U.Age).
+			n, err := app.Users.Where(ant.InSub(&Users.ID, older(app))).
+				OrderBy(&Users.Age).
 				Limit(1).
-				Update(ctx, ant.Inc(&U.Age, 1))
+				Update(ctx, ant.Inc(&Users.Age, 1))
 			require.NoError(t, err)
 			require.EqualValues(t, 1, n)
 			require.Equal(t, 31, ages(t, app)["alice"])
@@ -1448,8 +1453,8 @@ func TestConformanceWritesReadingTheirTable(t *testing.T) {
 			byOlder := app.Posts.Where(ant.SQLCond(
 				`posts.title <> 'it\'s' AND posts.user_id IN (SELECT id FROM users WHERE age > 28)`,
 			))
-			n, err := app.Users.Where(ant.InSub(&U.ID, ant.SubOf(byOlder, &P.UserID))).
-				Update(ctx, ant.Inc(&U.Age, 1))
+			n, err := app.Users.Where(ant.InSub(&Users.ID, ant.SubOf(byOlder, &Posts.UserID))).
+				Update(ctx, ant.Inc(&Users.Age, 1))
 			require.NoError(t, err)
 			require.EqualValues(t, 1, n, "carol, who is older and has a post")
 			require.Equal(t, 36, ages(t, app)["carol"])
@@ -1603,9 +1608,12 @@ func TestConformanceWritesReadingTheirTable(t *testing.T) {
 
 		t.Run("a correlated read of the same table", func(t *testing.T) {
 			app := fresh(t)
-			younger := ant.SubOf(app.Posts.Where(ant.EqCol(&P.UserID, &U.ID)), &P.UserID)
-			n, err := app.Users.Where(ant.NotInSub(&U.ID, younger)).
-				Where(ant.Lt(&U.Age, 31)).
+			younger := ant.SubOf(
+				app.Posts.Where(ant.EqCol(&Posts.UserID, &Users.ID)),
+				&Posts.UserID,
+			)
+			n, err := app.Users.Where(ant.NotInSub(&Users.ID, younger)).
+				Where(ant.Lt(&Users.Age, 31)).
 				Delete(ctx)
 			require.NoError(t, err)
 			require.EqualValues(t, 2, n, "alice and bob have no post")
@@ -1631,7 +1639,7 @@ type NodeDB struct {
 	Nodes ant.Table[Node]
 }
 
-var Nd = ant.Fields[Node]()
+var Nodes = ant.Fields[Node]()
 
 // Recursive gives each row it reaches once, ends a cycle in the data, and goes
 // as deep as the data does. SQL Server, which joins a recursive WITH only with
@@ -1681,7 +1689,7 @@ func TestConformanceRecursive(t *testing.T) {
 		named := func(q *ant.Query[Node]) []string {
 			t.Helper()
 
-			got, err := q.OrderBy(&Nd.Name).All(ctx)
+			got, err := q.OrderBy(&Nodes.Name).All(ctx)
 			require.NoError(t, err)
 
 			out := make([]string, len(got))
@@ -1694,11 +1702,11 @@ func TestConformanceRecursive(t *testing.T) {
 		}
 
 		down := func(ids ...int64) *ant.Query[Node] {
-			return db.Nodes.Where(ant.In(&Nd.ID, ids...)).Recursive(&Nd.Children)
+			return db.Nodes.Where(ant.In(&Nodes.ID, ids...)).Recursive(&Nodes.Children)
 		}
 
 		up := func(ids ...int64) *ant.Query[Node] {
-			return db.Nodes.Where(ant.In(&Nd.ID, ids...)).RecursiveOne(&Nd.Parent)
+			return db.Nodes.Where(ant.In(&Nodes.ID, ids...)).RecursiveOne(&Nodes.Parent)
 		}
 
 		require.Equal(t, []string{"a", "a1", "b", "root"}, named(down(1)))
@@ -1723,23 +1731,23 @@ func TestConformanceRecursive(t *testing.T) {
 		require.NoError(t, err)
 		require.EqualValues(t, deep, n, "deeper than 100 levels")
 
-		n, err = down(1, 2).OrderBy(&Nd.ID).Limit(3).Count(ctx)
+		n, err = down(1, 2).OrderBy(&Nodes.ID).Limit(3).Count(ctx)
 		require.NoError(t, err)
 		require.EqualValues(t, 3, n, "a paged Count")
 
-		found, err := down(5).Where(ant.Eq(&Nd.Name, "c2")).Exists(ctx)
+		found, err := down(5).Where(ant.Eq(&Nodes.Name, "c2")).Exists(ctx)
 		require.NoError(t, err)
 		require.True(t, found)
 
-		found, err = down(1).Where(ant.Eq(&Nd.Name, "c2")).Exists(ctx)
+		found, err = down(1).Where(ant.Eq(&Nodes.Name, "c2")).Exists(ctx)
 		require.NoError(t, err)
 		require.False(t, found)
 
-		first, err := down(1).OrderByDesc(&Nd.Name).First(ctx)
+		first, err := down(1).OrderByDesc(&Nodes.Name).First(ctx)
 		require.NoError(t, err)
 		require.Equal(t, "root", first.Name)
 
-		fromCTE := db.Nodes.Query().FromCTE("named", db.Nodes.Where(ant.Like(&Nd.Name, "c%")))
+		fromCTE := db.Nodes.Query().FromCTE("named", db.Nodes.Where(ant.Like(&Nodes.Name, "c%")))
 
 		found, err = fromCTE.Exists(ctx)
 		require.NoError(t, err)
@@ -1749,7 +1757,7 @@ func TestConformanceRecursive(t *testing.T) {
 		require.NoError(t, err)
 		require.EqualValues(t, 2, n, "Count with Distinct on FromCTE")
 
-		n, err = fromCTE.OrderBy(&Nd.ID).Offset(1).Count(ctx)
+		n, err = fromCTE.OrderBy(&Nodes.ID).Offset(1).Count(ctx)
 		require.NoError(t, err)
 		require.EqualValues(t, 1, n, "a paged Count on FromCTE")
 	})

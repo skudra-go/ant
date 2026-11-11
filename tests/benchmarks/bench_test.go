@@ -36,8 +36,8 @@ type AppDB struct {
 }
 
 var (
-	U = ant.Fields[User]()
-	P = ant.Fields[Post]()
+	Users = ant.Fields[User]()
+	Posts = ant.Fields[Post]()
 )
 
 const ddl = `
@@ -216,8 +216,8 @@ func BenchmarkFindOne(b *testing.B) {
 		b.ReportAllocs()
 
 		for b.Loop() {
-			if _, err := db.Users.Where(ant.Eq(&U.Age, 30), ant.Like(&U.Name, "user%")).
-				OrderBy(&U.Name).
+			if _, err := db.Users.Where(ant.Eq(&Users.Age, 30), ant.Like(&Users.Name, "user%")).
+				OrderBy(&Users.Name).
 				First(ctx); err != nil {
 				b.Fatal(err)
 			}
@@ -232,7 +232,7 @@ func BenchmarkInclude(b *testing.B) {
 	b.ReportAllocs()
 
 	for b.Loop() {
-		out, err := db.Users.Limit(100).Include(&U.Posts).All(ctx)
+		out, err := db.Users.Limit(100).Include(&Users.Posts).All(ctx)
 		if err != nil || len(out[0].Posts) != 5 {
 			b.Fatal(err)
 		}

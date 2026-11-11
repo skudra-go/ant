@@ -91,7 +91,9 @@ func TestTransactionsSideBySide(t *testing.T) {
 		})
 		noErrors(t, errs)
 
-		accounts, err := db.Accounts.Include(&A.Payments).Where(ant.Like(&A.Owner, "tx-%")).All(ctx)
+		accounts, err := db.Accounts.Include(&Accounts.Payments).
+			Where(ant.Like(&Accounts.Owner, "tx-%")).
+			All(ctx)
 		require.NoError(t, err)
 		require.EqualValues(t, inserted.Load(), len(accounts))
 
@@ -142,8 +144,8 @@ func TestWorkersTakeTurnsInATransaction(t *testing.T) {
 							return err
 						}
 
-						if _, err := tx.Accounts.Where(ant.Eq(&A.ID, a.ID)).
-							Update(ctx, ant.Inc(&A.Balance, int64(1))); err != nil {
+						if _, err := tx.Accounts.Where(ant.Eq(&Accounts.ID, a.ID)).
+							Update(ctx, ant.Inc(&Accounts.Balance, int64(1))); err != nil {
 							return err
 						}
 
@@ -243,7 +245,7 @@ func TestTransactionContextEnds(t *testing.T) {
 
 			require.Error(t, tx.Commit(), "a transaction whose context ended does not commit")
 
-			n, err := db.Accounts.Where(ant.Eq(&A.Owner, "cancelled")).Count(ctx)
+			n, err := db.Accounts.Where(ant.Eq(&Accounts.Owner, "cancelled")).Count(ctx)
 			require.NoError(t, err)
 			require.Zero(t, n)
 		})
@@ -262,7 +264,7 @@ func TestTransactionContextEnds(t *testing.T) {
 			})
 			require.ErrorIs(t, err, context.Canceled)
 
-			n, err := db.Accounts.Where(ant.Eq(&A.Owner, "late")).Count(ctx)
+			n, err := db.Accounts.Where(ant.Eq(&Accounts.Owner, "late")).Count(ctx)
 			require.NoError(t, err)
 			require.Zero(t, n, "a transaction whose context ended before its commit rolled back")
 		})
@@ -293,7 +295,7 @@ func TestBeginHandedBetweenGoroutines(t *testing.T) {
 		require.NoError(t, tx.Commit())
 		require.ErrorIs(t, tx.Commit(), ant.ErrTxDone)
 
-		n, err := db.Accounts.Where(ant.Like(&A.Owner, "begin-%")).Count(ctx)
+		n, err := db.Accounts.Where(ant.Like(&Accounts.Owner, "begin-%")).Count(ctx)
 		require.NoError(t, err)
 		require.EqualValues(t, 6, n)
 	})
@@ -323,7 +325,7 @@ func TestUseConnTakingTurns(t *testing.T) {
 			turn.Lock()
 			defer turn.Unlock()
 
-			got, err := one.Accounts.Include(&A.Payments).Find(ctx, a.ID)
+			got, err := one.Accounts.Include(&Accounts.Payments).Find(ctx, a.ID)
 			if err != nil {
 				return err
 			}

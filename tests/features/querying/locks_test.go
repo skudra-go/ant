@@ -15,7 +15,7 @@ func TestLocks(t *testing.T) {
 	fixture.Run(t, func(t *testing.T, db *fixture.AppDB) {
 		alice, bob, _ := fixture.Seed(t, db)
 		ctx := t.Context()
-		q := db.Users.OrderBy(&U.Name)
+		q := db.Users.OrderBy(&Users.Name)
 
 		t.Run("NoWait fails at once on a locked row", func(t *testing.T) {
 			tx, err := ant.Begin(ctx, db)
@@ -23,10 +23,10 @@ func TestLocks(t *testing.T) {
 
 			defer tx.Rollback()
 
-			_, err = tx.Users.Where(ant.Eq(&U.ID, alice.ID)).ForUpdate().Single(ctx)
+			_, err = tx.Users.Where(ant.Eq(&Users.ID, alice.ID)).ForUpdate().Single(ctx)
 			require.NoError(t, err)
 
-			_, err = q.Where(ant.Eq(&U.ID, alice.ID)).ForUpdate().NoWait().All(ctx)
+			_, err = q.Where(ant.Eq(&Users.ID, alice.ID)).ForUpdate().NoWait().All(ctx)
 			require.ErrorContains(t, err, "could not obtain lock")
 		})
 
@@ -36,7 +36,7 @@ func TestLocks(t *testing.T) {
 
 			defer tx.Rollback()
 
-			_, err = tx.Users.Where(ant.Eq(&U.ID, alice.ID)).ForUpdate().Single(ctx)
+			_, err = tx.Users.Where(ant.Eq(&Users.ID, alice.ID)).ForUpdate().Single(ctx)
 			require.NoError(t, err)
 
 			got, err := q.ForUpdate().SkipLocked().All(ctx)
@@ -50,12 +50,12 @@ func TestLocks(t *testing.T) {
 
 			defer tx.Rollback()
 
-			_, err = tx.Users.Where(ant.Eq(&U.ID, bob.ID)).ForShare().Single(ctx)
+			_, err = tx.Users.Where(ant.Eq(&Users.ID, bob.ID)).ForShare().Single(ctx)
 			require.NoError(t, err)
 
-			_, err = q.Where(ant.Eq(&U.ID, bob.ID)).ForShare().NoWait().All(ctx)
+			_, err = q.Where(ant.Eq(&Users.ID, bob.ID)).ForShare().NoWait().All(ctx)
 			require.NoError(t, err)
-			_, err = q.Where(ant.Eq(&U.ID, bob.ID)).ForUpdate().NoWait().All(ctx)
+			_, err = q.Where(ant.Eq(&Users.ID, bob.ID)).ForUpdate().NoWait().All(ctx)
 			require.Error(t, err, "but not writers")
 		})
 
@@ -77,7 +77,7 @@ func TestLocks(t *testing.T) {
 						defer holding.Wait()
 						defer holding.Done()
 
-						job, err := tx.Users.OrderBy(&U.ID).ForUpdate().SkipLocked().First(ctx)
+						job, err := tx.Users.OrderBy(&Users.ID).ForUpdate().SkipLocked().First(ctx)
 						if err != nil {
 							return err
 						}

@@ -24,7 +24,7 @@ type ProfileDB struct {
 	Profiles ant.Table[Profile]
 }
 
-var Pr = ant.Fields[Profile]()
+var Profiles = ant.Fields[Profile]()
 
 func TestNullable(t *testing.T) {
 	ddl := `CREATE TABLE profiles (id BIGSERIAL PRIMARY KEY, bio TEXT, age BIGINT, website TEXT)`
@@ -66,13 +66,13 @@ func TestNullable(t *testing.T) {
 			p := &Profile{Website: "nil-check"}
 			require.NoError(t, db.Profiles.Insert(ctx, p))
 
-			_, err := db.Profiles.Where(ant.Eq(&Pr.Website, "nil-check"), ant.Eq(&Pr.Bio, nil)).
+			_, err := db.Profiles.Where(ant.Eq(&Profiles.Website, "nil-check"), ant.Eq(&Profiles.Bio, nil)).
 				Single(ctx)
 			require.NoError(t, err)
 
 			_, err = db.Profiles.Where(
-				ant.Eq(&Pr.Website, "nil-check"),
-				ant.Eq(&Pr.Age, sql.Null[int64]{}),
+				ant.Eq(&Profiles.Website, "nil-check"),
+				ant.Eq(&Profiles.Age, sql.Null[int64]{}),
 			).
 				Single(ctx)
 			require.NoError(t, err)

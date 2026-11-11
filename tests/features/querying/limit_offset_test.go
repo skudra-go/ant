@@ -14,7 +14,7 @@ func TestLimitOffset(t *testing.T) {
 	fixture.Run(t, func(t *testing.T, db *fixture.AppDB) {
 		fixture.Seed(t, db)
 		ctx := t.Context()
-		byName := db.Users.OrderBy(&U.Name)
+		byName := db.Users.OrderBy(&Users.Name)
 
 		cases := []struct {
 			name  string
