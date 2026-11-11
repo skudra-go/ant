@@ -33,8 +33,11 @@ deps:
 # TESTFLAGS passes flags through, as CI does with make test TESTFLAGS="-v -race -failfast".
 TESTFLAGS ?=
 
+# PACKAGES picks what make test runs, as CI does to split it across runners.
+PACKAGES ?= ./...
+
 test:
-	go test -parallel $(PARALLEL) $(TESTFLAGS) ./...
+	go test -parallel $(PARALLEL) $(TESTFLAGS) $(PACKAGES)
 
 bench:
 	go test -run '^$$' -bench . -benchtime 2s ./tests/benchmarks/

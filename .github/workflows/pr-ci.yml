@@ -108,11 +108,28 @@ jobs:
           path: ${{ steps.go.outputs.paths }}
           key: ${{ steps.go.outputs.key }}
 
-  # Unit tests, plus every database test on PostgreSQL, under the race detector.
-  # Tests run in parallel, each on a schema of its own, after the few that must
-  # run alone, and -failfast stops a package at its first failure.
-
+  # test is the required check. It passes when the two jobs that test on
+  # PostgreSQL passed, or both skipped on a change to docs alone.
   test:
+    needs: [postgres, probes]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          RESULTS: ${{ needs.postgres.result }} ${{ needs.probes.result }}
+        run: |
+          for result in $RESULTS; do
+            case $result in
+              success | skipped) ;;
+              *) echo "a test job ended with $result" && exit 1 ;;
+            esac
+          done
+
+  # Unit tests, plus every database test on PostgreSQL, under the race detector,
+  # except the value probes, which have a runner of their own. Tests run in
+  # parallel, each on a schema of its own, after the few that must run alone,
+  # and -failfast stops a package at its first failure.
+  postgres:
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
@@ -137,9 +154,47 @@ jobs:
       - id: go
         uses: ./.github/actions/setup-go
         with:
-          key: test
-      - run: make test TESTFLAGS="-v -race -failfast"
+          key: postgres
+      - shell: bash
+        run: |
+          packages=$(go list ./... | grep -v /tests/features/value_handling/probes/ | tr '\n' ' ')
+          make test PACKAGES="$packages" TESTFLAGS="-v -race -failfast"
+      # Only main saves its caches, which pull requests then start from.
+      - if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ steps.go.outputs.paths }}
+          key: ${{ steps.go.outputs.key }}
 
+  # The value probes take the longest to compile, so they build on a runner of
+  # their own. They start no goroutines, so the race detector is left out.
+  probes:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: ant
+          POSTGRES_PASSWORD: ant
+          POSTGRES_DB: ant_test
+        ports:
+          - "55432:5432"
+        options: >-
+          --health-cmd "pg_isready -U ant -d ant_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 40
+    env:
+      ANT_TEST_DATABASES: postgres
+    steps:
+      - uses: actions/checkout@v7
+      - id: go
+        uses: ./.github/actions/setup-go
+        with:
+          key: probes
+      - run: make test PACKAGES=./tests/features/value_handling/probes/... TESTFLAGS="-v -failfast"
       # Only main saves its caches, which pull requests then start from.
       - if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         uses: actions/cache/save@v6
