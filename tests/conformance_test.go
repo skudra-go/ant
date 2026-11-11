@@ -1955,7 +1955,7 @@ func TestConformanceUpdateManyKeepsUp(t *testing.T) {
 		require.NoError(t, err)
 		require.EqualValues(t, 2, n, "the soft-deleted row is left alone")
 
-		rows, err := db.Emps.WithDeleted().OrderBy(&Emps.ID).All(ctx)
+		rows, err := db.Emps.NoTracking().WithDeleted().OrderBy(&Emps.ID).All(ctx)
 		require.NoError(t, err)
 		require.Equal(t, "renamed", rows[0].Name)
 		require.EqualValues(t, 2, rows[0].Version, "the version moved on")
@@ -1978,7 +1978,7 @@ func TestConformanceUpdateManyKeepsUp(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		b, err := db.Emps.Where(ant.Eq(&Emps.ID, int64(2))).First(ctx)
+		b, err := db.Emps.NoTracking().Where(ant.Eq(&Emps.ID, int64(2))).First(ctx)
 		require.NoError(t, err)
 		require.Equal(t, mine, b.UpdatedAt.UTC(), "a named UpdatedAt keeps its value")
 	})

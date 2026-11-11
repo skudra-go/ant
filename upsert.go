@@ -761,6 +761,9 @@ func (t *Table[T]) FirstOrNew(ctx context.Context, e *T, conds ...Cond) (*T, boo
 // UpdateMany writes the named columns of each entity to its own row, in one
 // transaction, and returns how many rows changed. Use it for values that differ
 // per row. Tracked entities keep their snapshots, so prefer SaveChanges for them.
+// As a bulk Update does, it moves the version on, sets UpdatedAt unless a field
+// names it, and skips rows the model's filters leave out, such as soft-deleted
+// ones. The entities themselves are not changed.
 func (t *Table[T]) UpdateMany(
 	ctx context.Context,
 	entities []*T,
@@ -800,6 +803,21 @@ func (t *Table[T]) UpdateMany(
 		return 0, ErrNilEntity
 	}
 
+	var kept []qb.Assignment
+
+	if f := model.Updated; f != nil && !slices.Contains(columns, f.Column) {
+		kept = append(kept, qb.Assignment{
+			Column: f.Column,
+			Value:  qb.Param{Value: timeValue(f, t.state.settings.timestamp()).Interface()},
+		})
+	}
+
+	if model.Version != nil {
+		kept = append(kept, nextVersion(model))
+	}
+
+	filters := modelFilters(source{model: model}, nil)
+
 	var total int64
 
 	err = t.state.transact(ctx, len(entities) > 1, func(to exec.Executor) error {
@@ -807,7 +825,10 @@ func (t *Table[T]) UpdateMany(
 			entity := unsafe.Pointer(e)
 			stmt := &qb.Update{
 				Table: model.Table,
-				Where: keyEquals(model, field, field.Value(entity).Interface()),
+				Where: append(
+					keyEquals(model, field, field.Value(entity).Interface()),
+					filters...,
+				),
 			}
 
 			for _, ref := range fields {
@@ -816,6 +837,8 @@ func (t *Table[T]) UpdateMany(
 					Value:  qb.Param{Value: ref.field.Value(entity).Interface()},
 				})
 			}
+
+			stmt.Set = append(stmt.Set, kept...)
 
 			n, err := t.state.runOn(ctx, to, stmt)
 			if err != nil {
