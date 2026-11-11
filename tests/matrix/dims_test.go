@@ -361,6 +361,27 @@ func conditions() []condition {
 			},
 		),
 		hasPost("has a post", func() []ant.Cond { return nil }, all, false),
+		hasPost(
+			"has a post with UPPER(title)=T03-0",
+			func() []ant.Cond {
+				return []ant.Cond{ant.Upper(&Posts.Title).Eq("T03-0")}
+			},
+			func(p *Post) bool { return strings.ToUpper(p.Title) == "T03-0" },
+			false,
+		),
+		{
+			// A self-relation: a column under an operator must read the mentee,
+			// not the outer author.
+			name: "has a mentee over 18 by age+0",
+			cond: func(*MatrixDB) ant.Cond {
+				return ant.Has(&Authors.Mentees, ant.Col(&Authors.Age).Plus(0).Gt(18))
+			},
+			eval: func(w *world, a *Author) tri {
+				return truth(slices.ContainsFunc(w.authors, func(m *Author) bool {
+					return m.MentorID != nil && *m.MentorID == a.ID && m.Age > 18
+				}))
+			},
+		},
 		hasPost("has no post", func() []ant.Cond { return nil }, all, true),
 		hasPost(
 			"has a post over 500 views",
