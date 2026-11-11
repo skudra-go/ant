@@ -314,6 +314,24 @@ func conditions() []condition {
 				return truth(a.Score != nil)
 			},
 		),
+		atom(
+			"Col(score).Eq(nil)",
+			func() ant.Cond {
+				return ant.Col(&Authors.Score).Eq(nil)
+			},
+			func(a *Author) tri {
+				return truth(a.Score == nil)
+			},
+		),
+		atom(
+			"Col(score).Ne(nil)",
+			func() ant.Cond {
+				return ant.Col(&Authors.Score).Ne(nil)
+			},
+			func(a *Author) tri {
+				return truth(a.Score != nil)
+			},
+		),
 		active,
 		atom(
 			"country empty",

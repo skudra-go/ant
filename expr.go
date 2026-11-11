@@ -90,11 +90,25 @@ func (e Expr[V]) compare(op qb.Op, v V) Cond {
 	}
 }
 
-// Eq matches rows where the expression equals v.
-func (e Expr[V]) Eq(v V) Cond { return e.compare(qb.OpEq, v) }
+// Eq matches rows where the expression equals v. A v stored as NULL, such as a
+// nil pointer or an invalid sql.Null[T], matches NULL, as with ant.Eq.
+func (e Expr[V]) Eq(v V) Cond {
+	if isNull(v) {
+		return e.IsNull()
+	}
 
-// Ne matches rows where the expression does not equal v.
-func (e Expr[V]) Ne(v V) Cond { return e.compare(qb.OpNe, v) }
+	return e.compare(qb.OpEq, v)
+}
+
+// Ne matches rows where the expression does not equal v. A v stored as NULL
+// matches non-NULL values, as with ant.Ne.
+func (e Expr[V]) Ne(v V) Cond {
+	if isNull(v) {
+		return e.IsNotNull()
+	}
+
+	return e.compare(qb.OpNe, v)
+}
 
 // Gt matches rows where the expression is greater than v.
 func (e Expr[V]) Gt(v V) Cond { return e.compare(qb.OpGt, v) }

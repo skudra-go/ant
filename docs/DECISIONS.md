@@ -532,7 +532,7 @@ The plan's order now follows what PostgreSQL needs while a column changes:
 
 ## 95. In means Eq, and other value rules
 
-`Eq(nil)` matches NULL, but `In(nil, x)` followed SQL, where NULL is in nothing. Now `In` and `NotIn` are `Eq` and `Ne` of each value, folded: a nil value adds `IS NULL` to `In`, and `IS NOT NULL` to `NotIn`, whose other values exclude NULL rows as SQL does.
+`Eq(nil)` matches NULL, but `In(nil, x)` followed SQL, where NULL is in nothing. Now `In` and `NotIn` are `Eq` and `Ne` of each value, folded: a nil value adds `IS NULL` to `In`, and `IS NOT NULL` to `NotIn`, whose other values exclude NULL rows as SQL does. The typed `Expr` methods follow the same rule: `Col(&f).Eq(nil)` is `IS NULL` and `Ne(nil)` is `IS NOT NULL`, where they used to bind `= NULL` and match nothing (#94).
 
 A list longer than the parameters one statement takes goes on PostgreSQL as one array, `= ANY($1)` or `<> ALL($1)`, when its values are plain and of one type, which is what PostgreSQL makes of `IN` anyway. A list that fits stays a list, and other databases, which take no arrays, leave it to the driver to refuse.
 

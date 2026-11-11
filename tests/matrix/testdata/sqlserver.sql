@@ -174,6 +174,24 @@ table / score<>nil update
 table / score<>nil delete
   DELETE FROM [mx_authors] WHERE [mx_authors].[score] IS NOT NULL
   args: []
+table / Col(score).Eq(nil) read
+  SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[score] IS NULL
+  args: []
+table / Col(score).Eq(nil) update
+  UPDATE [mx_authors] SET [marked] = @p1 WHERE [mx_authors].[score] IS NULL
+  args: [true]
+table / Col(score).Eq(nil) delete
+  DELETE FROM [mx_authors] WHERE [mx_authors].[score] IS NULL
+  args: []
+table / Col(score).Ne(nil) read
+  SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[score] IS NOT NULL
+  args: []
+table / Col(score).Ne(nil) update
+  UPDATE [mx_authors] SET [marked] = @p1 WHERE [mx_authors].[score] IS NOT NULL
+  args: [true]
+table / Col(score).Ne(nil) delete
+  DELETE FROM [mx_authors] WHERE [mx_authors].[score] IS NOT NULL
+  args: []
 table / active read
   SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[active] = @p1
   args: [true]
@@ -714,6 +732,24 @@ From / score<>nil update
 From / score<>nil delete
   DELETE FROM [mx_authors] WHERE [mx_authors].[id] IN (SELECT [mx_authors].[id] FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[age] >= @p1) AS [mx_authors] WHERE [mx_authors].[score] IS NOT NULL)
   args: [18]
+From / Col(score).Eq(nil) read
+  SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[age] >= @p1) AS [mx_authors] WHERE [mx_authors].[score] IS NULL
+  args: [18]
+From / Col(score).Eq(nil) update
+  UPDATE [mx_authors] SET [marked] = @p1 WHERE [mx_authors].[id] IN (SELECT [mx_authors].[id] FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[age] >= @p2) AS [mx_authors] WHERE [mx_authors].[score] IS NULL)
+  args: [true, 18]
+From / Col(score).Eq(nil) delete
+  DELETE FROM [mx_authors] WHERE [mx_authors].[id] IN (SELECT [mx_authors].[id] FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[age] >= @p1) AS [mx_authors] WHERE [mx_authors].[score] IS NULL)
+  args: [18]
+From / Col(score).Ne(nil) read
+  SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[age] >= @p1) AS [mx_authors] WHERE [mx_authors].[score] IS NOT NULL
+  args: [18]
+From / Col(score).Ne(nil) update
+  UPDATE [mx_authors] SET [marked] = @p1 WHERE [mx_authors].[id] IN (SELECT [mx_authors].[id] FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[age] >= @p2) AS [mx_authors] WHERE [mx_authors].[score] IS NOT NULL)
+  args: [true, 18]
+From / Col(score).Ne(nil) delete
+  DELETE FROM [mx_authors] WHERE [mx_authors].[id] IN (SELECT [mx_authors].[id] FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[age] >= @p1) AS [mx_authors] WHERE [mx_authors].[score] IS NOT NULL)
+  args: [18]
 From / active read
   SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[age] >= @p1) AS [mx_authors] WHERE [mx_authors].[active] = @p2
   args: [18, true]
@@ -1214,6 +1250,20 @@ FromCTE / score<>nil update
   error: ant: not supported by this database: WITH inside a subquery on sqlserver
 FromCTE / score<>nil delete
   error: ant: not supported by this database: WITH inside a subquery on sqlserver
+FromCTE / Col(score).Eq(nil) read
+  WITH [scored] AS (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[score] IS NOT NULL) SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [scored] AS [mx_authors] WHERE [mx_authors].[score] IS NULL
+  args: []
+FromCTE / Col(score).Eq(nil) update
+  error: ant: not supported by this database: WITH inside a subquery on sqlserver
+FromCTE / Col(score).Eq(nil) delete
+  error: ant: not supported by this database: WITH inside a subquery on sqlserver
+FromCTE / Col(score).Ne(nil) read
+  WITH [scored] AS (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[score] IS NOT NULL) SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [scored] AS [mx_authors] WHERE [mx_authors].[score] IS NOT NULL
+  args: []
+FromCTE / Col(score).Ne(nil) update
+  error: ant: not supported by this database: WITH inside a subquery on sqlserver
+FromCTE / Col(score).Ne(nil) delete
+  error: ant: not supported by this database: WITH inside a subquery on sqlserver
 FromCTE / active read
   WITH [scored] AS (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[score] IS NOT NULL) SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [scored] AS [mx_authors] WHERE [mx_authors].[active] = @p1
   args: [true]
@@ -1672,6 +1722,24 @@ Union / score<>nil update
   UPDATE [mx_authors] SET [marked] = @p1 WHERE [mx_authors].[id] IN (SELECT [mx_authors].[id] FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[age] < @p2 UNION (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[active] = @p3)) AS [mx_authors] WHERE [mx_authors].[score] IS NOT NULL)
   args: [true, 18, true]
 Union / score<>nil delete
+  DELETE FROM [mx_authors] WHERE [mx_authors].[id] IN (SELECT [mx_authors].[id] FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[age] < @p1 UNION (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[active] = @p2)) AS [mx_authors] WHERE [mx_authors].[score] IS NOT NULL)
+  args: [18, true]
+Union / Col(score).Eq(nil) read
+  SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[age] < @p1 UNION (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[active] = @p2)) AS [mx_authors] WHERE [mx_authors].[score] IS NULL
+  args: [18, true]
+Union / Col(score).Eq(nil) update
+  UPDATE [mx_authors] SET [marked] = @p1 WHERE [mx_authors].[id] IN (SELECT [mx_authors].[id] FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[age] < @p2 UNION (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[active] = @p3)) AS [mx_authors] WHERE [mx_authors].[score] IS NULL)
+  args: [true, 18, true]
+Union / Col(score).Eq(nil) delete
+  DELETE FROM [mx_authors] WHERE [mx_authors].[id] IN (SELECT [mx_authors].[id] FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[age] < @p1 UNION (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[active] = @p2)) AS [mx_authors] WHERE [mx_authors].[score] IS NULL)
+  args: [18, true]
+Union / Col(score).Ne(nil) read
+  SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[age] < @p1 UNION (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[active] = @p2)) AS [mx_authors] WHERE [mx_authors].[score] IS NOT NULL
+  args: [18, true]
+Union / Col(score).Ne(nil) update
+  UPDATE [mx_authors] SET [marked] = @p1 WHERE [mx_authors].[id] IN (SELECT [mx_authors].[id] FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[age] < @p2 UNION (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[active] = @p3)) AS [mx_authors] WHERE [mx_authors].[score] IS NOT NULL)
+  args: [true, 18, true]
+Union / Col(score).Ne(nil) delete
   DELETE FROM [mx_authors] WHERE [mx_authors].[id] IN (SELECT [mx_authors].[id] FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[age] < @p1 UNION (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[active] = @p2)) AS [mx_authors] WHERE [mx_authors].[score] IS NOT NULL)
   args: [18, true]
 Union / active read
@@ -2214,6 +2282,24 @@ Intersect / score<>nil update
 Intersect / score<>nil delete
   DELETE FROM [mx_authors] WHERE [mx_authors].[id] IN (SELECT [mx_authors].[id] FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[age] >= @p1 INTERSECT (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[score] IS NOT NULL)) AS [mx_authors] WHERE [mx_authors].[score] IS NOT NULL)
   args: [18]
+Intersect / Col(score).Eq(nil) read
+  SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[age] >= @p1 INTERSECT (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[score] IS NOT NULL)) AS [mx_authors] WHERE [mx_authors].[score] IS NULL
+  args: [18]
+Intersect / Col(score).Eq(nil) update
+  UPDATE [mx_authors] SET [marked] = @p1 WHERE [mx_authors].[id] IN (SELECT [mx_authors].[id] FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[age] >= @p2 INTERSECT (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[score] IS NOT NULL)) AS [mx_authors] WHERE [mx_authors].[score] IS NULL)
+  args: [true, 18]
+Intersect / Col(score).Eq(nil) delete
+  DELETE FROM [mx_authors] WHERE [mx_authors].[id] IN (SELECT [mx_authors].[id] FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[age] >= @p1 INTERSECT (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[score] IS NOT NULL)) AS [mx_authors] WHERE [mx_authors].[score] IS NULL)
+  args: [18]
+Intersect / Col(score).Ne(nil) read
+  SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[age] >= @p1 INTERSECT (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[score] IS NOT NULL)) AS [mx_authors] WHERE [mx_authors].[score] IS NOT NULL
+  args: [18]
+Intersect / Col(score).Ne(nil) update
+  UPDATE [mx_authors] SET [marked] = @p1 WHERE [mx_authors].[id] IN (SELECT [mx_authors].[id] FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[age] >= @p2 INTERSECT (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[score] IS NOT NULL)) AS [mx_authors] WHERE [mx_authors].[score] IS NOT NULL)
+  args: [true, 18]
+Intersect / Col(score).Ne(nil) delete
+  DELETE FROM [mx_authors] WHERE [mx_authors].[id] IN (SELECT [mx_authors].[id] FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[age] >= @p1 INTERSECT (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[score] IS NOT NULL)) AS [mx_authors] WHERE [mx_authors].[score] IS NOT NULL)
+  args: [18]
 Intersect / active read
   SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[age] >= @p1 INTERSECT (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[score] IS NOT NULL)) AS [mx_authors] WHERE [mx_authors].[active] = @p2
   args: [18, true]
@@ -2750,6 +2836,24 @@ Except / score<>nil update
 Except / score<>nil delete
   DELETE FROM [mx_authors] WHERE [mx_authors].[id] IN (SELECT [mx_authors].[id] FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] EXCEPT (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[country] = @p1)) AS [mx_authors] WHERE [mx_authors].[score] IS NOT NULL)
   args: ["lv"]
+Except / Col(score).Eq(nil) read
+  SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] EXCEPT (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[country] = @p1)) AS [mx_authors] WHERE [mx_authors].[score] IS NULL
+  args: ["lv"]
+Except / Col(score).Eq(nil) update
+  UPDATE [mx_authors] SET [marked] = @p1 WHERE [mx_authors].[id] IN (SELECT [mx_authors].[id] FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] EXCEPT (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[country] = @p2)) AS [mx_authors] WHERE [mx_authors].[score] IS NULL)
+  args: [true, "lv"]
+Except / Col(score).Eq(nil) delete
+  DELETE FROM [mx_authors] WHERE [mx_authors].[id] IN (SELECT [mx_authors].[id] FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] EXCEPT (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[country] = @p1)) AS [mx_authors] WHERE [mx_authors].[score] IS NULL)
+  args: ["lv"]
+Except / Col(score).Ne(nil) read
+  SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] EXCEPT (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[country] = @p1)) AS [mx_authors] WHERE [mx_authors].[score] IS NOT NULL
+  args: ["lv"]
+Except / Col(score).Ne(nil) update
+  UPDATE [mx_authors] SET [marked] = @p1 WHERE [mx_authors].[id] IN (SELECT [mx_authors].[id] FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] EXCEPT (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[country] = @p2)) AS [mx_authors] WHERE [mx_authors].[score] IS NOT NULL)
+  args: [true, "lv"]
+Except / Col(score).Ne(nil) delete
+  DELETE FROM [mx_authors] WHERE [mx_authors].[id] IN (SELECT [mx_authors].[id] FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] EXCEPT (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[country] = @p1)) AS [mx_authors] WHERE [mx_authors].[score] IS NOT NULL)
+  args: ["lv"]
 Except / active read
   SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] EXCEPT (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] WHERE [mx_authors].[country] = @p1)) AS [mx_authors] WHERE [mx_authors].[active] = @p2
   args: ["lv", true]
@@ -3250,6 +3354,20 @@ Recursive / score<>nil update
   error: ant: not supported by this database: WITH inside a subquery on sqlserver
 Recursive / score<>nil delete
   error: ant: not supported by this database: WITH inside a subquery on sqlserver
+Recursive / Col(score).Eq(nil) read
+  WITH [ant_tree] AS (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id], CAST(CONCAT('/', CONVERT(varchar(max), CAST([mx_authors].[id] AS varbinary(max)), 2), '/') AS varchar(max)) AS [ant_path] FROM [mx_authors] WHERE [mx_authors].[mentor_id] IS NULL AND [mx_authors].[age] < @p1 UNION ALL (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id], CAST(CONCAT([ant_tree].[ant_path], CONVERT(varchar(max), CAST([mx_authors].[id] AS varbinary(max)), 2), '/') AS varchar(max)) FROM [mx_authors] JOIN [ant_tree] ON [mx_authors].[mentor_id] = [ant_tree].[id] WHERE (CHARINDEX(CONCAT('/', CONVERT(varchar(max), CAST([mx_authors].[id] AS varbinary(max)), 2), '/'), [ant_tree].[ant_path]) = 0))) SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM (SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY [id] ORDER BY (SELECT NULL)) AS [ant_n] FROM [ant_tree]) AS [ant_tree] WHERE [ant_n] = 1) AS [mx_authors] WHERE [mx_authors].[score] IS NULL OPTION (MAXRECURSION 0)
+  args: [30]
+Recursive / Col(score).Eq(nil) update
+  error: ant: not supported by this database: WITH inside a subquery on sqlserver
+Recursive / Col(score).Eq(nil) delete
+  error: ant: not supported by this database: WITH inside a subquery on sqlserver
+Recursive / Col(score).Ne(nil) read
+  WITH [ant_tree] AS (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id], CAST(CONCAT('/', CONVERT(varchar(max), CAST([mx_authors].[id] AS varbinary(max)), 2), '/') AS varchar(max)) AS [ant_path] FROM [mx_authors] WHERE [mx_authors].[mentor_id] IS NULL AND [mx_authors].[age] < @p1 UNION ALL (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id], CAST(CONCAT([ant_tree].[ant_path], CONVERT(varchar(max), CAST([mx_authors].[id] AS varbinary(max)), 2), '/') AS varchar(max)) FROM [mx_authors] JOIN [ant_tree] ON [mx_authors].[mentor_id] = [ant_tree].[id] WHERE (CHARINDEX(CONCAT('/', CONVERT(varchar(max), CAST([mx_authors].[id] AS varbinary(max)), 2), '/'), [ant_tree].[ant_path]) = 0))) SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM (SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY [id] ORDER BY (SELECT NULL)) AS [ant_n] FROM [ant_tree]) AS [ant_tree] WHERE [ant_n] = 1) AS [mx_authors] WHERE [mx_authors].[score] IS NOT NULL OPTION (MAXRECURSION 0)
+  args: [30]
+Recursive / Col(score).Ne(nil) update
+  error: ant: not supported by this database: WITH inside a subquery on sqlserver
+Recursive / Col(score).Ne(nil) delete
+  error: ant: not supported by this database: WITH inside a subquery on sqlserver
 Recursive / active read
   WITH [ant_tree] AS (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id], CAST(CONCAT('/', CONVERT(varchar(max), CAST([mx_authors].[id] AS varbinary(max)), 2), '/') AS varchar(max)) AS [ant_path] FROM [mx_authors] WHERE [mx_authors].[mentor_id] IS NULL AND [mx_authors].[age] < @p1 UNION ALL (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id], CAST(CONCAT([ant_tree].[ant_path], CONVERT(varchar(max), CAST([mx_authors].[id] AS varbinary(max)), 2), '/') AS varchar(max)) FROM [mx_authors] JOIN [ant_tree] ON [mx_authors].[mentor_id] = [ant_tree].[id] WHERE (CHARINDEX(CONCAT('/', CONVERT(varchar(max), CAST([mx_authors].[id] AS varbinary(max)), 2), '/'), [ant_tree].[ant_path]) = 0))) SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM (SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY [id] ORDER BY (SELECT NULL)) AS [ant_n] FROM [ant_tree]) AS [ant_tree] WHERE [ant_n] = 1) AS [mx_authors] WHERE [mx_authors].[active] = @p2 OPTION (MAXRECURSION 0)
   args: [30, true]
@@ -3704,6 +3822,24 @@ Union of paged sides / score<>nil update
   UPDATE [mx_authors] SET [marked] = @p1 WHERE [mx_authors].[id] IN (SELECT [mx_authors].[id] FROM (SELECT * FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] ORDER BY [mx_authors].[name] OFFSET 0 ROWS FETCH NEXT @p2 ROWS ONLY) AS [mx_authors] UNION (SELECT * FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] ORDER BY [mx_authors].[name] DESC OFFSET 0 ROWS FETCH NEXT @p3 ROWS ONLY) AS [mx_authors])) AS [mx_authors] WHERE [mx_authors].[score] IS NOT NULL)
   args: [true, 3, 2]
 Union of paged sides / score<>nil delete
+  DELETE FROM [mx_authors] WHERE [mx_authors].[id] IN (SELECT [mx_authors].[id] FROM (SELECT * FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] ORDER BY [mx_authors].[name] OFFSET 0 ROWS FETCH NEXT @p1 ROWS ONLY) AS [mx_authors] UNION (SELECT * FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] ORDER BY [mx_authors].[name] DESC OFFSET 0 ROWS FETCH NEXT @p2 ROWS ONLY) AS [mx_authors])) AS [mx_authors] WHERE [mx_authors].[score] IS NOT NULL)
+  args: [3, 2]
+Union of paged sides / Col(score).Eq(nil) read
+  SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM (SELECT * FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] ORDER BY [mx_authors].[name] OFFSET 0 ROWS FETCH NEXT @p1 ROWS ONLY) AS [mx_authors] UNION (SELECT * FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] ORDER BY [mx_authors].[name] DESC OFFSET 0 ROWS FETCH NEXT @p2 ROWS ONLY) AS [mx_authors])) AS [mx_authors] WHERE [mx_authors].[score] IS NULL
+  args: [3, 2]
+Union of paged sides / Col(score).Eq(nil) update
+  UPDATE [mx_authors] SET [marked] = @p1 WHERE [mx_authors].[id] IN (SELECT [mx_authors].[id] FROM (SELECT * FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] ORDER BY [mx_authors].[name] OFFSET 0 ROWS FETCH NEXT @p2 ROWS ONLY) AS [mx_authors] UNION (SELECT * FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] ORDER BY [mx_authors].[name] DESC OFFSET 0 ROWS FETCH NEXT @p3 ROWS ONLY) AS [mx_authors])) AS [mx_authors] WHERE [mx_authors].[score] IS NULL)
+  args: [true, 3, 2]
+Union of paged sides / Col(score).Eq(nil) delete
+  DELETE FROM [mx_authors] WHERE [mx_authors].[id] IN (SELECT [mx_authors].[id] FROM (SELECT * FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] ORDER BY [mx_authors].[name] OFFSET 0 ROWS FETCH NEXT @p1 ROWS ONLY) AS [mx_authors] UNION (SELECT * FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] ORDER BY [mx_authors].[name] DESC OFFSET 0 ROWS FETCH NEXT @p2 ROWS ONLY) AS [mx_authors])) AS [mx_authors] WHERE [mx_authors].[score] IS NULL)
+  args: [3, 2]
+Union of paged sides / Col(score).Ne(nil) read
+  SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM (SELECT * FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] ORDER BY [mx_authors].[name] OFFSET 0 ROWS FETCH NEXT @p1 ROWS ONLY) AS [mx_authors] UNION (SELECT * FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] ORDER BY [mx_authors].[name] DESC OFFSET 0 ROWS FETCH NEXT @p2 ROWS ONLY) AS [mx_authors])) AS [mx_authors] WHERE [mx_authors].[score] IS NOT NULL
+  args: [3, 2]
+Union of paged sides / Col(score).Ne(nil) update
+  UPDATE [mx_authors] SET [marked] = @p1 WHERE [mx_authors].[id] IN (SELECT [mx_authors].[id] FROM (SELECT * FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] ORDER BY [mx_authors].[name] OFFSET 0 ROWS FETCH NEXT @p2 ROWS ONLY) AS [mx_authors] UNION (SELECT * FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] ORDER BY [mx_authors].[name] DESC OFFSET 0 ROWS FETCH NEXT @p3 ROWS ONLY) AS [mx_authors])) AS [mx_authors] WHERE [mx_authors].[score] IS NOT NULL)
+  args: [true, 3, 2]
+Union of paged sides / Col(score).Ne(nil) delete
   DELETE FROM [mx_authors] WHERE [mx_authors].[id] IN (SELECT [mx_authors].[id] FROM (SELECT * FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] ORDER BY [mx_authors].[name] OFFSET 0 ROWS FETCH NEXT @p1 ROWS ONLY) AS [mx_authors] UNION (SELECT * FROM (SELECT [mx_authors].[id], [mx_authors].[name], [mx_authors].[age], [mx_authors].[score], [mx_authors].[active], [mx_authors].[country], [mx_authors].[marked], [mx_authors].[mentor_id] FROM [mx_authors] ORDER BY [mx_authors].[name] DESC OFFSET 0 ROWS FETCH NEXT @p2 ROWS ONLY) AS [mx_authors])) AS [mx_authors] WHERE [mx_authors].[score] IS NOT NULL)
   args: [3, 2]
 Union of paged sides / active read
