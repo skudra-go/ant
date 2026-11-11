@@ -1,0 +1,54 @@
+name: Set up Go with a build cache per job
+description: >
+  setup-go's own cache keys on go.sum alone, so every job restores what the first
+  one saved. This keeps a cache per job, restores the newest one from main, and
+  leaves saving to the job, which does it only on main.
+
+inputs:
+  key:
+    description: What the cache belongs to, usually the job name.
+    required: true
+  paths:
+    description: More directories to cache, one per line, such as a linter's cache.
+    default: ""
+
+outputs:
+  key:
+    description: The key to save the cache under.
+    value: ${{ steps.dirs.outputs.key }}
+  paths:
+    description: The directories to save.
+    value: ${{ steps.dirs.outputs.paths }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@v7
+      with:
+        go-version-file: go.mod
+        cache: false
+
+    - id: dirs
+      shell: bash
+      env:
+        KEY: go-${{ runner.os }}-${{ inputs.key }}-${{ hashFiles('**/go.sum') }}
+        EXTRA: ${{ inputs.paths }}
+      run: |
+        {
+          echo "prefix=$KEY-"
+          echo "key=$KEY-$GITHUB_RUN_ID"
+          echo "paths<<EOF"
+          go env GOCACHE GOMODCACHE
+          if [ -n "$EXTRA" ]; then
+            printf '%s\n' "$EXTRA"
+          fi
+          echo "EOF"
+        } >> "$GITHUB_OUTPUT"
+
+    - uses: actions/cache/restore@v6
+      with:
+        path: ${{ steps.dirs.outputs.paths }}
+        key: ${{ steps.dirs.outputs.key }}
+        restore-keys: |
+          ${{ steps.dirs.outputs.prefix }}
+          go-${{ runner.os }}-${{ inputs.key }}-
