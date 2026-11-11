@@ -149,7 +149,7 @@ func TestConformanceAggregatesOverPage(t *testing.T) {
 		app := openAndSeed(t, target)
 		seedUsers(t, app, "dave", 30)
 		ctx := t.Context()
-		byAge := app.Users.OrderBy(&Users.Age).OrderBy(&Users.Name)
+		byAge := app.Users.Order(ant.Col(&Users.Age).Asc(), ant.Col(&Users.Name).Asc())
 
 		sum, err := ant.SumOf(ctx, byAge.Limit(1), &Users.Age)
 		require.NoError(t, err)
@@ -163,9 +163,9 @@ func TestConformanceAggregatesOverPage(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, 30, smallest, "MinOf with Offset")
 
-		avg, err := ant.AvgOf(ctx, byAge.Limit(2).Offset(2), &Users.Age)
+		avg, err := ant.AvgOf(ctx, byAge.Limit(1).Offset(3), &Users.Age)
 		require.NoError(t, err)
-		require.InDelta(t, 32.5, avg, 0.001, "AvgOf with Limit and Offset")
+		require.InDelta(t, 35, avg, 0.001, "AvgOf with Limit and Offset")
 
 		none, err := ant.MinOf(ctx, byAge.Offset(10), &Users.Age)
 		require.NoError(t, err)

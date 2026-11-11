@@ -115,24 +115,83 @@ func (q *Query[T]) DoesNotExist(ctx context.Context) (bool, error) {
 	return !found, err
 }
 
+// aggregateOf reads value, an aggregate of one column, over the query's rows.
+// Limit, Offset, and Distinct pick those rows, so with any of them it aggregates
+// over a subquery, as Count does, keeping the order that decides which rows a
+// limit or offset takes.
+func aggregateOf[T, V any](ctx context.Context, q *Query[T], value Expr[V]) (V, error) {
+	var zero V
+
+	if q.limit == nil && q.offset == nil && !q.distinct {
+		return scalar(ctx, &q.builder, value)
+	}
+
+	if value.err != nil {
+		return zero, value.err
+	}
+
+	n := q.next()
+	n.refs = append(n.refs, value.refs...)
+
+	if err := n.ready(); err != nil {
+		return zero, err
+	}
+
+	const (
+		alias  = "ant_counted"
+		column = "ant_value"
+	)
+
+	f := value.node.(qb.Func)
+
+	inner := n.statement(append(n.selection(), qb.Selected{Value: f.Args[0], Alias: column}))
+	if n.limit == nil && n.offset == nil {
+		inner.Order = nil
+	}
+
+	f.Args = []qb.Expr{qb.Column{Alias: alias, Name: column}}
+
+	rows, err := n.state.query(ctx, lift(
+		&qb.Select{
+			Columns: []qb.Selected{{Value: f}},
+			From:    qb.Source{Sub: inner, Alias: alias},
+		},
+		inner,
+	))
+	if err != nil {
+		return zero, err
+	}
+
+	out, err := first[sql.Null[V]](rows)
+	if err != nil {
+		return zero, err
+	}
+
+	return out.V, nil
+}
+
 // SumOf adds up a column over matching rows, giving zero if there are none.
+// Limit, Offset, and Distinct are honored, by summing over a subquery.
 func SumOf[T any, V Number](ctx context.Context, q *Query[T], field *V) (V, error) {
-	return scalar(ctx, &q.builder, Sum(field))
+	return aggregateOf(ctx, q, Sum(field))
 }
 
 // AvgOf averages a column over matching rows, giving zero if there are none.
+// Limit, Offset, and Distinct are honored, as with SumOf.
 func AvgOf[T any, V Number](ctx context.Context, q *Query[T], field *V) (float64, error) {
-	return scalar(ctx, &q.builder, Avg(field))
+	return aggregateOf(ctx, q, Avg(field))
 }
 
 // MinOf returns a column's smallest value, or zero if there are no rows.
+// Limit, Offset, and Distinct are honored, as with SumOf.
 func MinOf[T any, V Ordered](ctx context.Context, q *Query[T], field *V) (V, error) {
-	return scalar(ctx, &q.builder, Min(field))
+	return aggregateOf(ctx, q, Min(field))
 }
 
 // MaxOf returns a column's largest value, or zero if there are no rows.
+// Limit, Offset, and Distinct are honored, as with SumOf.
 func MaxOf[T any, V Ordered](ctx context.Context, q *Query[T], field *V) (V, error) {
-	return scalar(ctx, &q.builder, Max(field))
+	return aggregateOf(ctx, q, Max(field))
 }
 
 // Pluck returns one column of every matching row.
