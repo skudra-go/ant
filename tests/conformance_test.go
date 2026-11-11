@@ -2056,3 +2056,97 @@ func TestConformanceUpdateManyKeepsUp(t *testing.T) {
 		require.Equal(t, mine, b.UpdatedAt.UTC(), "a named UpdatedAt keeps its value")
 	})
 }
+
+// UsingA and UsingB share a code column for JoinUsing. UsingB is soft-deleted.
+type UsingA struct {
+	ID   int64
+	Code string
+}
+
+type UsingB struct {
+	ID        int64
+	Code      string
+	Name      string
+	DeletedAt ant.DeletedAt
+}
+
+func (UsingA) Configure(b *ant.ModelBuilder[UsingA]) { b.Table("conf_using_a") }
+
+func (UsingB) Configure(b *ant.ModelBuilder[UsingB]) { b.Table("conf_using_b") }
+
+type UsingDB struct {
+	ant.Context
+	As ant.Table[UsingA]
+	Bs ant.Table[UsingB]
+}
+
+var (
+	UsingAs = ant.Fields[UsingA]()
+	UsingBs = ant.Fields[UsingB]()
+)
+
+// JoinUsing keeps the joined model's filters, as JoinOn does, and works on
+// SQL Server, which has no JOIN ... USING.
+func TestConformanceJoinUsingFilters(t *testing.T) {
+	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
+		ctx := t.Context()
+		ts := timestamps[target.Name]
+
+		for _, ddl := range []string{
+			`CREATE TABLE conf_using_a (id BIGINT PRIMARY KEY, code VARCHAR(20) NOT NULL)`,
+			fmt.Sprintf(
+				`CREATE TABLE conf_using_b (
+				id BIGINT PRIMARY KEY,
+				code VARCHAR(20) NOT NULL,
+				name VARCHAR(20) NOT NULL,
+				deleted_at %s NULL)`,
+				ts,
+			),
+		} {
+			_, err := target.DB.ExecContext(ctx, ddl)
+			require.NoError(t, err)
+		}
+
+		t.Cleanup(func() {
+			_, _ = target.DB.ExecContext(context.Background(), "DROP TABLE conf_using_a")
+			_, _ = target.DB.ExecContext(context.Background(), "DROP TABLE conf_using_b")
+		})
+
+		db, err := ant.Open[UsingDB](ctx, target.Dialect, target.DSN, ant.WithTracking(false))
+		require.NoError(t, err)
+		t.Cleanup(func() { db.Close() })
+
+		require.NoError(
+			t,
+			db.As.InsertOnly(ctx, &UsingA{ID: 1, Code: "x"}, &UsingA{ID: 2, Code: "y"}),
+		)
+
+		require.NoError(t, db.Bs.InsertOnly(
+			ctx,
+			&UsingB{ID: 1, Code: "x", Name: "gone"},
+			&UsingB{ID: 2, Code: "y", Name: "kept"},
+		))
+
+		_, err = db.Bs.Where(ant.Eq(&UsingBs.ID, int64(1))).Delete(ctx)
+		require.NoError(t, err)
+
+		name := func(_ *UsingA, b *UsingB) string { return b.Name }
+
+		got, err := db.As.Query().JoinUsing[UsingB](&UsingAs.Code).Select(name).All(ctx)
+		require.NoError(t, err)
+		require.Equal(t, []string{"kept"}, got, "JoinUsing")
+
+		got, err = db.As.Query().JoinOn[UsingB](ant.EqCol(&UsingAs.Code, &UsingBs.Code)).
+			Select(name).
+			All(ctx)
+		require.NoError(t, err)
+		require.Equal(t, []string{"kept"}, got, "JoinOn agrees")
+
+		got, err = db.As.Query().IgnoreFilters().JoinUsing[UsingB](&UsingBs.Code).
+			OrderBy(&UsingBs.Name).
+			Select(name).
+			All(ctx)
+		require.NoError(t, err)
+		require.Equal(t, []string{"gone", "kept"}, got, "a probe of J, without filters")
+	})
+}
