@@ -6,17 +6,19 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"  // driver "mysql"
-	_ "github.com/jackc/pgx/v5/stdlib"  // driver "pgx"
-	_ "github.com/microsoft/go-mssqldb" // driver "sqlserver"
-	_ "modernc.org/sqlite"              // driver "sqlite"
+	mysqldriver "github.com/go-sql-driver/mysql" // driver "mysql"
+	_ "github.com/jackc/pgx/v5/stdlib"           // driver "pgx"
+	_ "github.com/microsoft/go-mssqldb"          // driver "sqlserver"
+	_ "modernc.org/sqlite"                       // driver "sqlite"
 
 	"github.com/skudra-go/ant/dialect"
 	"github.com/skudra-go/ant/dialect/mysql"
@@ -41,7 +43,8 @@ type spec struct {
 	defaultDSN string
 }
 
-// The default DSNs match docker-compose.yml.
+// The default DSNs match docker-compose.yml. MySQL and MariaDB connect as root,
+// since each test creates a database of its own.
 var specs = map[string]spec{
 	"postgres": {
 		postgres.Dialect,
@@ -51,12 +54,12 @@ var specs = map[string]spec{
 	"mysql": {
 		mysql.Dialect,
 		"ANT_MYSQL_DSN",
-		"ant:ant@tcp(127.0.0.1:53306)/ant_test?parseTime=true",
+		"root:ant@tcp(127.0.0.1:53306)/ant_test?parseTime=true",
 	},
 	"mariadb": {
 		mysql.MariaDB,
 		"ANT_MARIADB_DSN",
-		"ant:ant@tcp(127.0.0.1:53307)/ant_test?parseTime=true",
+		"root:ant@tcp(127.0.0.1:53307)/ant_test?parseTime=true",
 	},
 	"sqlite": {sqlite.Dialect, "", ""},
 	"sqlserver": {
@@ -101,8 +104,8 @@ func ForEach(t *testing.T, fn func(t *testing.T, target Target)) {
 }
 
 // ForOnly is ForEach limited to the named databases, or all of them with no
-// names. The others are left alone, not even connected to, because their tables
-// are shared with whichever test package is running beside this one.
+// names. Each test gets a database of its own, so a top-level test runs in
+// parallel with the others unless it called Serial first.
 func ForOnly(t *testing.T, names []string, fn func(t *testing.T, target Target)) {
 	t.Helper()
 
@@ -119,6 +122,8 @@ func ForOnly(t *testing.T, names []string, fn func(t *testing.T, target Target))
 		t.Skip("no database in ANT_TEST_DATABASES for this test")
 	}
 
+	Parallel(t)
+
 	for _, target := range targets {
 		t.Run(target.Name, func(t *testing.T) {
 			target.Connect(t)
@@ -128,8 +133,43 @@ func ForOnly(t *testing.T, names []string, fn func(t *testing.T, target Target))
 	}
 }
 
-// Connect opens the target's database. A database named in ANT_TEST_DATABASES
-// that cannot be reached fails the test, so that a green run means it ran.
+// serial and parallel hold the tests that called Serial and those already made
+// parallel, so a test that reaches ForEach twice calls t.Parallel once.
+var serial, parallel sync.Map
+
+// Serial keeps t out of the parallel run, for a test that changes what the
+// whole process shares: environment variables, slog's default logger, or the
+// keys of package secure. go test runs a package's serial tests first, before
+// the parallel ones start. Call it before ForEach or ForOnly.
+func Serial(t *testing.T) {
+	serial.Store(t, true)
+	t.Cleanup(func() { serial.Delete(t) })
+}
+
+// Parallel runs a top-level test in parallel with the others, unless it called
+// Serial. A subtest is left as it is, since its parent may check what it did
+// once it returns. Calling it again for the same test does nothing.
+func Parallel(t *testing.T) {
+	if strings.Contains(t.Name(), "/") {
+		return
+	}
+
+	if _, ok := serial.Load(t); ok {
+		return
+	}
+
+	if _, done := parallel.LoadOrStore(t, true); done {
+		return
+	}
+
+	t.Cleanup(func() { parallel.Delete(t) })
+	t.Parallel()
+}
+
+// Connect opens a database of the test's own on the target: a temporary file
+// on SQLite, a schema on PostgreSQL, and a database elsewhere, each dropped when
+// the test ends. A database named in ANT_TEST_DATABASES that cannot be reached
+// fails the test, so that a green run means it ran.
 func (target *Target) Connect(t *testing.T) {
 	t.Helper()
 
@@ -144,8 +184,11 @@ func (target *Target) Connect(t *testing.T) {
 
 	db := target.open(t)
 
-	if target.Name == "postgres" {
+	switch target.Name {
+	case "postgres":
 		db = target.isolate(t, db)
+	case "mysql", "mariadb", "sqlserver":
+		db = target.ownDatabase(t, db)
 	}
 
 	target.DB = db
@@ -171,14 +214,17 @@ func (target *Target) open(t *testing.T) *sql.DB {
 	return db
 }
 
-// isolate moves the test into its own PostgreSQL schema, so test packages can
-// run in parallel against one server.
+// isolate moves the test into its own PostgreSQL schema, so tests can run in
+// parallel against one server.
 func (target *Target) isolate(t *testing.T, admin *sql.DB) *sql.DB {
 	t.Helper()
 
-	schema := "ant_" + rand.Text()
+	schema := name()
 
-	schema = strings.ToLower(schema)
+	// admin is used again only to drop the schema, so it keeps no connection
+	// open while the test runs.
+	admin.SetMaxIdleConns(0)
+
 	if _, err := admin.ExecContext(t.Context(), "CREATE SCHEMA "+schema); err != nil {
 		t.Fatalf("create schema: %v", err)
 	}
@@ -196,6 +242,57 @@ func (target *Target) isolate(t *testing.T, admin *sql.DB) *sql.DB {
 
 	return target.open(t)
 }
+
+// ownDatabase moves the test into a database of its own on MySQL, MariaDB, or
+// SQL Server, so tests can run in parallel against one server. Its user needs
+// the right to create databases.
+func (target *Target) ownDatabase(t *testing.T, admin *sql.DB) *sql.DB {
+	t.Helper()
+
+	database := name()
+	drop := "DROP DATABASE " + database
+
+	admin.SetMaxIdleConns(0)
+
+	switch target.Name {
+	case "sqlserver":
+		// A connection the test left open would keep the database in use.
+		drop = "ALTER DATABASE " + database + " SET SINGLE_USER WITH ROLLBACK IMMEDIATE; " + drop
+
+		u, err := url.Parse(target.DSN)
+		if err != nil {
+			t.Fatalf("%s DSN: %v", target.Name, err)
+		}
+
+		query := u.Query()
+		query.Set("database", database)
+		u.RawQuery = query.Encode()
+		target.DSN = u.String()
+	default:
+		cfg, err := mysqldriver.ParseDSN(target.DSN)
+		if err != nil {
+			t.Fatalf("%s DSN: %v", target.Name, err)
+		}
+
+		cfg.DBName = database
+		target.DSN = cfg.FormatDSN()
+	}
+
+	if _, err := admin.ExecContext(t.Context(), "CREATE DATABASE "+database); err != nil {
+		t.Fatalf("create database (the user needs the right to): %v", err)
+	}
+
+	t.Cleanup(func() {
+		if _, err := admin.ExecContext(context.Background(), drop); err != nil {
+			t.Errorf("drop database: %v", err)
+		}
+	})
+
+	return target.open(t)
+}
+
+// name returns a fresh name for a test's schema or database.
+func name() string { return "ant_" + strings.ToLower(rand.Text()) }
 
 // ResetSchema recreates the fixture tables.
 func (target *Target) ResetSchema(t *testing.T) {
