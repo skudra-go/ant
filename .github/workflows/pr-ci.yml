@@ -16,7 +16,47 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # code is false when a change touches only Markdown, the logos, or the issue
+  # and PR templates, and the jobs below then skip. A skipped job counts as
+  # passing a required check, so a docs-only PR can still merge. They run unless
+  # code is false, so a failure here runs everything rather than nothing.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: diff
+        shell: bash
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          code=true
+
+          # A new branch or a forced push has no base to compare with.
+          if git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            changed=$(git diff --name-only "$BASE" HEAD)
+            docs='(\.md|^LICENSE|^docs/assets/.*|^\.github/ISSUE_TEMPLATE/.*)$'
+
+            if [ -n "$changed" ]; then
+              code=false
+
+              while IFS= read -r path; do
+                if ! [[ $path =~ $docs ]]; then
+                  code=true
+                fi
+              done <<<"$changed"
+            fi
+          fi
+
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "Code changed: $code" >> "$GITHUB_STEP_SUMMARY"
+
   lint:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -32,6 +72,8 @@ jobs:
   # vulnerability the code reaches, and lists outdated direct dependencies in
   # the run summary. Not required, so a new advisory does not block unrelated PRs.
   deps:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -46,8 +88,13 @@ jobs:
             grep -E ' -> ' deps.txt || echo "None."
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # Unit tests, plus every database test on PostgreSQL, under the race detector.
+  # Unit tests, plus every database test on PostgreSQL, under the race detector,
+  # except the slowest packages, which start no goroutines (make test-race).
+  # Tests run in parallel, each on a schema of its own, after the few that must
+  # run alone, and -failfast stops a package at its first failure.
   test:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -70,27 +117,36 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - run: make test TESTFLAGS="-v -race"
+      - run: make test-race TESTFLAGS="-v -failfast"
 
-  # The other dialects run the conformance and concurrency suites. Not required,
-  # so a flaky container does not block a merge, but read them before merging.
+  # The other dialects run the database tests in two shards side by side: the
+  # matrix, which is the slowest package, and the rest. Not required, so a flaky
+  # container does not block a merge, but read them before merging.
   dialects:
+    name: ${{ matrix.dialect }} (${{ matrix.shard }})
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
+        dialect: [mysql, mariadb, sqlserver]
+        shard: [matrix, rest]
         include:
-          - target: test-mysql
+          - dialect: mysql
+            target: test-mysql
             image: mysql:8.4
             port: "53306:3306"
             env: '{"MYSQL_ROOT_PASSWORD":"ant","MYSQL_USER":"ant","MYSQL_PASSWORD":"ant","MYSQL_DATABASE":"ant_test"}'
             health: mysql -uant -pant -h127.0.0.1 -e 'SELECT 1' ant_test
-          - target: test-mariadb
+          - dialect: mariadb
+            target: test-mariadb
             image: mariadb:11.8
             port: "53307:3306"
             env: '{"MARIADB_ROOT_PASSWORD":"ant","MARIADB_USER":"ant","MARIADB_PASSWORD":"ant","MARIADB_DATABASE":"ant_test"}'
             health: healthcheck.sh --connect --innodb_initialized
-          - target: test-mssql
+          - dialect: sqlserver
+            target: test-mssql
             image: mcr.microsoft.com/mssql/server:2022-latest
             port: "51433:1433"
             env: '{"ACCEPT_EULA":"Y","MSSQL_SA_PASSWORD":"Ant_test_1!"}'
@@ -111,13 +167,28 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - run: make ${{ matrix.target }}
+      - shell: bash
+        env:
+          SHARD: ${{ matrix.shard }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          matrix=github.com/skudra-go/ant/tests/matrix
+
+          if [ "$SHARD" = matrix ]; then
+            tests=$matrix
+          else
+            tests=$(go list ./tests/... | grep -vxF "$matrix" | tr '\n' ' ')
+          fi
+
+          make "$TARGET" TESTS="$tests" TESTFLAGS=-failfast
 
   sqlite:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - run: make test-sqlite
+      - run: make test-sqlite TESTFLAGS=-failfast

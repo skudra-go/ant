@@ -59,7 +59,9 @@ make test-pg                   # API tests and feature examples on PostgreSQL
 make db-down                   # stop the databases and discard their data
 ```
 
-`make test` skips every database test unless `ANT_TEST_DATABASES` is set, so a green run without a database proves little. For anything that reaches SQL, run `make test-pg`. If you touch another dialect, also run `test-mysql`, `test-mariadb`, `test-sqlite` or `test-mssql` (start them with `make db-up`, or leave `DATABASES` out to start all five). CI also runs `make test TESTFLAGS="-v -race"` against PostgreSQL.
+`make test` skips every database test unless `ANT_TEST_DATABASES` is set, so a green run without a database proves little. For anything that reaches SQL, run `make test-pg`. If you touch another dialect, also run `test-mysql`, `test-mariadb`, `test-sqlite` or `test-mssql` (start them with `make db-up`, or leave `DATABASES` out to start all five). CI also runs `make test-race` against PostgreSQL, which needs cgo.
+
+Database tests run in parallel, eight at a time per package (`PARALLEL=8`). Each test gets a database of its own: a temporary file on SQLite, a schema on PostgreSQL, and a database on MySQL, MariaDB and SQL Server, so their users need the right to create databases (the defaults connect as `root` and `sa`). A test that changes something the whole process shares, such as an environment variable, `slog`'s default logger, `secure.SetKeys`, `WithNaming` or `WithConvention`, calls `testdb.Serial(t)` (`fixture.Serial(t)` in `tests/features`) before it reaches the database. Go runs those first, one at a time, then the parallel ones.
 
 ## What a change needs
 

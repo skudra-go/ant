@@ -1,10 +1,17 @@
 # Empty starts every database. Use make db-up DATABASES=postgres for just one.
 DATABASES ?=
 ALL_DATABASES := postgres,mysql,mariadb,sqlite,sqlserver
-INTEGRATION := go test -count=1 ./tests/...
+# TESTS picks the packages the database targets run, as CI does to split them
+# into shards, such as TESTS=./tests/matrix.
+TESTS ?= ./tests/...
+
+# PARALLEL is how many tests of a package run at once. Each test has a database
+# of its own and mostly waits on it, so more than the CPUs pays.
+PARALLEL ?= 8
+INTEGRATION = go test -count=1 -parallel $(PARALLEL) $(TESTFLAGS) $(TESTS)
 MODULES := . tools/antvet tools/antfmt tools/compare contrib/otel
 
-.PHONY: build tidy deps bench test lint fmt db-up db-down test-integration test-pg test-mysql test-mariadb test-sqlite test-mssql
+.PHONY: build tidy deps bench test test-race lint fmt db-up db-down test-integration test-pg test-mysql test-mariadb test-sqlite test-mssql
 
 build:
 	@for module in $(MODULES); do (cd $$module && go build -o /dev/null ./...) || exit 1; done
@@ -27,7 +34,16 @@ deps:
 TESTFLAGS ?=
 
 test:
-	go test $(TESTFLAGS) ./...
+	go test -parallel $(PARALLEL) $(TESTFLAGS) ./...
+
+# RACE_FREE are the slowest packages, which start no goroutines of their own, so
+# the race detector only makes them about 2.5 times slower.
+RACE_FREE := ./tests/matrix ./tests/features/value_handling
+
+# test-race is make test under the race detector, as CI runs it. It needs cgo.
+test-race:
+	go test -race -parallel $(PARALLEL) $(TESTFLAGS) $(filter-out $(shell go list $(RACE_FREE)),$(shell go list ./...))
+	go test -parallel $(PARALLEL) $(TESTFLAGS) $(RACE_FREE)
 
 bench:
 	go test -run '^$$' -bench . -benchtime 2s ./tests/benchmarks/
