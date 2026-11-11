@@ -3,12 +3,14 @@ package migrations
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/skudra-go/ant"
 	"github.com/skudra-go/ant/migrate"
+	"github.com/skudra-go/ant/tests/features/fixture"
 )
 
 // Each test here has its own context type, because registrations are global and
@@ -43,11 +45,13 @@ type Hooked struct {
 
 func (Hooked) Configure(b *ant.ModelBuilder[Hooked]) { b.Table("accounts") }
 
-var hookRuns int
+// hookRuns is atomic, since other tests seed accounts in parallel. TestSeed,
+// which reads it, runs alone.
+var hookRuns atomic.Int64
 
 // BeforeInsert is a model hook.
 func (*Hooked) BeforeInsert(context.Context) error {
-	hookRuns++
+	hookRuns.Add(1)
 
 	return nil
 }
@@ -179,23 +183,25 @@ func TestGoMigrationWithoutATransaction(t *testing.T) {
 // seed fills a database with data, separately from migrations. Hooks stay quiet,
 // since they usually do things like sending mail.
 func TestSeed(t *testing.T) {
+	fixture.Serial(t) // it counts hooks that other tests' seeds run too
+
 	each(t, func(t *testing.T, p *project) {
 		must[SeedDB](p, "diff", "start")
 		must[SeedDB](p, "up")
 
 		t.Run("named seeders run alone, with hooks muted", func(t *testing.T) {
-			hookRuns = 0
+			hookRuns.Store(0)
 
 			require.Contains(t, must[SeedDB](p, "seed", "accounts"), "Seeded accounts")
 			require.Equal(t, 1, scalar[int](p, "SELECT count(*) FROM accounts"))
-			require.Zero(t, hookRuns)
+			require.Zero(t, hookRuns.Load())
 		})
 
 		t.Run("Config.SeedHooks turns hooks on", func(t *testing.T) {
 			p.sql("DELETE FROM accounts")
 			p.config.SeedHooks = true
 			must[SeedDB](p, "seed", "accounts")
-			require.Equal(t, 1, hookRuns)
+			require.EqualValues(t, 1, hookRuns.Load())
 
 			p.config.SeedHooks = false
 		})

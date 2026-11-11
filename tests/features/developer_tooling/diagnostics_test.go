@@ -174,6 +174,8 @@ func TestDetailedErrors(t *testing.T) {
 
 // Debug shows one query's SQL and values, for a moment at a desk.
 func TestDebugQuery(t *testing.T) {
+	fixture.Serial(t) // it swaps slog's default logger
+
 	fixture.Run(t, func(t *testing.T, db *fixture.AppDB) {
 		var logs bytes.Buffer
 
