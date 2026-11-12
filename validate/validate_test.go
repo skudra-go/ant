@@ -1,6 +1,7 @@
 package validate
 
 import (
+	"math"
 	"regexp"
 	"testing"
 )
@@ -27,4 +28,21 @@ func TestRules(t *testing.T) {
 	check(t, Matches(regexp.MustCompile(`^\d+$`)), "12", "a")
 	check(t, Email, "a@example.com", "nope")
 	check(t, All(MinLength(1), MaxLength(2)), "a", "abc")
+}
+
+func TestRangeRejectsNaN(t *testing.T) {
+	check(t, Range(0.0, 1.0), 0.5, math.NaN())
+	check(t, Range(math.Inf(-1), math.Inf(1)), 0.5, math.NaN())
+}
+
+func TestEmailRejectsDisplayNamesAndComments(t *testing.T) {
+	for _, v := range []string{
+		"Alice <alice@example.com>",
+		"<a@b.co>",
+		"a@b.co (hi)",
+	} {
+		if err := Email(v); err == nil {
+			t.Errorf("%q was accepted", v)
+		}
+	}
 }

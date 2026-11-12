@@ -56,10 +56,11 @@ func MaxLength(n int) func(string) error {
 	}
 }
 
-// Range rejects a value outside low and high, inclusive.
+// Range rejects a value outside low and high, inclusive. NaN is always
+// rejected.
 func Range[V cmp.Ordered](low, high V) func(V) error {
 	return func(v V) error {
-		if v < low || v > high {
+		if !(v >= low && v <= high) {
 			return fmt.Errorf("must be from %v to %v", low, high)
 		}
 
@@ -89,9 +90,11 @@ func Matches(pattern *regexp.Regexp) func(string) error {
 	}
 }
 
-// Email rejects a string that is not an email address.
+// Email rejects a string that is not a plain email address. Display names,
+// angle brackets and comments are rejected, not just malformed addresses.
 func Email(v string) error {
-	if _, err := mail.ParseAddress(v); err != nil {
+	addr, err := mail.ParseAddress(v)
+	if err != nil || addr.Name != "" || addr.Address != v {
 		return errors.New("must be an email address")
 	}
 
