@@ -61,6 +61,8 @@ const typesDDL = `
 	CREATE TABLE docs (id BIGSERIAL PRIMARY KEY, meta JSONB NOT NULL)`
 
 func TestStoredTypes(t *testing.T) {
+	fixture.Serial(t) // secure.SetKeys is process-wide
+
 	fixture.RunTrackedWith(t, typesDDL, func(t *testing.T, db *TypesDB) {
 		ctx := t.Context()
 

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/skudra-go/ant/migrate"
+	"github.com/skudra-go/ant/tests/features/fixture"
 )
 
 // up applies pending migrations in order, and records each one.
@@ -175,7 +176,7 @@ INSERT INTO items (name) VALUES ('a;b');
 				1,
 				scalar[int](
 					p,
-					"SELECT count(*) FROM pg_indexes WHERE indexname = 'items_name_idx'",
+					"SELECT count(*) FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'items_name_idx'",
 				),
 			)
 		})
@@ -275,6 +276,8 @@ func TestConcurrentUp(t *testing.T) {
 
 // A migrator stopped while waiting gives up cleanly, and holds nothing.
 func TestLockIsReleased(t *testing.T) {
+	fixture.Serial(t) // it counts the advisory locks of every session
+
 	each(t, func(t *testing.T, p *project) {
 		p.write("versions/0001_table.up.sql", "SELECT 1;")
 		must[V1DB](p, "up")

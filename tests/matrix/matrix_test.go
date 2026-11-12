@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/skudra-go/ant"
@@ -26,6 +27,10 @@ import (
 // match several entries, and its failure goes to the entry whose error it is.
 var known = []*knownFailure{}
 
+// knownMu guards the entries' counts, which the sources' subtests update in
+// parallel.
+var knownMu sync.Mutex
+
 type knownFailure struct {
 	pattern, fails  *regexp.Regexp
 	issue           string
@@ -39,6 +44,9 @@ func (k *knownFailure) expects(err error) bool {
 
 // knownFor returns the entries a combination may be waiting on.
 func knownFor(name string) []*knownFailure {
+	knownMu.Lock()
+	defer knownMu.Unlock()
+
 	var out []*knownFailure
 
 	for _, k := range known {
@@ -57,6 +65,9 @@ func knownFor(name string) []*knownFailure {
 // some combinations, by -run, may pick only those that pass anyway, so then it
 // says nothing.
 func checkKnown(t *testing.T) {
+	knownMu.Lock()
+	defer knownMu.Unlock()
+
 	whole := true
 
 	if run := flag.Lookup("test.run"); run != nil && strings.Contains(run.Value.String(), "/") {
@@ -89,7 +100,10 @@ func check(t *testing.T, name string, fn func(t *testing.T) error) {
 
 		for _, k := range waiting {
 			if k.expects(err) {
+				knownMu.Lock()
 				k.failed++
+				knownMu.Unlock()
+
 				t.Skipf("known, %s: %v", k.issue, err)
 			}
 		}
@@ -273,8 +287,7 @@ func TestMatrix(t *testing.T) {
 		t.Skip("the matrix runs every combination, which takes about a minute")
 	}
 
-	// The matrix keeps to tables of its own, so it connects without resetting the
-	// shared fixture tables, which other packages may be using at the time.
+	// The matrix keeps to tables of its own, so it skips the fixture tables.
 	targets := testdb.Targets()
 	if len(targets) == 0 {
 		t.Skip("no database in ANT_TEST_DATABASES")
@@ -285,35 +298,43 @@ func TestMatrix(t *testing.T) {
 	}
 }
 
+// matrix runs each source's combinations as a subtest of their own, in parallel
+// with the other sources, each on a database of its own seeded the same way.
 func matrix(t *testing.T, target testdb.Target) {
-	target.Connect(t)
-	create(t, target)
-
-	db, err := ant.Open[MatrixDB](
-		t.Context(),
-		target.Dialect,
-		target.DSN,
-		ant.WithTracking(false),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	t.Cleanup(func() { db.Close() })
-
-	w := seed(t, db)
-
+	// The subtests end before this runs, so it sees every source's counts.
 	t.Cleanup(func() { checkKnown(t) })
 
 	for _, src := range sources() {
-		for _, c := range conditions() {
-			for _, o := range orders() {
-				for _, p := range pagings() {
-					name := fmt.Sprintf("%s/%s/%s/%s", src.name, c.name, o.name, p.name)
-					t.Run(name, func(t *testing.T) { combination(t, db, w, src, c, o, p) })
+		t.Run(src.name, func(t *testing.T) {
+			t.Parallel()
+
+			target := target
+			target.Connect(t)
+			create(t, target)
+
+			db, err := ant.Open[MatrixDB](
+				t.Context(),
+				target.Dialect,
+				target.DSN,
+				ant.WithTracking(false),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			t.Cleanup(func() { db.Close() })
+
+			w := seed(t, db)
+
+			for _, c := range conditions() {
+				for _, o := range orders() {
+					for _, p := range pagings() {
+						name := fmt.Sprintf("%s/%s/%s", c.name, o.name, p.name)
+						t.Run(name, func(t *testing.T) { combination(t, db, w, src, c, o, p) })
+					}
 				}
 			}
-		}
+		})
 	}
 }
 

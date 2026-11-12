@@ -138,6 +138,8 @@ type NamingDB struct {
 // A naming strategy replaces the conventions, which suits an existing database
 // with its own style. Names set explicitly stay.
 func TestNamingStrategy(t *testing.T) {
+	fixture.Serial(t) // the naming is process-wide while it is set
+
 	strategy := ant.WithNaming(ant.Naming{
 		Table:  func(name string) string { return "tbl_" + name },
 		Column: func(name string) string { return "col_" + name },
@@ -185,6 +187,8 @@ type ConventionDB struct {
 
 // A convention applies a rule to every model, and Configure can override it.
 func TestBulkConvention(t *testing.T) {
+	fixture.Serial(t) // conventions are process-wide
+
 	fixture.Each(t, func(t *testing.T, target fixture.Target) {
 		opened := false
 		rule := func(m *ant.ModelConvention) {

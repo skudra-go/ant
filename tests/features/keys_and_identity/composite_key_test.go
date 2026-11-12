@@ -1,6 +1,7 @@
 package keys_and_identity
 
 import (
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -121,13 +122,12 @@ type Order struct {
 	Total int
 }
 
-var nextCode = 0
+// nextCode is atomic, since tests insert orders in parallel.
+var nextCode atomic.Int32
 
 func (Order) Configure(b *ant.ModelBuilder[Order]) {
 	ant.GenerateKey(b, &Orders.Code, func() string {
-		nextCode++
-
-		return "order-" + string(rune('0'+nextCode))
+		return "order-" + string(rune('0'+nextCode.Add(1)))
 	})
 }
 

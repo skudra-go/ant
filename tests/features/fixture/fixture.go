@@ -55,6 +55,14 @@ func Each(t *testing.T, fn func(t *testing.T, target testdb.Target)) {
 	testdb.ForOnly(t, []string{"postgres"}, fn)
 }
 
+// Serial keeps t out of the parallel run, for a test that changes what the whole
+// process shares. See testdb.Serial.
+func Serial(t *testing.T) { testdb.Serial(t) }
+
+// Parallel runs a top-level test in parallel with the others, for one that
+// reaches the database only in subtests. See testdb.Parallel.
+func Parallel(t *testing.T) { testdb.Parallel(t) }
+
 // Open opens DB on target and closes it when the test ends. The examples read
 // what the database holds, so tracking is off here unless a test asks for it.
 func Open[DB any](t *testing.T, target testdb.Target, options ...ant.Option) *DB {

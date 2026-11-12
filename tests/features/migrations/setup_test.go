@@ -15,6 +15,14 @@ import (
 	"github.com/skudra-go/ant/tests/features/fixture"
 )
 
+// TestMain clears DATABASE_URL, which the migrate CLI falls back to, so a
+// developer's own database is never touched. It is done once, before any test,
+// since t.Setenv would keep the tests from running in parallel.
+func TestMain(m *testing.M) {
+	os.Unsetenv("DATABASE_URL")
+	os.Exit(m.Run())
+}
+
 // The models below are one application at three points in time. Real projects
 // edit their structs instead, but a test needs them all at once, so each version is
 // its own type on the same table.
@@ -99,7 +107,6 @@ type project struct {
 // each gives fn an empty database and migrations folder.
 func each(t *testing.T, fn func(t *testing.T, p *project)) {
 	t.Helper()
-	t.Setenv("DATABASE_URL", "")
 
 	fixture.Each(t, func(t *testing.T, target fixture.Target) {
 		_, err := target.DB.ExecContext(t.Context(), "DROP TABLE posts; DROP TABLE users")
