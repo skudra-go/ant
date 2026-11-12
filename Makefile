@@ -2,16 +2,23 @@
 DATABASES ?=
 ALL_DATABASES := postgres,mysql,mariadb,sqlite,sqlserver
 # TESTS picks the packages the database targets run, as CI does to split them
-# into shards, such as TESTS=./tests/matrix.
-TESTS ?= ./tests/...
+# into shards, such as TESTS=./tests/matrix. Left empty, test-pg and
+# test-integration run every package under tests, and the targets of the other
+# databases run DIALECT_TESTS: the feature examples run on PostgreSQL alone, so
+# elsewhere they would only compile and skip.
+TESTS ?=
+DIALECT_TESTS = $(shell go list -f '{{.ImportPath}} {{join .TestImports " "}} {{join .XTestImports " "}}' ./tests/... | awk '/internal\/testdb/ {print $$1}')
 
 # PARALLEL is how many tests of a package run at once. Each test has a database
 # of its own and mostly waits on it, so more than the CPUs pays.
 PARALLEL ?= 8
-INTEGRATION = go test -count=1 -parallel $(PARALLEL) $(TESTFLAGS) $(TESTS)
+
+# integration runs the database tests on the packages given, unless TESTS says
+# otherwise.
+integration = go test -count=1 -parallel $(PARALLEL) $(TESTFLAGS) $(or $(TESTS),$(1))
 MODULES := . tools/antvet tools/antfmt tools/compare contrib/otel
 
-.PHONY: build tidy deps bench test lint fmt db-up db-down test-integration test-pg test-mysql test-mariadb test-sqlite test-mssql
+.PHONY: build tidy deps bench test lint vet staticcheck fmt db-up db-down dialect-tests test-integration test-pg test-mysql test-mariadb test-sqlite test-mssql
 
 build:
 	@for module in $(MODULES); do (cd $$module && go build -o /dev/null ./...) || exit 1; done
@@ -53,13 +60,18 @@ fmt:
 # ANTVET is where lint builds the analyzer, out of the source tree.
 ANTVET := $(shell go env GOCACHE)/antvet-lint
 
-lint:
+# lint is vet and staticcheck, which CI runs side by side.
+lint: vet staticcheck
+
+vet:
 	go vet ./...
 	go build -C tools/antvet -o $(ANTVET) ./cmd/antvet
 	go vet -vettool=$(ANTVET) ./...
-	staticcheck ./...
 	go run -C tools/antfmt . -l $(CURDIR)
 	@for module in $(MODULES); do (cd $$module && golangci-lint run ./...) || exit 1; done
+
+staticcheck:
+	staticcheck ./...
 
 db-up:
 	docker compose up -d --wait $(DATABASES)
@@ -67,20 +79,24 @@ db-up:
 db-down:
 	docker compose down -v
 
+# dialect-tests prints DIALECT_TESTS, which CI splits into shards.
+dialect-tests:
+	@printf '%s\n' $(DIALECT_TESTS)
+
 test-integration:
-	ANT_TEST_DATABASES=$(ALL_DATABASES) $(INTEGRATION)
+	ANT_TEST_DATABASES=$(ALL_DATABASES) $(call integration,./tests/...)
 
 test-pg:
-	ANT_TEST_DATABASES=postgres $(INTEGRATION)
+	ANT_TEST_DATABASES=postgres $(call integration,./tests/...)
 
 test-mysql:
-	ANT_TEST_DATABASES=mysql $(INTEGRATION)
+	ANT_TEST_DATABASES=mysql $(call integration,$(DIALECT_TESTS))
 
 test-mariadb:
-	ANT_TEST_DATABASES=mariadb $(INTEGRATION)
+	ANT_TEST_DATABASES=mariadb $(call integration,$(DIALECT_TESTS))
 
 test-sqlite:
-	ANT_TEST_DATABASES=sqlite $(INTEGRATION)
+	ANT_TEST_DATABASES=sqlite $(call integration,$(DIALECT_TESTS))
 
 test-mssql:
-	ANT_TEST_DATABASES=sqlserver $(INTEGRATION)
+	ANT_TEST_DATABASES=sqlserver $(call integration,$(DIALECT_TESTS))
