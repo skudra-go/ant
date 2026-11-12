@@ -138,9 +138,11 @@ func ForOnly(t *testing.T, names []string, fn func(t *testing.T, target Target))
 var serial, parallel sync.Map
 
 // Serial keeps t out of the parallel run, for a test that changes what the
-// whole process shares: environment variables, slog's default logger, or the
-// keys of package secure. go test runs a package's serial tests first, before
-// the parallel ones start. Call it before ForEach or ForOnly.
+// whole process shares, such as environment variables, slog's default logger,
+// the keys of package secure, or ant's naming and conventions, or that checks
+// something the whole server shares, such as its advisory locks. go test runs
+// a package's serial tests first, before the parallel ones start. Call it
+// before ForEach or ForOnly.
 func Serial(t *testing.T) {
 	serial.Store(t, true)
 	t.Cleanup(func() { serial.Delete(t) })
