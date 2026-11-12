@@ -41,39 +41,39 @@ Each number is the median of 10 runs, and each run repeats the operation for a s
 
 Time per operation, in µs:
 
-| | ant | ant<br><sub>NoTracking</sub> | Plain SQL<br><sub>baseline</sub> | GORM | Bun | ent |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Read1000 | 2,799 | 🟢 **1,688** | 1,557 | 3,285 | 2,259 | 2,226 |
-| FindOne | 406 | 389 | 365 | 416 | 🟢 **372** | 383 |
-| FilteredQuery | 574 | 🟢 **552** | 518 | 561 | 584 | 635 |
-| Include100 | 3,039 | 🟢 **2,091** | 1,750 | 3,034 | 2,198 | 2,194 |
-| Insert | 🟢 **431** | – | 400 | 442 | 1,164 | 441 |
-| UpdateOneColumn | 🟢 **413** | – | 396 | 444 | 444 | 🟢 **412** |
-| LoadEditSave | 830 | – | 806 | 861 | 🟢 **779** | 1,784 |
+| | ant | ant<br><sub>NoTracking</sub> | GORM | Bun | ent | | Plain SQL<br><sub>baseline</sub> |
+| --- | ---: | ---: | ---: | ---: | ---: | - | ---: |
+| Read1000 | 2,799 | 🟢 **1,688** | 3,285 | 2,259 | 2,226 | | 1,557 |
+| FindOne | 406 | 389 | 416 | 🟢 **372** | 383 | | 365 |
+| FilteredQuery | 574 | 🟢 **552** | 561 | 584 | 635 | | 518 |
+| Include100 | 3,039 | 🟢 **2,091** | 3,034 | 2,198 | 2,194 | | 1,750 |
+| Insert | 🟢 **431** | – | 442 | 1,164 | 441 | | 400 |
+| UpdateOneColumn | 🟢 **413** | – | 444 | 444 | 🟢 **412** | | 396 |
+| LoadEditSave | 830 | – | 861 | 🟢 **779** | 1,784 | | 806 |
 
 Memory per operation, in KiB:
 
-| | ant | ant<br><sub>NoTracking</sub> | Plain SQL<br><sub>baseline</sub> | GORM | Bun | ent |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Read1000 | 823 | 🟢 **277** | 257 | 392 | 295 | 589 |
-| FindOne | 7.5 | 6.5 | 1.5 | 5.7 | 6.3 | 🟢 **4.9** |
-| FilteredQuery | 15.1 | 10.5 | 3.8 | 9.7 | 🟢 **9.3** | 11.9 |
-| Include100 | 649 | 327 | 257 | 362 | 🟢 **277** | 335 |
-| Insert | 4.3 | – | 1.3 | 7.0 | 6.8 | 🟢 **3.7** |
-| UpdateOneColumn | 🟢 **2.9** | – | 0.3 | 5.6 | 5.0 | 3.1 |
-| LoadEditSave | 🟢 **10.2** | – | 1.8 | 11.2 | 11.2 | 10.7 |
+| | ant | ant<br><sub>NoTracking</sub> | GORM | Bun | ent | | Plain SQL<br><sub>baseline</sub> |
+| --- | ---: | ---: | ---: | ---: | ---: | - | ---: |
+| Read1000 | 823 | 🟢 **277** | 392 | 295 | 589 | | 257 |
+| FindOne | 7.5 | 6.5 | 5.7 | 6.3 | 🟢 **4.9** | | 1.5 |
+| FilteredQuery | 15.1 | 10.5 | 9.7 | 🟢 **9.3** | 11.9 | | 3.8 |
+| Include100 | 649 | 327 | 362 | 🟢 **277** | 335 | | 257 |
+| Insert | 4.3 | – | 7.0 | 6.8 | 🟢 **3.7** | | 1.3 |
+| UpdateOneColumn | 🟢 **2.9** | – | 5.6 | 5.0 | 3.1 | | 0.3 |
+| LoadEditSave | 🟢 **10.2** | – | 11.2 | 11.2 | 10.7 | | 1.8 |
 
 Allocations per operation:
 
-| | ant | ant<br><sub>NoTracking</sub> | Plain SQL<br><sub>baseline</sub> | GORM | Bun | ent |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Read1000 | 19,370 | 🟢 **6,831** | 7,772 | 14,810 | 8,790 | 15,840 |
-| FindOne | 118 | 94 | 36 | 89 | 🟢 **41** | 126 |
-| FilteredQuery | 306 | 176 | 99 | 219 | 🟢 **124** | 305 |
-| Include100 | 11,370 | 🟢 **4,528** | 4,063 | 9,558 | 6,218 | 8,152 |
-| Insert | 107 | – | 23 | 79 | 🟢 **54** | 86 |
-| UpdateOneColumn | 45 | – | 8 | 61 | 🟢 **14** | 64 |
-| LoadEditSave | 202 | – | 44 | 146 | 🟢 **52** | 269 |
+| | ant | ant<br><sub>NoTracking</sub> | GORM | Bun | ent | | Plain SQL<br><sub>baseline</sub> |
+| --- | ---: | ---: | ---: | ---: | ---: | - | ---: |
+| Read1000 | 19,370 | 🟢 **6,831** | 14,810 | 8,790 | 15,840 | | 7,772 |
+| FindOne | 118 | 94 | 89 | 🟢 **41** | 126 | | 36 |
+| FilteredQuery | 306 | 176 | 219 | 🟢 **124** | 305 | | 99 |
+| Include100 | 11,370 | 🟢 **4,528** | 9,558 | 6,218 | 8,152 | | 4,063 |
+| Insert | 107 | – | 79 | 🟢 **54** | 86 | | 23 |
+| UpdateOneColumn | 45 | – | 61 | 🟢 **14** | 64 | | 8 |
+| LoadEditSave | 202 | – | 146 | 🟢 **52** | 269 | | 44 |
 
 🟢 is the best library in each row. Plain SQL is the baseline and doesn't compete.
 

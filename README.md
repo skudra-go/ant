@@ -177,25 +177,25 @@ Each cell was tested by compiling the mistake. GORM also has an optional [CLI](h
 
 [tools/compare](tools/compare) runs the same operations in each library against PostgreSQL 17 on one machine (Ryzen 5 3600, Docker on WSL2). Each number is the median of 10 runs, and each run repeats the operation hundreds to thousands of times. The database round trip is included, which is why small queries are close. Commits don't wait for the disk, so writes measure the library and not the drive. Plain SQL (a hand-written query and `Scan`, what sqlc generates) is the baseline. Lower is better; 🟢 is the best in each row.
 
-| µs per operation | ant | ant<br><sub>NoTracking</sub> | Plain SQL<br><sub>baseline</sub> | GORM | Bun | ent |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Read 1000 rows | 2,799 | 🟢 **1,688** | 1,557 | 3,285 | 2,259 | 2,226 |
-| Find one by key | 406 | 389 | 365 | 416 | 🟢 **372** | 383 |
-| Filter, sort, 10 rows | 574 | 🟢 **552** | 518 | 561 | 584 | 635 |
-| 100 users, 500 posts | 3,039 | 🟢 **2,091** | 1,750 | 3,034 | 2,198 | 2,194 |
-| Insert one | 🟢 **431** | – | 400 | 442 | 1,164 | 441 |
-| Update one column | 🟢 **413** | – | 396 | 444 | 444 | 🟢 **412** |
-| Load, edit, save | 830 | – | 806 | 861 | 🟢 **779** | 1,784 |
+| µs per operation | ant | ant<br><sub>NoTracking</sub> | GORM | Bun | ent | | Plain SQL<br><sub>baseline</sub> |
+| --- | ---: | ---: | ---: | ---: | ---: | - | ---: |
+| Read 1000 rows | 2,799 | 🟢 **1,688** | 3,285 | 2,259 | 2,226 | | 1,557 |
+| Find one by key | 406 | 389 | 416 | 🟢 **372** | 383 | | 365 |
+| Filter, sort, 10 rows | 574 | 🟢 **552** | 561 | 584 | 635 | | 518 |
+| 100 users, 500 posts | 3,039 | 🟢 **2,091** | 3,034 | 2,198 | 2,194 | | 1,750 |
+| Insert one | 🟢 **431** | – | 442 | 1,164 | 441 | | 400 |
+| Update one column | 🟢 **413** | – | 444 | 444 | 🟢 **412** | | 396 |
+| Load, edit, save | 830 | – | 861 | 🟢 **779** | 1,784 | | 806 |
 
-| KiB per operation | ant | ant<br><sub>NoTracking</sub> | Plain SQL<br><sub>baseline</sub> | GORM | Bun | ent |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Read 1000 rows | 823 | 🟢 **277** | 257 | 392 | 295 | 589 |
-| Find one by key | 7.5 | 6.5 | 1.5 | 5.7 | 6.3 | 🟢 **4.9** |
-| Filter, sort, 10 rows | 15.1 | 10.5 | 3.8 | 9.7 | 🟢 **9.3** | 11.9 |
-| 100 users, 500 posts | 649 | 327 | 257 | 362 | 🟢 **277** | 335 |
-| Insert one | 4.3 | – | 1.3 | 7.0 | 6.8 | 🟢 **3.7** |
-| Update one column | 🟢 **2.9** | – | 0.3 | 5.6 | 5.0 | 3.1 |
-| Load, edit, save | 🟢 **10.2** | – | 1.8 | 11.2 | 11.2 | 10.7 |
+| KiB per operation | ant | ant<br><sub>NoTracking</sub> | GORM | Bun | ent | | Plain SQL<br><sub>baseline</sub> |
+| --- | ---: | ---: | ---: | ---: | ---: | - | ---: |
+| Read 1000 rows | 823 | 🟢 **277** | 392 | 295 | 589 | | 257 |
+| Find one by key | 7.5 | 6.5 | 5.7 | 6.3 | 🟢 **4.9** | | 1.5 |
+| Filter, sort, 10 rows | 15.1 | 10.5 | 9.7 | 🟢 **9.3** | 11.9 | | 3.8 |
+| 100 users, 500 posts | 649 | 327 | 362 | 🟢 **277** | 335 | | 257 |
+| Insert one | 4.3 | – | 7.0 | 6.8 | 🟢 **3.7** | | 1.3 |
+| Update one column | 🟢 **2.9** | – | 5.6 | 5.0 | 3.1 | | 0.3 |
+| Load, edit, save | 🟢 **10.2** | – | 11.2 | 11.2 | 10.7 | | 1.8 |
 
 What the numbers say:
 
