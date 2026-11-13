@@ -50,7 +50,8 @@ You need Go 1.27 or later, Docker, `make` and [staticcheck](https://staticcheck.
 make build                     # build every module
 make fmt                       # lay out the code; lint fails on anything this would change
 make lint                      # go vet, antvet, staticcheck and golangci-lint
-make test                      # unit tests; database tests skip
+make test                      # unit tests of every module; database tests skip
+make test-modules              # just the nested modules (tools/*, contrib/otel)
 make tidy                      # go mod tidy in every module
 make deps                      # govulncheck, and a list of outdated dependencies
 
