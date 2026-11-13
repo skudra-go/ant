@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -279,6 +280,51 @@ func TestObservers(t *testing.T) {
 			require.NoError(t, ant.Session(db).Members.Insert(ctx, &Member{Name: "s", Email: "x"}))
 			require.Equal(t, []string{"s"}, inserted)
 		})
+	})
+}
+
+// An observer may register another observer. It applies from the next write.
+func TestObserverMayObserve(t *testing.T) {
+	fixture.RunWith(t, membersDDL, func(t *testing.T, db *MembersDB) {
+		ctx := t.Context()
+
+		var heard []string
+
+		require.NoError(t, ant.Observe(db, ant.Observer[Member]{
+			Inserted: func(_ context.Context, m *Member) {
+				heard = append(heard, "first "+m.Name)
+
+				if m.Name == "a" {
+					require.NoError(t, ant.Observe(db, ant.Observer[Member]{
+						Inserted: func(_ context.Context, m *Member) {
+							heard = append(heard, "second "+m.Name)
+						},
+					}))
+				}
+			},
+		}))
+
+		// A deadlock here would hang until go test's timeout, so it is bounded.
+		done := make(chan error, 1)
+
+		go func() {
+			if err := db.Members.Insert(ctx, &Member{Name: "a", Email: "a"}); err != nil {
+				done <- err
+
+				return
+			}
+
+			done <- db.Members.Insert(ctx, &Member{Name: "b", Email: "b"})
+		}()
+
+		select {
+		case err := <-done:
+			require.NoError(t, err)
+		case <-time.After(10 * time.Second):
+			t.Fatal("Observe inside an observer deadlocked")
+		}
+
+		require.Equal(t, []string{"first a", "first b", "second b"}, heard)
 	})
 }
 
