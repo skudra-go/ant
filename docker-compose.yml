@@ -3,6 +3,10 @@
 services:
   postgres:
     image: postgres:17
+    # Test packages run side by side, each with PARALLEL tests that open pools
+    # of their own, which on a machine with many CPUs passes the default limit
+    # of 100 connections.
+    command: ["postgres", "-c", "max_connections=500"]
     environment:
       POSTGRES_USER: ant
       POSTGRES_PASSWORD: ant
