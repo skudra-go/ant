@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -103,4 +104,68 @@ func TestSetKeysRejectsBadInput(t *testing.T) {
 	if SetKeys("missing", map[string][]byte{"a": good}) == nil {
 		t.Fatal("missing active key accepted")
 	}
+}
+
+// Values written and read while SetKeys rotates the active key always use one
+// call's keys: every value is sealed with a key it can be opened with. Run it
+// with -race.
+func TestRotationUnderConcurrency(t *testing.T) {
+	keys := map[string][]byte{
+		"a": bytes.Repeat([]byte{1}, 32),
+		"b": bytes.Repeat([]byte{2}, 32),
+	}
+
+	if err := SetKeys("a", keys); err != nil {
+		t.Fatal(err)
+	}
+
+	stop := make(chan struct{})
+
+	var rotator sync.WaitGroup
+
+	rotator.Go(func() {
+		for i := 0; ; i++ {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+
+			if err := SetKeys([]string{"a", "b"}[i%2], keys); err != nil {
+				t.Error(err)
+
+				return
+			}
+		}
+	})
+
+	var workers sync.WaitGroup
+
+	for w := range 8 {
+		workers.Go(func() {
+			for i := range 200 {
+				want := fmt.Sprint(w, "-", i)
+
+				stored, err := New(want).Value()
+				if err != nil {
+					t.Error(err)
+
+					return
+				}
+
+				var read Value[string]
+				if err := read.Scan(stored); err != nil || read.V != want {
+					t.Errorf("read %q, %v, want %q", read.V, err, want)
+
+					return
+				}
+
+				_ = NeedsRotation(stored.(string))
+			}
+		})
+	}
+
+	workers.Wait()
+	close(stop)
+	rotator.Wait()
 }

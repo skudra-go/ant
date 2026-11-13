@@ -27,7 +27,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
+	"sync/atomic"
 
 	"github.com/skudra-go/ant/internal/jsontext"
 )
@@ -38,8 +38,12 @@ var (
 	ErrUnknownKey = errors.New("ant: value was encrypted with an unknown key")
 )
 
-var keyring struct {
-	sync.RWMutex
+// keyring holds the keys SetKeys set, or nil before it is called. Every value
+// read or written loads it, so it is swapped whole rather than locked, and a
+// reader never sees one call's active key with another call's keys.
+var keyring atomic.Pointer[ring]
+
+type ring struct {
 	active string
 	aeads  map[string]cipher.AEAD
 }
@@ -72,10 +76,7 @@ func SetKeys(active string, keys map[string][]byte) error {
 		return fmt.Errorf("ant: active key %q is not among the keys", active)
 	}
 
-	keyring.Lock()
-	defer keyring.Unlock()
-
-	keyring.active, keyring.aeads = active, aeads
+	keyring.Store(&ring{active, aeads})
 
 	return nil
 }
@@ -103,10 +104,8 @@ func (Value[V]) MarshalJSON() ([]byte, error) { return []byte(`"[encrypted]"`), 
 // Text that is not valid UTF-8 is refused, since the JSON that is sealed would
 // hold U+FFFD in its place.
 func (s Value[V]) Value() (driver.Value, error) {
-	keyring.RLock()
-	defer keyring.RUnlock()
-
-	if keyring.aeads == nil {
+	keys := keyring.Load()
+	if keys == nil {
 		return nil, ErrNoKeys
 	}
 
@@ -120,7 +119,7 @@ func (s Value[V]) Value() (driver.Value, error) {
 		return nil, err
 	}
 
-	aead := keyring.aeads[keyring.active]
+	aead := keys.aeads[keys.active]
 
 	nonce := make([]byte, aead.NonceSize())
 	if _, err := rand.Read(nonce); err != nil {
@@ -129,7 +128,7 @@ func (s Value[V]) Value() (driver.Value, error) {
 
 	sealed := aead.Seal(nonce, nonce, plain, nil)
 
-	return keyring.active + ":" + base64.RawStdEncoding.EncodeToString(sealed), nil
+	return keys.active + ":" + base64.RawStdEncoding.EncodeToString(sealed), nil
 }
 
 // Scan implements sql.Scanner.
@@ -165,14 +164,12 @@ func open(text string) ([]byte, error) {
 		return nil, errors.New("ant: value is not in secure form")
 	}
 
-	keyring.RLock()
-	defer keyring.RUnlock()
-
-	if keyring.aeads == nil {
+	keys := keyring.Load()
+	if keys == nil {
 		return nil, ErrNoKeys
 	}
 
-	aead := keyring.aeads[name]
+	aead := keys.aeads[name]
 	if aead == nil {
 		return nil, fmt.Errorf("%w: %s", ErrUnknownKey, name)
 	}
@@ -194,8 +191,11 @@ func open(text string) ([]byte, error) {
 func NeedsRotation(stored string) bool {
 	name, _, _ := strings.Cut(stored, ":")
 
-	keyring.RLock()
-	defer keyring.RUnlock()
+	active := ""
 
-	return name != keyring.active
+	if keys := keyring.Load(); keys != nil {
+		active = keys.active
+	}
+
+	return name != active
 }

@@ -3,8 +3,11 @@ package ant
 import (
 	"context"
 	"fmt"
+	"maps"
 	"reflect"
+	"slices"
 	"sync"
+	"sync/atomic"
 	"unsafe"
 
 	"github.com/skudra-go/ant/internal/meta"
@@ -271,10 +274,21 @@ func (u *unit) changes() []Change {
 	return out
 }
 
-// observers holds a context's Observe registrations.
+// observers holds a context's Observe registrations. Every write reads them, from
+// whichever goroutine made it, so a registration replaces the map rather than
+// changing it, and readers take no lock. mu serializes registrations.
 type observers struct {
-	mu     sync.RWMutex
-	byType map[reflect.Type][]observer
+	mu     sync.Mutex
+	byType atomic.Pointer[map[reflect.Type][]observer]
+}
+
+// load returns the current registrations. The map must not be written to.
+func (o *observers) load() map[reflect.Type][]observer {
+	if m := o.byType.Load(); m != nil {
+		return *m
+	}
+
+	return nil
 }
 
 type observer struct {
@@ -308,27 +322,29 @@ func Observe[T any](h Handle, o Observer[T]) error {
 	s.observed.mu.Lock()
 	defer s.observed.mu.Unlock()
 
-	if s.observed.byType == nil {
-		s.observed.byType = map[reflect.Type][]observer{}
-	}
+	current := s.observed.load()
+	next := make(map[reflect.Type][]observer, len(current)+1)
+	maps.Copy(next, current)
 
-	s.observed.byType[model.Type] = append(s.observed.byType[model.Type],
+	// Clip makes append copy, so a write reading current never sees it change.
+	next[model.Type] = append(slices.Clip(current[model.Type]),
 		observer{wrap(o.Inserted), wrap(o.Updated), wrap(o.Deleted)})
+
+	s.observed.byType.Store(&next)
 
 	return nil
 }
 
 // notify tells observers what the unit wrote, now or at the transaction's commit.
 func (u *unit) notify(ctx context.Context) {
-	u.s.observed.mu.RLock()
-	defer u.s.observed.mu.RUnlock()
-
-	if len(u.s.observed.byType) == 0 {
+	// A snapshot, so an observer may itself call Observe.
+	observed := u.s.observed.load()
+	if len(observed) == 0 {
 		return
 	}
 
 	for _, n := range u.order {
-		for _, o := range u.s.observed.byType[n.model.Type] {
+		for _, o := range observed[n.model.Type] {
 			var f func(context.Context, unsafe.Pointer)
 
 			switch {

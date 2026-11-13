@@ -7,11 +7,13 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"fmt"
+	"maps"
 	"reflect"
 	"runtime"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 	"unsafe"
@@ -742,10 +744,14 @@ func Of[T any]() *Model {
 	return ofType(reflect.TypeFor[T]())
 }
 
+// The registry changes once per model type and is then read by every query, from
+// every goroutine. Readers load an immutable snapshot and take no lock, so they
+// never contend. A writer copies the snapshot, adds to the copy and stores it,
+// under mu so that two writers cannot lose each other's addition.
 var (
-	mu     sync.RWMutex
-	models = map[reflect.Type]*Model{}
-	probes []probe
+	mu     sync.Mutex
+	models atomic.Pointer[map[reflect.Type]*Model]
+	probes atomic.Pointer[[]probe]
 
 	// pinner pins every probe for the life of the process. It is never
 	// unpinned, and it must stay a package variable: the runtime panics if a
@@ -753,6 +759,24 @@ var (
 	// safe for concurrent use, so mu guards it.
 	pinner runtime.Pinner
 )
+
+// loadModels returns the current models. The map must not be written to.
+func loadModels() map[reflect.Type]*Model {
+	if m := models.Load(); m != nil {
+		return *m
+	}
+
+	return nil
+}
+
+// loadProbes returns the current probes. The slice must not be written to.
+func loadProbes() []probe {
+	if p := probes.Load(); p != nil {
+		return *p
+	}
+
+	return nil
+}
 
 // probe keeps a probe value reachable, and with it the address range that
 // identifies its fields. Probes are pinned with runtime.Pinner, so their
@@ -770,20 +794,42 @@ type probe struct {
 func Probe[T any]() *T {
 	model := Of[T]()
 
+	if p := probeOf(loadProbes(), model); p != nil {
+		return (*T)(p)
+	}
+
 	mu.Lock()
 	defer mu.Unlock()
 
-	for _, existing := range probes {
-		if existing.model == model {
-			return (*T)(existing.ptr)
-		}
+	current := loadProbes()
+
+	// Another goroutine may have registered it since the check above.
+	if p := probeOf(current, model); p != nil {
+		return (*T)(p)
 	}
 
 	p := new(T)
 	pinner.Pin(p)
-	probes = append(probes, probe{unsafe.Pointer(p), uintptr(unsafe.Pointer(p)), model})
+
+	// Clip makes append copy, so readers of current never see it change.
+	next := append(
+		slices.Clip(current),
+		probe{unsafe.Pointer(p), uintptr(unsafe.Pointer(p)), model},
+	)
+	probes.Store(&next)
 
 	return p
+}
+
+// probeOf returns model's probe in list, or nil.
+func probeOf(list []probe, model *Model) unsafe.Pointer {
+	for _, existing := range list {
+		if existing.model == model {
+			return existing.ptr
+		}
+	}
+
+	return nil
 }
 
 // Ref is a resolved field pointer.
@@ -799,10 +845,7 @@ func Resolve[V any](ptr *V) (Ref, bool) {
 	addr := uintptr(unsafe.Pointer(ptr))
 	t := reflect.TypeFor[V]()
 
-	mu.RLock()
-	defer mu.RUnlock()
-
-	for _, p := range probes {
+	for _, p := range loadProbes() {
 		if addr < p.base || addr >= p.base+p.model.Type.Size() {
 			continue
 		}
@@ -835,26 +878,27 @@ func (f *Field) deletionTime(t reflect.Type) bool {
 func OfType(t reflect.Type) *Model { return ofType(t) }
 
 func ofType(t reflect.Type) *Model {
-	mu.RLock()
-
-	m := models[t]
-
-	mu.RUnlock()
-
-	if m != nil {
+	if m := loadModels()[t]; m != nil {
 		return m
 	}
 
-	m = build(t)
+	m := build(t)
 
 	mu.Lock()
 	defer mu.Unlock()
 
-	if existing := models[t]; existing != nil {
+	current := loadModels()
+
+	// Another goroutine may have built it meanwhile. Its model is kept, so
+	// every caller shares one.
+	if existing := current[t]; existing != nil {
 		return existing
 	}
 
-	models[t] = m
+	next := make(map[reflect.Type]*Model, len(current)+1)
+	maps.Copy(next, current)
+	next[t] = m
+	models.Store(&next)
 
 	return m
 }
