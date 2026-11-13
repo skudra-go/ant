@@ -1,0 +1,16 @@
+{
+  "name": "ant",
+  "description": "Teaches Claude to write, review and debug Go code that uses ant, the typed ORM where columns are field pointers.",
+  "author": {
+    "name": "skudra-go"
+  },
+  "homepage": "https://skudra.net",
+  "repository": "https://github.com/skudra-go/ant",
+  "license": "MIT",
+  "keywords": [
+    "go",
+    "orm",
+    "ant",
+    "database"
+  ]
+}

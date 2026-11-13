@@ -70,6 +70,7 @@ Database tests run in parallel, eight at a time per package (`PARALLEL=8`). Each
 - Design decisions go in [`docs/DECISIONS.md`](docs/DECISIONS.md).
 - A change to SQL, scanning, types, quoting, paging or transactions has to hold on all five databases. [`docs/databases.md`](docs/databases.md) lists what each one supports.
 - User docs live in [ant-docs](https://github.com/skudra-go/ant-docs). Update them there when behaviour changes.
+- The skill for coding agents, [`skills/ant/SKILL.md`](skills/ant/SKILL.md), states the API's rules in brief. Update it when a change makes it wrong. `tests/api` fails if it names something the API no longer has. To type-check its samples, run ant-docs' doccheck on it, from `ant-docs/tools/doccheck` with a `go.work` that points at your ant checkout: `go run ./cmd/doccheck ../../../ant/skills`.
 
 ## Conduct and security
 

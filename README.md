@@ -239,6 +239,20 @@ The [roadmap](docs/ROADMAP.md) lists what's planned, and why some items were ski
 - [ant-examples](https://github.com/skudra-go/ant-examples): small projects built on ant
 - [Roadmap](docs/ROADMAP.md) and [design decisions](docs/DECISIONS.md)
 
+## With an AI assistant
+
+ant is newer than most models' training data, so an assistant left to guess writes GORM. Give it the docs:
+
+- **Claude Code**: `/plugin marketplace add skudra-go/ant`, then `/plugin install ant@ant`. The [skill](skills/ant/SKILL.md) loads whenever a task touches ant.
+- **Codex, Cursor, Copilot, Gemini CLI and other agents**: `npx skills add skudra-go/ant` installs the same skill.
+- **Any assistant**: point it at [skudra.net/llms.txt](https://skudra.net/llms.txt), the docs as Markdown, or [llms-full.txt](https://skudra.net/llms-full.txt), all of them in one file.
+
+To have every assistant on a project pick it up, add a line to its `AGENTS.md` or `CLAUDE.md`:
+
+```md
+This project uses the ant ORM (github.com/skudra-go/ant), not GORM. Before writing ant code, read https://skudra.net/llms.txt.
+```
+
 ## Contributing
 
 Issues and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first. Report vulnerabilities as [SECURITY.md](SECURITY.md) describes.

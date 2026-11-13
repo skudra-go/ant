@@ -1,0 +1,14 @@
+{
+  "name": "ant",
+  "description": "The ant ORM's skill for Claude Code",
+  "owner": {
+    "name": "skudra-go"
+  },
+  "plugins": [
+    {
+      "name": "ant",
+      "source": ".",
+      "description": "Teaches Claude to write, review and debug Go code that uses ant, the typed ORM where columns are field pointers."
+    }
+  ]
+}
