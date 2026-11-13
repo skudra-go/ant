@@ -577,3 +577,9 @@ Decision: `Probe` pins each probe with `runtime.Pinner` when it allocates it, un
 ## 103. An upsert's update stamps UpdatedAt
 
 `Update`, `SaveChanges` and `Merge` set `UpdatedAt` on every update, but an upsert's update branch did not: `DoUpdate` left the column as it was, and the default clause wrote `excluded.updated_at`, the struct's value, which for a loaded copy is the time it was last saved (#84). The conflict update now sets `UpdatedAt` to ant's clock, on `Upsert` and on `InsertMany` with a conflict, unless `DoUpdate` or `Set` assigns it, in which case the clause's value wins, as with a bulk `Update` (decision 89). The default clause no longer copies the column from the inserted row, since that value is the one being replaced.
+
+## 104. A skill for coding agents ships in the module
+
+Models trained before ant existed write GORM when asked for ant code: string conditions, `Preload`, `AutoMigrate`. The docs site serves itself as Markdown (`llms.txt`, `llms-full.txt` and a `.md` copy of each page), which an assistant can read if someone points it there.
+
+Decision: the repo carries a skill, `skills/ant/SKILL.md`: the rules an assistant gets wrong when it guesses, in a few hundred lines, with links to the Markdown docs for the rest. It lives in this repo rather than in ant-docs so it is versioned with the code and lands in the module cache with every `go get`, where the package doc points to it. The same directory is a Claude Code plugin (`.claude-plugin/`) and the layout `npx skills add` reads, so installing it is one command for most agents. Nothing installs it by itself: a library can't write into a user's agent settings, and shouldn't. `tests/api` fails when the skill names a function or method the API no longer has; its samples are type-checked with ant-docs' doccheck, by hand, since that tool lives in the other repo.

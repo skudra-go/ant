@@ -12,6 +12,14 @@
 //
 //	db, err := ant.Open[AppDB](ctx, postgres.Dialect, dsn)
 //	adults, err := db.Users.Where(ant.Gt(&Users.Age, 18)).All(ctx)
+//
+// # For AI coding assistants
+//
+// ant is newer than most models' training data, and its API is not GORM's. The
+// documentation is at https://skudra.net/llms.txt as Markdown, one file per page,
+// and https://skudra.net/llms-full.txt has every page in one. This module ships a
+// skill for coding agents, matching this version, at skills/ant/SKILL.md in the
+// directory that go list -m -f '{{.Dir}}' github.com/skudra-go/ant prints.
 package ant
 
 import (
