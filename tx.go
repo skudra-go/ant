@@ -279,52 +279,128 @@ func (s *state) transact(ctx context.Context, several bool, write func(exec.Exec
 }
 
 func (s *state) savepoint(ctx context.Context, body func() error) error {
+	sp, err := s.openSavepoint(ctx)
+	if err != nil {
+		return err
+	}
+
+	if err := body(); err != nil {
+		return errors.Join(err, s.rollbackSavepoint(ctx, sp))
+	}
+
+	return s.releaseSavepoint(ctx, sp)
+}
+
+// savepointState is a savepoint ant opened in a transaction: by a nested Tx or
+// a write, which ends it when its body returns, or by Begin, whose context ends
+// it with Commit or Rollback. mark and waiting are where the transaction's
+// tracker changes and observers stood when it opened.
+type savepointState struct {
+	name    string
+	mark    int
+	waiting int
+	done    bool
+}
+
+// openSavepoint opens a savepoint in s's transaction.
+func (s *state) openSavepoint(ctx context.Context) (*savepointState, error) {
 	root := s.tx
 	root.depth++
 	name := fmt.Sprintf("ant_sp_%d", root.depth)
 
-	save, back, release := dialect.SyntaxOf(s.dialect).SavepointCommands()
+	save, _, _ := dialect.SyntaxOf(s.dialect).SavepointCommands()
 	if _, err := s.exec.ExecContext(ctx, save+name); err != nil {
-		return err
+		return nil, err
 	}
 
-	mark, waiting := len(root.undo), len(root.pending)
+	root.open++
 
-	// The savepoint is open while body runs, however body ends.
-	err := func() error {
-		root.open++
+	return &savepointState{
+		name:    name,
+		mark:    len(root.undo),
+		waiting: len(root.pending),
+	}, nil
+}
 
-		defer func() { root.open-- }()
+// rollbackSavepoint returns the transaction to sp, and takes back the tracker
+// changes and observers since it opened.
+func (s *state) rollbackSavepoint(ctx context.Context, sp *savepointState) error {
+	root := s.tx
+	root.open--
 
-		return body()
-	}()
-	if err != nil {
-		root.rollbackTo(ctx, mark)
-		root.pending = root.pending[:waiting]
-		// The caller's context may be cancelled, and the transaction must still
-		// return to the savepoint.
-		_, undo := s.exec.ExecContext(context.WithoutCancel(ctx), back+name)
+	// A savepoint opened before this one and ended first has taken these back
+	// already.
+	root.rollbackTo(ctx, min(sp.mark, len(root.undo)))
+	root.pending = root.pending[:min(sp.waiting, len(root.pending))]
 
-		return errors.Join(err, undo)
-	}
+	// The caller's context may be cancelled, and the transaction must still
+	// return to the savepoint.
+	_, back, _ := dialect.SyntaxOf(s.dialect).SavepointCommands()
+	_, err := s.exec.ExecContext(context.WithoutCancel(ctx), back+sp.name)
+	sp.done = true
+
+	return err
+}
+
+// releaseSavepoint ends sp, keeping its changes in the transaction.
+func (s *state) releaseSavepoint(ctx context.Context, sp *savepointState) error {
+	root := s.tx
+	root.open--
 
 	if !root.sees() {
 		// What the savepoint kept is now the caller's transaction's, whose end
 		// ant does not see: its changes stand, and its observers never run.
+		mark := min(sp.mark, len(root.undo))
 		steps := slices.Clone(root.undo[mark:])
 		root.undo = root.undo[:mark]
-		root.pending = root.pending[:waiting]
+		root.pending = root.pending[:min(sp.waiting, len(root.pending))]
 
 		settle(ctx, steps, track.Change.Keep)
 	}
 
+	_, _, release := dialect.SyntaxOf(s.dialect).SavepointCommands()
 	if release == "" {
+		sp.done = true
+
 		return nil
 	}
 
-	_, err = s.exec.ExecContext(ctx, release+name)
+	_, err := s.exec.ExecContext(ctx, release+sp.name)
+	sp.done = true
 
 	return err
+}
+
+// savepointExec runs the statements of a context from Begin inside a
+// transaction, and refuses them once its savepoint has ended, as a *sql.Tx does
+// once it has, rather than running them in the outer transaction.
+type savepointExec struct {
+	exec.Executor
+	sp *savepointState
+}
+
+func (e savepointExec) ExecContext(
+	ctx context.Context,
+	query string,
+	args ...any,
+) (sql.Result, error) {
+	if e.sp.done {
+		return nil, ErrTxDone
+	}
+
+	return e.Executor.ExecContext(ctx, query, args...)
+}
+
+func (e savepointExec) QueryContext(
+	ctx context.Context,
+	query string,
+	args ...any,
+) (*sql.Rows, error) {
+	if e.sp.done {
+		return nil, ErrTxDone
+	}
+
+	return e.Executor.QueryContext(ctx, query, args...)
 }
 
 // rollbackTo undoes the tracker changes made since mark, newest first.
@@ -458,7 +534,10 @@ func runTx[DB any](ctx context.Context, s *state, o txOptions, f func(tx *DB) er
 }
 
 // Begin starts a transaction and returns a context bound to it. End it with
-// Commit or Rollback. Prefer Context.Tx, which cannot leave one open.
+// Commit or Rollback. Prefer Context.Tx, which cannot leave one open. Inside a
+// transaction, Begin opens a savepoint instead, as a nested Tx does: Commit
+// releases it, keeping its work in the outer transaction, and Rollback undoes
+// only the work since Begin. The options apply to a new transaction only.
 func Begin[DB any](ctx context.Context, db *DB, options ...TxOption) (*DB, error) {
 	h, ok := any(db).(Handle)
 	if !ok {
@@ -471,7 +550,7 @@ func Begin[DB any](ctx context.Context, db *DB, options ...TxOption) (*DB, error
 	case s == nil:
 		return nil, ErrNotOpen
 	case s.tx != nil:
-		return db, nil
+		return beginSavepoint[DB](ctx, h.context())
 	}
 
 	t, err := s.begin(ctx, resolveTx(options))
@@ -482,6 +561,30 @@ func Begin[DB any](ctx context.Context, db *DB, options ...TxOption) (*DB, error
 	tx, err := bindState[DB](s.child(t))
 	if err != nil {
 		return nil, errors.Join(err, t.rollback())
+	}
+
+	return tx, nil
+}
+
+// beginSavepoint opens a savepoint in c's transaction and returns a context
+// bound to it.
+func beginSavepoint[DB any](ctx context.Context, c *Context) (*DB, error) {
+	if _, err := c.current(); err != nil {
+		return nil, err
+	}
+
+	sp, err := c.state.openSavepoint(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	child := *c.state
+	child.begun = sp
+	child.exec = savepointExec{c.state.exec, sp}
+
+	tx, err := bindState[DB](&child)
+	if err != nil {
+		return nil, errors.Join(err, child.rollbackSavepoint(ctx, sp))
 	}
 
 	return tx, nil
@@ -546,18 +649,24 @@ func (c *Context) current() (*txState, error) {
 		return nil, ErrNotOpen
 	case c.state.tx == nil:
 		return nil, ErrNotInTx
-	case c.state.tx.done:
+	case c.state.tx.done, c.state.begun != nil && c.state.begun.done:
 		return nil, ErrTxDone
 	}
 
 	return c.state.tx, nil
 }
 
-// Commit ends a transaction from Begin, keeping its changes.
+// Commit ends a transaction from Begin, keeping its changes. On a context from
+// Begin inside a transaction, it releases Begin's savepoint, and the changes
+// stand or fall with the outer transaction.
 func (c *Context) Commit() error {
 	t, err := c.current()
 	if err != nil {
 		return err
+	}
+
+	if sp := c.state.begun; sp != nil {
+		return c.state.releaseSavepoint(context.Background(), sp)
 	}
 
 	t.done = true
@@ -573,11 +682,17 @@ func (c *Context) Commit() error {
 	return nil
 }
 
-// Rollback ends a transaction from Begin, discarding its changes.
+// Rollback ends a transaction from Begin, discarding its changes. On a context
+// from Begin inside a transaction, it rolls back to Begin's savepoint, and the
+// outer transaction goes on.
 func (c *Context) Rollback() error {
 	t, err := c.current()
 	if err != nil {
 		return err
+	}
+
+	if sp := c.state.begun; sp != nil {
+		return c.state.rollbackSavepoint(context.Background(), sp)
 	}
 
 	t.abort(context.Background())

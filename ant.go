@@ -76,8 +76,9 @@ type state struct {
 	saving    *sync.Mutex // serializes SaveChanges on a tracker
 	observed  *observers
 	self      any
-	tx        *txState      // nil outside a transaction
-	lastWrite *atomic.Int64 // when this session last wrote, for sticky reads
+	tx        *txState        // nil outside a transaction
+	begun     *savepointState // the savepoint of a context from Begin inside a transaction
+	lastWrite *atomic.Int64   // when this session last wrote, for sticky reads
 }
 
 // sharedState is mutable state shared by a context's sessions.

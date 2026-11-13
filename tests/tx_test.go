@@ -150,3 +150,71 @@ func TestTxTouchFailureUndoesWrite(t *testing.T) {
 		require.Zero(t, countRows(t, target.DB, "posts"))
 	})
 }
+
+// Begin inside a transaction opens a savepoint, so the inner Commit and
+// Rollback end only the inner part, as a nested Tx does.
+func TestTxNestedBegin(t *testing.T) {
+	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
+		ctx := t.Context()
+		app := openApp(t, target)
+		stop := errors.New("stop")
+
+		insert := func(db *AppDB, name string) {
+			t.Helper()
+			require.NoError(t, db.Users.Insert(ctx, &User{Name: name, Email: name + "@x"}))
+		}
+
+		// The inner Commit keeps the inner work in the outer transaction, whose
+		// rollback still undoes it.
+		err := app.Tx(ctx, func(tx *AppDB) error {
+			inner, err := ant.Begin(ctx, tx)
+			require.NoError(t, err)
+			insert(inner, "inner")
+			require.NoError(t, inner.Commit())
+			require.ErrorIs(t, inner.Commit(), ant.ErrTxDone)
+			require.ErrorIs(t, inner.Rollback(), ant.ErrTxDone)
+
+			// Ended, the inner context no longer runs statements.
+			_, err = inner.Users.Count(ctx)
+			require.ErrorIs(t, err, ant.ErrTxDone)
+			insert(tx, "outer")
+
+			return stop
+		})
+		require.ErrorIs(t, err, stop)
+		require.Zero(t, countRows(t, target.DB, "users"))
+
+		// The inner Rollback undoes the inner work alone.
+		err = app.Tx(ctx, func(tx *AppDB) error {
+			insert(tx, "before")
+
+			inner, err := ant.Begin(ctx, tx)
+			require.NoError(t, err)
+
+			undone := &User{Name: "undone", Email: "undone@x"}
+			require.NoError(t, inner.Users.Insert(ctx, undone))
+			require.NoError(t, inner.Rollback())
+			require.Zero(t, undone.ID, "the rollback takes back the generated key")
+			require.ErrorIs(t, inner.Commit(), ant.ErrTxDone)
+			insert(tx, "after")
+
+			return nil
+		})
+		require.NoError(t, err)
+
+		found, err := app.Users.OrderBy(&Users.Name).All(ctx)
+		require.NoError(t, err)
+		require.Equal(t, []string{"after", "before"}, names(found))
+
+		// From Begin inside Begin, and the outer transaction then commits both.
+		outer, err := ant.Begin(ctx, app)
+		require.NoError(t, err)
+
+		inner, err := ant.Begin(ctx, outer)
+		require.NoError(t, err)
+		insert(inner, "nested")
+		require.NoError(t, inner.Commit())
+		require.NoError(t, outer.Commit())
+		require.Equal(t, 3, countRows(t, target.DB, "users"))
+	})
+}

@@ -343,6 +343,27 @@ func TestBegin(t *testing.T) {
 			require.Equal(t, 2, count(t, db))
 		})
 
+		t.Run("inside a transaction", func(t *testing.T) {
+			before := count(t, db)
+			outer, err := ant.Begin(ctx, db)
+			require.NoError(t, err)
+
+			// Begin inside a transaction opens a savepoint.
+			inner, err := ant.Begin(ctx, outer)
+			require.NoError(t, err)
+			require.NoError(t, inner.Users.Insert(ctx, user("inner undone")))
+			require.NoError(t, inner.Rollback())
+
+			// The outer transaction goes on, and ends what the inner one kept.
+			inner, err = ant.Begin(ctx, outer)
+			require.NoError(t, err)
+			require.NoError(t, inner.Users.Insert(ctx, user("inner kept")))
+			require.NoError(t, inner.Commit())
+			require.NoError(t, outer.Users.Insert(ctx, user("outer kept")))
+			require.NoError(t, outer.Commit())
+			require.Equal(t, before+2, count(t, db))
+		})
+
 		t.Run("a savepoint that does not exist", func(t *testing.T) {
 			tx, err := ant.Begin(ctx, db)
 			require.NoError(t, err)
