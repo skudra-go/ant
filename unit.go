@@ -767,7 +767,8 @@ func (n *node) pending(assigned []*meta.Field) []*meta.Field {
 }
 
 // writes estimates the statements a unit needs, to avoid a transaction when
-// there is nothing to protect.
+// there is nothing to protect. A node whose model touches a parent counts the
+// parent's UPDATE too, since touch runs it after the node's own write.
 func (u *unit) writes() int {
 	count := len(u.pivots)
 
@@ -775,6 +776,12 @@ func (u *unit) writes() int {
 		if n.insert || n.remove || n.forced || len(n.links) > 0 || n.changed != nil ||
 			n.entry != nil && n.entity == n.entry.Entity && len(n.entry.Changed()) > 0 {
 			count++
+
+			if slices.ContainsFunc(n.model.Relations, func(r *meta.Relation) bool {
+				return r.Touch
+			}) {
+				count++
+			}
 		}
 	}
 
