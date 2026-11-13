@@ -33,9 +33,9 @@ func (d impl) Inspect(
 	q schema.Querier,
 	schemas []string,
 ) (*schema.Schema, error) {
-	var current string
-	if err := queryRow(ctx, q, []any{&current}, "SELECT current_schema()"); err != nil {
-		return nil, wrapInspect(err, "default schema")
+	current, err := d.DefaultSchema(ctx, q)
+	if err != nil {
+		return nil, err
 	}
 
 	names := []string{current}
@@ -47,6 +47,17 @@ func (d impl) Inspect(
 	}
 
 	return d.read(ctx, q, current, names, false)
+}
+
+// DefaultSchema returns the connection's current schema, which Inspect reports
+// with an empty name.
+func (impl) DefaultSchema(ctx context.Context, q schema.Querier) (string, error) {
+	var current string
+	if err := queryRow(ctx, q, []any{&current}, "SELECT current_schema()"); err != nil {
+		return "", wrapInspect(err, "default schema")
+	}
+
+	return current, nil
 }
 
 func (d impl) read(

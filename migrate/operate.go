@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/skudra-go/ant"
+	"github.com/skudra-go/ant/internal/liveschema"
 	"github.com/skudra-go/ant/schema"
 )
 
@@ -265,6 +266,12 @@ func (e *engine) drift(
 		return err
 	}
 	defer conn.Close()
+
+	// Inspect names the default schema "", which the target may name outright.
+	target, err = liveschema.Relative(ctx, e.d, conn, target)
+	if err != nil {
+		return err
+	}
 
 	canonical, err := e.d.Canonical(ctx, conn, target)
 	if err != nil {

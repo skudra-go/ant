@@ -11,6 +11,7 @@ import (
 
 	"github.com/skudra-go/ant/dialect"
 	"github.com/skudra-go/ant/internal/exec"
+	"github.com/skudra-go/ant/internal/liveschema"
 	"github.com/skudra-go/ant/internal/meta"
 	"github.com/skudra-go/ant/schema"
 )
@@ -858,6 +859,12 @@ func (c *Context) ddl() (schema.Dialect, *schema.Schema, error) {
 // It is for tests and prototypes. Use migrations for anything with data to keep.
 func (c *Context) EnsureCreated(ctx context.Context) error {
 	d, target, err := c.ddl()
+	if err != nil {
+		return err
+	}
+
+	// Inspect names the default schema "", which a model may name outright.
+	target, err = liveschema.Relative(ctx, d, c.state.exec, target)
 	if err != nil {
 		return err
 	}
