@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"unsafe"
@@ -178,6 +179,104 @@ func TestProbeSurvivesGC(t *testing.T) {
 	ref, ok := Resolve(&u.Name)
 	if got := column(t, ref, ok); got != "name" {
 		t.Errorf("got %q", got)
+	}
+}
+
+// raced is a model first registered by several goroutines at once. Each type
+// argument makes a distinct model.
+type raced[N any] struct {
+	ID   int64
+	Name string
+	N    N
+}
+
+// Goroutines that register models at once, while others resolve fields, agree
+// on one model and one probe per type and lose no registration. Run it with
+// -race, which checks that readers never see a snapshot being written.
+func TestRegistryUnderConcurrency(t *testing.T) {
+	type got struct {
+		model *Model
+		probe unsafe.Pointer
+	}
+
+	register := []func() got{
+		func() got { return got{Of[raced[int8]](), unsafe.Pointer(Probe[raced[int8]]())} },
+		func() got { return got{Of[raced[int16]](), unsafe.Pointer(Probe[raced[int16]]())} },
+		func() got { return got{Of[raced[int32]](), unsafe.Pointer(Probe[raced[int32]]())} },
+		func() got { return got{Of[raced[int64]](), unsafe.Pointer(Probe[raced[int64]]())} },
+		func() got { return got{Of[raced[uint8]](), unsafe.Pointer(Probe[raced[uint8]]())} },
+		func() got { return got{Of[raced[uint16]](), unsafe.Pointer(Probe[raced[uint16]]())} },
+		func() got { return got{Of[raced[uint32]](), unsafe.Pointer(Probe[raced[uint32]]())} },
+		func() got { return got{Of[raced[uint64]](), unsafe.Pointer(Probe[raced[uint64]]())} },
+	}
+
+	const each = 4
+
+	u := Probe[user]()
+	results := make([][]got, len(register))
+	start := make(chan struct{})
+	done := make(chan struct{})
+
+	var wg sync.WaitGroup
+
+	for i, f := range register {
+		results[i] = make([]got, each)
+
+		for j := range each {
+			wg.Go(func() {
+				<-start
+
+				results[i][j] = f()
+			})
+		}
+	}
+
+	resolved := make(chan bool, 1)
+
+	go func() {
+		ok := true
+
+		<-start
+
+		for {
+			select {
+			case <-done:
+				resolved <- ok
+
+				return
+			default:
+			}
+
+			if ref, found := Resolve(&u.Name); !found || ref.Field.Column != "name" {
+				ok = false
+			}
+		}
+	}()
+
+	close(start)
+	wg.Wait()
+	close(done)
+
+	if !<-resolved {
+		t.Error("a field of a registered probe failed to resolve while others registered")
+	}
+
+	for i, row := range results {
+		for _, r := range row[1:] {
+			if r != row[0] {
+				t.Errorf("type %d: goroutines got different models or probes", i)
+			}
+		}
+
+		if OfType(row[0].model.Type) != row[0].model {
+			t.Errorf("type %d: the registry lost its model", i)
+		}
+
+		// Fields at the probe's address resolve to the probe's own model.
+		ref, ok := Resolve((*string)(unsafe.Add(row[0].probe, row[0].model.Fields[1].Offset)))
+		if !ok || ref.Model != row[0].model {
+			t.Errorf("type %d: the registry lost its probe", i)
+		}
 	}
 }
 
