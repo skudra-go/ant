@@ -2,6 +2,7 @@ package migrations
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -172,5 +173,98 @@ func TestDriftBeforeAnySnapshot(t *testing.T) {
 		)
 
 		require.Contains(t, must[V1DB](p, "drift"), "matches the models")
+	})
+}
+
+// explicitSchema is the default schema of TestDriftExplicitDefaultSchema's
+// connection, which its models name outright, as with Schema("public").
+const explicitSchema = "ant_explicit_default"
+
+// Rack names the default schema.
+type Rack struct {
+	ant.Base
+	Name string
+}
+
+func (Rack) Configure(b *ant.ModelBuilder[Rack]) { b.Schema(explicitSchema) }
+
+// Volume refers to Rack across the explicit name.
+type Volume struct {
+	ant.Base
+	RackID int64
+	Title  string
+	Rack   *Rack
+}
+
+func (Volume) Configure(b *ant.ModelBuilder[Volume]) {
+	b.Schema(explicitSchema)
+	b.BelongsTo(&Volumes.Rack)
+}
+
+// Log is a table in the default schema that migrations leave alone.
+type Log struct {
+	ant.Base
+	Note string
+}
+
+func (Log) Configure(b *ant.ModelBuilder[Log]) {
+	b.Schema(explicitSchema)
+	b.ExcludeFromMigrations()
+}
+
+// ArchiveDB holds them.
+type ArchiveDB struct {
+	ant.Context
+	Racks   ant.Table[Rack]
+	Volumes ant.Table[Volume]
+	Logs    ant.Table[Log]
+}
+
+// Volumes is Volume's probe.
+var Volumes = ant.Fields[Volume]()
+
+// A model that names the connection's default schema, as Schema("public") does
+// on most databases, matches the tables in it: the database reports that schema
+// without a name, and the two are the same schema.
+func TestDriftExplicitDefaultSchema(t *testing.T) {
+	each(t, func(t *testing.T, p *project) {
+		dropSchemaAfter(p, explicitSchema)
+		p.sql("CREATE SCHEMA " + explicitSchema)
+
+		p.sql(
+			"CREATE TABLE " + explicitSchema + `.logs (
+				id bigint PRIMARY KEY,
+				created_at timestamptz NOT NULL,
+				updated_at timestamptz NOT NULL,
+				note text NOT NULL
+			)`,
+		)
+
+		current := scalar[string](p, "SELECT current_schema()")
+		p.config.DSN = strings.Replace(
+			p.config.DSN,
+			"search_path="+current,
+			"search_path="+explicitSchema,
+			1,
+		)
+
+		p.target.DSN = p.config.DSN
+
+		must[ArchiveDB](p, "diff", "start")
+		must[ArchiveDB](p, "up")
+
+		require.Contains(t, must[ArchiveDB](p, "drift"), "No drift")
+
+		t.Run("EnsureCreated leaves the tables alone", func(t *testing.T) {
+			db := open[ArchiveDB](p)
+			ctx := t.Context()
+			rack := &Rack{Name: "kept"}
+			require.NoError(t, db.Racks.Insert(ctx, rack))
+			require.NoError(t, db.EnsureCreated(ctx))
+
+			n, err := db.Racks.Count(ctx)
+			require.NoError(t, err)
+			require.Equal(t, int64(1), n)
+		})
 	})
 }
