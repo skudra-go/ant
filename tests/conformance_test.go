@@ -301,6 +301,79 @@ func TestConformanceUpsert(t *testing.T) {
 	})
 }
 
+// An upsert's update branch stamps UpdatedAt, as Update and Merge do, unless
+// the clause assigns it. Without that, DoUpdate left it as it was and the
+// default clause wrote back the struct's old value.
+func TestConformanceUpsertUpdatedAt(t *testing.T) {
+	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
+		if !has(target, dialect.OnConflict) {
+			t.Skip("no upsert")
+		}
+
+		ctx := t.Context()
+		now := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+		app, err := ant.Open[AppDB](ctx, target.Dialect, target.DSN, ant.WithNow(func() time.Time {
+			return now
+		}))
+		require.NoError(t, err)
+		t.Cleanup(func() { app.Close() })
+
+		stored := func() time.Time {
+			t.Helper()
+
+			u, err := app.Users.NoTracking().Where(ant.Eq(&Users.Email, "same@x")).First(ctx)
+			require.NoError(t, err)
+
+			return u.UpdatedAt.UTC()
+		}
+
+		byEmail := ant.OnConflict(&Users.Email)
+		inserted := now
+
+		_, err = app.Users.Upsert(
+			ctx,
+			&User{Name: "a", Email: "same@x"},
+			byEmail.DoUpdate(ant.F(&Users.Age)),
+		)
+		require.NoError(t, err)
+		require.Equal(t, inserted, stored())
+
+		now = now.Add(time.Hour)
+		second := &User{Name: "b", Email: "same@x", Age: 2}
+		_, err = app.Users.Upsert(ctx, second, byEmail.DoUpdate(ant.F(&Users.Age)))
+		require.NoError(t, err)
+		require.Equal(t, now, stored(), "DoUpdate")
+
+		now = now.Add(time.Hour)
+		loaded, err := app.Users.NoTracking().Where(ant.Eq(&Users.Email, "same@x")).First(ctx)
+		require.NoError(t, err)
+
+		loaded.Name = "c"
+		_, err = app.Users.Upsert(ctx, loaded, byEmail)
+		require.NoError(t, err)
+		require.Equal(t, now, stored(), "the default clause, from a loaded copy")
+		require.Equal(t, now, loaded.UpdatedAt.UTC(), "the entity gets the stored value")
+
+		now = now.Add(time.Hour)
+
+		_, err = app.Users.InsertMany(
+			ctx,
+			[]*User{{Name: "d", Email: "same@x", Age: 4}},
+			ant.WithConflict(byEmail.DoUpdate(ant.F(&Users.Age))),
+		)
+		require.NoError(t, err)
+		require.Equal(t, now, stored(), "InsertMany with a conflict")
+
+		now = now.Add(time.Hour)
+		mine := time.Date(2020, 5, 5, 5, 5, 5, 0, time.UTC)
+		own := &User{Name: "e", Email: "same@x"}
+		own.UpdatedAt = mine
+		_, err = app.Users.Upsert(ctx, own, byEmail.DoUpdate(ant.F(&Users.UpdatedAt)))
+		require.NoError(t, err)
+		require.Equal(t, mine, stored(), "a clause that assigns UpdatedAt keeps its value")
+	})
+}
+
 func TestConformanceReturning(t *testing.T) {
 	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
 		app := openAndSeed(t, target)

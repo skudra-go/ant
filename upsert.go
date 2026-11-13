@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 	"unsafe"
 
 	"github.com/skudra-go/ant/dialect"
@@ -109,8 +110,10 @@ func (c *Conflict) Set(assignments ...Assignment) *Conflict {
 
 // clause returns the ON CONFLICT clause for a model. An update moves the version
 // on, as every write does, so a copy loaded before it cannot save over it. The
-// version is ant's to keep, so naming it is an error.
-func (c *Conflict) clause(model *meta.Model) (*qb.Conflict, error) {
+// version is ant's to keep, so naming it is an error. An update also sets
+// UpdatedAt to now, unless the clause assigns it: the inserted row's value is
+// the struct's, which for a loaded copy is the time it was last saved.
+func (c *Conflict) clause(model *meta.Model, now time.Time) (*qb.Conflict, error) {
 	out := &qb.Conflict{Columns: c.columns}
 
 	if c.nothing {
@@ -124,7 +127,7 @@ func (c *Conflict) clause(model *meta.Model) (*qb.Conflict, error) {
 	names := c.update
 	if len(names) == 0 && len(c.set) == 0 {
 		for _, f := range model.Updatable() {
-			if !slices.Contains(c.columns, f.Column) && f != model.Version {
+			if !slices.Contains(c.columns, f.Column) && f != model.Version && f != model.Updated {
 				names = append(names, f.Column)
 			}
 		}
@@ -141,6 +144,13 @@ func (c *Conflict) clause(model *meta.Model) (*qb.Conflict, error) {
 
 	if err := assignedTwice(model, "assignments", assignedColumns(out.Set)); err != nil {
 		return nil, err
+	}
+
+	if f := model.Updated; f != nil && !slices.Contains(assignedColumns(out.Set), f.Column) {
+		out.Set = append(
+			out.Set,
+			qb.Assignment{Column: f.Column, Value: qb.Param{Value: timeValue(f, now).Interface()}},
+		)
 	}
 
 	if v := model.Version; v != nil {
@@ -262,7 +272,7 @@ func (t *Table[T]) Upsert(ctx context.Context, e *T, conflict *Conflict) (bool, 
 		return false, fmt.Errorf("%w: %s", ErrReadOnly, model.Type.Name())
 	}
 
-	clause, err := conflict.clause(model)
+	clause, err := conflict.clause(model, t.state.settings.timestamp())
 	if err != nil {
 		return false, err
 	}
@@ -462,7 +472,7 @@ func (t *Table[T]) InsertMany(
 	}
 
 	if o.conflict != nil {
-		if _, err := o.conflict.clause(model); err != nil {
+		if _, err := o.conflict.clause(model, time.Time{}); err != nil {
 			return 0, err
 		}
 	}
@@ -579,7 +589,7 @@ func (t *Table[T]) insertBatch(
 	}
 
 	if conflict != nil {
-		clause, err := conflict.clause(model)
+		clause, err := conflict.clause(model, t.state.settings.timestamp())
 		if err != nil {
 			return 0, err
 		}
