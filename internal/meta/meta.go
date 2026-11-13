@@ -8,6 +8,7 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -745,11 +746,19 @@ var (
 	mu     sync.RWMutex
 	models = map[reflect.Type]*Model{}
 	probes []probe
+
+	// pinner pins every probe for the life of the process. It is never
+	// unpinned, and it must stay a package variable: the runtime panics if a
+	// Pinner that still holds pinned objects becomes unreachable. It is not
+	// safe for concurrent use, so mu guards it.
+	pinner runtime.Pinner
 )
 
 // probe keeps a probe value reachable, and with it the address range that
-// identifies its fields. It relies on heap objects not moving, which the Go
-// runtime does not do today. TestProbeSurvivesGC covers this use.
+// identifies its fields. Probes are pinned with runtime.Pinner, so their
+// addresses stay fixed even under a moving collector, and the pin also tells
+// the current GC about the pointer arithmetic done on them.
+// TestProbeSurvivesGC covers this use.
 type probe struct {
 	ptr   unsafe.Pointer
 	base  uintptr
@@ -771,6 +780,7 @@ func Probe[T any]() *T {
 	}
 
 	p := new(T)
+	pinner.Pin(p)
 	probes = append(probes, probe{unsafe.Pointer(p), uintptr(unsafe.Pointer(p)), model})
 
 	return p
