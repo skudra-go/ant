@@ -160,7 +160,8 @@ jobs:
           done
 
   # Unit tests, plus every database test on PostgreSQL, under the race detector,
-  # except the value probes, which have a runner of their own. Tests run in
+  # except the value probes, which have a runner of their own, then the tests
+  # of the nested modules. Tests run in
   # parallel, each on a schema of its own, after the few that must run alone,
   # and -failfast stops a package at its first failure.
   postgres:
@@ -193,6 +194,8 @@ jobs:
         run: |
           packages=$(go list ./... | grep -v /tests/features/value_handling/probes/ | tr '\n' ' ')
           make test PACKAGES="$packages" TESTFLAGS="-v -race -failfast"
+      # PACKAGES leaves out the nested modules, so their tests run here.
+      - run: make test-modules TESTFLAGS="-v -race -failfast"
       # Only main saves its caches, which pull requests then start from.
       - if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         uses: actions/cache/save@v6

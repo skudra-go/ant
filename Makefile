@@ -17,8 +17,9 @@ PARALLEL ?= 8
 # otherwise.
 integration = go test -count=1 -parallel $(PARALLEL) $(TESTFLAGS) $(or $(TESTS),$(1))
 MODULES := . tools/antvet tools/antfmt tools/compare contrib/otel
+NESTED_MODULES := $(filter-out .,$(MODULES))
 
-.PHONY: build tidy deps bench test lint vet staticcheck fmt db-up db-down dialect-tests test-integration test-pg test-mysql test-mariadb test-sqlite test-mssql
+.PHONY: build tidy deps bench test test-modules lint vet staticcheck fmt db-up db-down dialect-tests test-integration test-pg test-mysql test-mariadb test-sqlite test-mssql
 
 build:
 	@for module in $(MODULES); do (cd $$module && go build -o /dev/null ./...) || exit 1; done
@@ -40,11 +41,18 @@ deps:
 # TESTFLAGS passes flags through, as CI does with make test TESTFLAGS="-v -race -failfast".
 TESTFLAGS ?=
 
-# PACKAGES picks what make test runs, as CI does to split it across runners.
+# PACKAGES picks what make test runs in the root module, as CI does to split it
+# across runners. Left at ./..., make test also runs test-modules, since ./...
+# stops at the nested modules.
 PACKAGES ?= ./...
 
 test:
 	go test -parallel $(PARALLEL) $(TESTFLAGS) $(PACKAGES)
+	$(if $(filter ./...,$(PACKAGES)),@$(MAKE) --no-print-directory test-modules)
+
+# test-modules runs the tests of the nested modules.
+test-modules:
+	@for module in $(NESTED_MODULES); do (cd $$module && go test $(TESTFLAGS) ./...) || exit 1; done
 
 bench:
 	go test -run '^$$' -bench . -benchtime 2s ./tests/benchmarks/
