@@ -333,7 +333,7 @@ func (d impl) alterColumn(c schema.AlterColumn) []string {
 		}
 
 		// An enum casts to another type only through text.
-		if retyped {
+		if retyped && needsUsing(c.From.Type, c.To.Type) {
 			via := ""
 
 			if c.FromEnum {
@@ -370,6 +370,53 @@ func (d impl) alterColumn(c schema.AlterColumn) []string {
 	}
 
 	return out
+}
+
+// needsUsing reports whether a column changing type from one to the other
+// needs a USING cast. An explicit cast cuts a string or a bit string to a
+// shorter length without a word, where the cast PostgreSQL applies by itself
+// fails on a value that does not fit, so USING is left out wherever that cast
+// exists: into a string type from any type, as every type has one to text, and
+// between two forms of one type that differ only in length, precision or scale.
+// An array takes its element's cast, and anything else keeps USING.
+func needsUsing(from, to string) bool {
+	from, to = baseType(from), baseType(to)
+
+	fromElement, fromArray := strings.CutSuffix(from, "[]")
+	toElement, toArray := strings.CutSuffix(to, "[]")
+
+	if fromArray != toArray {
+		return true
+	}
+
+	switch toElement {
+	case "text", "varchar", "character varying", "char", "character", "bpchar":
+		return false
+	}
+
+	return fromElement != toElement
+}
+
+// baseType returns a type's name without its length, precision or scale, in
+// lower case, as numeric for numeric(10,2) and timestamp with time zone for
+// timestamp(3) with time zone.
+func baseType(name string) string {
+	var b strings.Builder
+
+	depth := 0
+
+	for _, r := range strings.ToLower(name) {
+		switch {
+		case r == '(':
+			depth++
+		case r == ')':
+			depth--
+		case depth == 0:
+			b.WriteRune(r)
+		}
+	}
+
+	return strings.Join(strings.Fields(b.String()), " ")
 }
 
 // Statements returns the SQL for one change.

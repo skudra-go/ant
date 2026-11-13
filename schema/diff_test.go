@@ -160,7 +160,7 @@ func TestColumnChanges(t *testing.T) {
 		require.Equal(
 			t,
 			[]string{
-				`ALTER TABLE "users" ALTER COLUMN "name" TYPE varchar(100) USING "name"::varchar(100)`,
+				`ALTER TABLE "users" ALTER COLUMN "name" TYPE varchar(100)`,
 				`ALTER TABLE "users" ALTER COLUMN "email" SET DEFAULT ''`,
 				`ALTER TABLE "users" ALTER COLUMN "bio" SET NOT NULL`,
 			},
