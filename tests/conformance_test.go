@@ -1884,3 +1884,102 @@ func TestConformanceHasFunctionOnRelated(t *testing.T) {
 		require.Equal(t, []string{"alice"}, names(got))
 	})
 }
+
+// Emp has everything a write keeps up: a version, UpdatedAt and a soft delete.
+type Emp struct {
+	ID        int64
+	Name      string
+	Version   int64 `ant:"version"`
+	UpdatedAt time.Time
+	DeletedAt ant.DeletedAt
+}
+
+func (Emp) Configure(b *ant.ModelBuilder[Emp]) { b.Table("conf_emps") }
+
+var Emps = ant.Fields[Emp]()
+
+type EmpDB struct {
+	ant.Context
+	Emps ant.Table[Emp]
+}
+
+// UpdateMany keeps what a bulk Update keeps: it moves the version on, so a copy
+// loaded before cannot save over it, stamps UpdatedAt, and leaves soft-deleted
+// rows alone.
+func TestConformanceUpdateManyKeepsUp(t *testing.T) {
+	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
+		ctx := t.Context()
+		ts := timestamps[target.Name]
+		_, err := target.DB.ExecContext(ctx, fmt.Sprintf(
+			`CREATE TABLE conf_emps (
+			id BIGINT PRIMARY KEY,
+			name VARCHAR(20) NOT NULL,
+			version BIGINT NOT NULL,
+			updated_at %[1]s NOT NULL,
+			deleted_at %[1]s NULL)`,
+			ts,
+		))
+		require.NoError(t, err)
+
+		t.Cleanup(func() {
+			_, _ = target.DB.ExecContext(context.Background(), "DROP TABLE conf_emps")
+		})
+
+		now := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+		db, err := ant.Open[EmpDB](ctx, target.Dialect, target.DSN, ant.WithNow(func() time.Time {
+			return now
+		}))
+		require.NoError(t, err)
+		t.Cleanup(func() { db.Close() })
+
+		require.NoError(t, db.Emps.InsertOnly(
+			ctx,
+			&Emp{ID: 1, Name: "a"},
+			&Emp{ID: 2, Name: "b"},
+			&Emp{ID: 3, Name: "gone"},
+		))
+
+		_, err = db.Emps.Where(ant.Eq(&Emps.ID, int64(3))).Delete(ctx)
+		require.NoError(t, err)
+
+		stale, err := db.Emps.Where(ant.Eq(&Emps.ID, int64(1))).First(ctx)
+		require.NoError(t, err)
+
+		now = now.Add(time.Hour)
+
+		n, err := db.Emps.UpdateMany(
+			ctx,
+			[]*Emp{{ID: 1, Name: "renamed"}, {ID: 2, Name: "b2"}, {ID: 3, Name: "revived"}},
+			ant.F(&Emps.Name),
+		)
+		require.NoError(t, err)
+		require.EqualValues(t, 2, n, "the soft-deleted row is left alone")
+
+		rows, err := db.Emps.NoTracking().WithDeleted().OrderBy(&Emps.ID).All(ctx)
+		require.NoError(t, err)
+		require.Equal(t, "renamed", rows[0].Name)
+		require.EqualValues(t, 2, rows[0].Version, "the version moved on")
+		require.Equal(t, now, rows[0].UpdatedAt.UTC(), "UpdatedAt is stamped")
+		require.Equal(t, "gone", rows[2].Name)
+
+		stale.Name = "stale edit"
+		err = db.SaveChanges(ctx)
+
+		var conflict *ant.ConcurrencyError
+		require.ErrorAs(t, err, &conflict, "a copy loaded before cannot save over it")
+		require.NoError(t, db.ClearTracked(ctx))
+
+		mine := time.Date(2020, 5, 5, 5, 5, 5, 0, time.UTC)
+		_, err = db.Emps.UpdateMany(
+			ctx,
+			[]*Emp{{ID: 2, Name: "b3", UpdatedAt: mine}},
+			ant.F(&Emps.Name),
+			ant.F(&Emps.UpdatedAt),
+		)
+		require.NoError(t, err)
+
+		b, err := db.Emps.NoTracking().Where(ant.Eq(&Emps.ID, int64(2))).First(ctx)
+		require.NoError(t, err)
+		require.Equal(t, mine, b.UpdatedAt.UTC(), "a named UpdatedAt keeps its value")
+	})
+}
