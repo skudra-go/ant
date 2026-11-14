@@ -59,6 +59,10 @@ adults[0].Age++
 err = db.SaveChanges(ctx) // writes only the columns that changed
 ```
 
+## See it
+
+https://github.com/user-attachments/assets/718a63de-dfe2-4749-a923-51e79dd53a2a
+
 ## Install
 
 ```sh
