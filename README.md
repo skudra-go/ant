@@ -179,32 +179,33 @@ Each cell was tested by compiling the mistake. GORM also has an optional [CLI](h
 
 ## Performance
 
-[tools/compare](tools/compare) runs the same operations in each library against PostgreSQL 17 on one machine (Ryzen 5 3600, Docker on WSL2). Each number is the median of 10 runs, and each run repeats the operation hundreds to thousands of times. The database round trip is included, which is why small queries are close. Commits don't wait for the disk, so writes measure the library and not the drive. Plain SQL (a hand-written query and `Scan`, what sqlc generates) is the baseline. Lower is better; 🟢 is the best in each row.
+[tools/compare](tools/compare) runs the same operations in each library against PostgreSQL 17 on one machine (Ryzen 5 3600, Docker on WSL2). Each number is the median of 10 runs, and each run repeats the operation hundreds to thousands of times. The database round trip is included, which is why small queries are close. Commits don't wait for the disk, so writes measure the library and not the drive. Plain SQL (a hand-written query and `Scan`, what sqlc generates) is the baseline. Lower is better; 🟢 is the best in each row, shared by any within 1%.
 
 | µs per operation | ant | ant<br><sub>NoTracking</sub> | GORM | Bun | ent | | Plain SQL<br><sub>baseline</sub> |
 | --- | ---: | ---: | ---: | ---: | ---: | - | ---: |
-| Read 1000 rows | 2,799 | 🟢 **1,688** | 3,285 | 2,259 | 2,226 | | 1,557 |
-| Find one by key | 406 | 389 | 416 | 🟢 **372** | 383 | | 365 |
-| Filter, sort, 10 rows | 574 | 🟢 **552** | 561 | 584 | 635 | | 518 |
-| 100 users, 500 posts | 3,039 | 🟢 **2,091** | 3,034 | 2,198 | 2,194 | | 1,750 |
-| Insert one | 🟢 **431** | – | 442 | 1,164 | 441 | | 400 |
-| Update one column | 🟢 **413** | – | 444 | 444 | 🟢 **412** | | 396 |
-| Load, edit, save | 830 | – | 861 | 🟢 **779** | 1,784 | | 806 |
+| Read 1000 rows | 2,075 | 🟢 **1,692** | 3,361 | 2,370 | 2,240 | | 1,692 |
+| Find one by key | 442 | 397 | 405 | 🟢 **384** | 398 | | 398 |
+| Filter, sort, 10 rows | 557 | 🟢 **539** | 568 | 🟢 **535** | 556 | | 535 |
+| 100 users, 500 posts | 2,238 | 🟢 **1,774** | 2,731 | 2,030 | 2,031 | | 1,581 |
+| Insert one | 410 | – | 420 | 1,112 | 🟢 **404** | | 392 |
+| Update one column | 🟢 **399** | – | 407 | 424 | 🟢 **402** | | 390 |
+| Load, edit, save | 🟢 **805** | – | 818 | 🟢 **812** | 1,869 | | 798 |
 
 | KiB per operation | ant | ant<br><sub>NoTracking</sub> | GORM | Bun | ent | | Plain SQL<br><sub>baseline</sub> |
 | --- | ---: | ---: | ---: | ---: | ---: | - | ---: |
-| Read 1000 rows | 823 | 🟢 **277** | 392 | 295 | 589 | | 257 |
-| Find one by key | 7.5 | 6.5 | 5.7 | 6.3 | 🟢 **4.9** | | 1.5 |
-| Filter, sort, 10 rows | 15.1 | 10.5 | 9.7 | 🟢 **9.3** | 11.9 | | 3.8 |
-| 100 users, 500 posts | 649 | 327 | 362 | 🟢 **277** | 335 | | 257 |
-| Insert one | 4.3 | – | 7.0 | 6.8 | 🟢 **3.7** | | 1.3 |
-| Update one column | 🟢 **2.9** | – | 5.6 | 5.0 | 3.1 | | 0.3 |
-| Load, edit, save | 🟢 **10.2** | – | 11.2 | 11.2 | 10.7 | | 1.8 |
+| Read 1000 rows | 582 | 🟢 **275** | 392 | 295 | 589 | | 257 |
+| Find one by key | 3.8 | 🟢 **3.5** | 5.7 | 6.3 | 4.9 | | 1.5 |
+| Filter, sort, 10 rows | 11.5 | 🟢 **7.9** | 9.7 | 9.2 | 11.9 | | 3.8 |
+| 100 users, 500 posts | 486 | 🟢 **241** | 362 | 277 | 335 | | 257 |
+| Insert one | 🟢 **2.5** | – | 7.0 | 6.8 | 3.7 | | 1.3 |
+| Update one column | 🟢 **2.5** | – | 5.6 | 5.0 | 3.1 | | 0.3 |
+| Load, edit, save | 🟢 **5.8** | – | 11.2 | 11.2 | 10.7 | | 1.8 |
 
 What the numbers say:
 
 - Small queries cost about the same in every library.
-- Change tracking costs on large reads: 1000 rows take 1.7 times as long and 3 times the memory, because ant keeps a copy of each row to find changes. With `NoTracking`, ant is the fastest here.
+- Change tracking costs on large reads: 1000 rows take 1.2 times as long and twice the memory, because ant keeps a copy of each row to find changes. With `NoTracking`, ant is level with plain SQL here.
+- ant uses the least memory of the four libraries in every row.
 - Bun's insert is slow by default (it prepares every insert as a new statement), and ent's update reads the row back. [tools/compare](tools/compare#reading-them) has the details.
 
 ## Features
