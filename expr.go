@@ -22,12 +22,12 @@ type Expr[V any] struct {
 
 // Col returns the expression for a column.
 func Col[V any](field *V) Expr[V] {
-	col, model, err := column(field)
+	col, _, model, err := columnExpr(field)
 	if err != nil {
 		return Expr[V]{err: err}
 	}
 
-	return Expr[V]{node: col, refs: []*meta.Model{model}}
+	return Expr[V]{node: col, refs: model.Self()}
 }
 
 // SQL returns an expression from raw SQL. Each ? takes the next argument. An

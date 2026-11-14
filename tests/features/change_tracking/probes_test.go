@@ -1074,6 +1074,49 @@ func TestProbeReattachParentThenAppend(t *testing.T) {
 	})
 }
 
+// Reattaching a parent whose slice is full, then appending, moves the slice:
+// the edit to an existing element is still saved, wherever it lives now.
+func TestProbeReattachParentThenAppendMovesTheSlice(t *testing.T) {
+	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
+		ctx := t.Context()
+		aSeed, _ := seedAB(t, db)
+		require.NoError(t, db.Emps.InsertOnly(ctx, &Emp{DeptID: aSeed.ID, Name: "a4"}))
+
+		ses := ant.Session(db)
+		a, _ := loadAB(t, ses)
+		require.Len(t, a.Emps, 4)
+
+		require.NoError(t, ant.Detach(ctx, ses, a))
+		require.NoError(t, ant.Attach(ctx, ses, a))
+
+		// Four elements in a slice grown by append leave no room, so this
+		// moves them all.
+		before := &a.Emps[0]
+		a.Emps = append(a.Emps, Emp{Name: "a5"})
+		require.NotSame(t, before, &a.Emps[0])
+
+		a.Emps[0].Name = "a1-edit"
+		a.Emps[3].Name = "a4-edit"
+
+		require.NoError(t, ses.SaveChanges(ctx))
+		assert.Equal(t, []string{"a1-edit", "a2", "a3", "a4-edit", "a5"}, empsOf(t, db, aSeed.ID))
+		idle(t, ses, w)
+
+		// The moved elements are tracked where they are now.
+		a.Emps[1].Name = "a2-edit"
+
+		require.NoError(t, ses.SaveChanges(ctx))
+
+		assert.Equal(
+			t,
+			[]string{"a1-edit", "a2-edit", "a3", "a4-edit", "a5"},
+			empsOf(t, db, aSeed.ID),
+		)
+
+		idle(t, ses, w)
+	})
+}
+
 // Remove then Attach cancels the deletion.
 func TestProbeRemoveThenAttachCancels(t *testing.T) {
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {

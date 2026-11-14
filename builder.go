@@ -68,18 +68,23 @@ func (b *builder) fail(err error) { b.err = errors.Join(b.err, err) }
 
 func (b *builder) narrowed() bool { return b.filtered || b.fromFiltered }
 
-// cloned returns a copy of b that shares no slices with it.
+// cloned returns a copy of b that the copy's builder method can add to. A list
+// that is only ever appended to is shared with b, clipped so that the first
+// append copies it, which spares a query a copy of every list at every step of
+// its chain. The others have elements that are changed in place, so they are
+// copied. Whoever changes an element of a shared list copies the list first, as
+// addSource does.
 func (b builder) cloned() builder {
-	b.sources = slices.Clone(b.sources)
+	b.sources = slices.Clip(b.sources)
 	b.joins = slices.Clone(b.joins)
 	b.joined = slices.Clone(b.joined)
-	b.refs = slices.Clone(b.refs)
-	b.where = slices.Clone(b.where)
+	b.refs = slices.Clip(b.refs)
+	b.where = slices.Clip(b.where)
 	b.order = slices.Clone(b.order)
-	b.group = slices.Clone(b.group)
-	b.having = slices.Clone(b.having)
-	b.with = slices.Clone(b.with)
-	b.ignored = slices.Clone(b.ignored)
+	b.group = slices.Clip(b.group)
+	b.having = slices.Clip(b.having)
+	b.with = slices.Clip(b.with)
+	b.ignored = slices.Clip(b.ignored)
 
 	return b
 }
@@ -131,6 +136,9 @@ func (b *builder) addSource(s source, kind qb.JoinKind) source {
 	}
 
 	if kind == qb.RightJoin || kind == qb.FullJoin {
+		// The sources may be shared with the query this one was made from.
+		b.sources = slices.Clone(b.sources)
+
 		for i := range b.sources {
 			b.sources[i].nullable = true
 		}
@@ -343,6 +351,12 @@ func (b *builder) allColumns() []qb.Selected {
 	var out []qb.Selected
 
 	for _, s := range b.sources {
+		if s.alias == "" {
+			out = append(out, s.model.Selection()...)
+
+			continue
+		}
+
 		for _, f := range s.model.Stored() {
 			out = append(out, qb.Selected{Value: s.col(f)})
 		}

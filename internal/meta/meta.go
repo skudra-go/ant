@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -63,8 +64,23 @@ type Field struct {
 	Equal func(a, b unsafe.Pointer) bool
 	// Storage is how migrations declare the column.
 	Storage Storage
+	// Indirect means a copy of the value can share memory with it, as a pointer
+	// or a slice does, so a snapshot copies what it refers to.
+	Indirect bool
+	// Comparer is the change tracker's comparison of two values of Type, kept
+	// here so that it is found once and not per row.
+	Comparer atomic.Pointer[func(a, b unsafe.Pointer) bool]
 
 	pointer func(unsafe.Pointer) any
+	// index is the field's position in its model's Fields.
+	index int
+	// key reads the field as Key returns it, for the types that need no
+	// reflection, or is nil.
+	key func(unsafe.Pointer) (any, bool)
+	// intKey reads an integer key as an int64, or is nil.
+	intKey func(unsafe.Pointer) (int64, bool)
+	// copy copies a value of a common type with no reflection, or is nil.
+	copy func(dst, src unsafe.Pointer)
 }
 
 // Storage is how a column is declared in migrations. Queries ignore it. Unset
@@ -115,7 +131,120 @@ func (f *Field) Value(entity unsafe.Pointer) reflect.Value {
 // Key returns this field of the model value at entity in a form that compares
 // equal across keys and foreign keys of different Go types, or false if NULL.
 func (f *Field) Key(entity unsafe.Pointer) (any, bool) {
-	return keyOf(f.Value(entity))
+	return f.KeyAt(unsafe.Add(entity, f.Offset))
+}
+
+// KeyAt is Key for the value at p, which holds this field's value wherever it
+// is kept, as in a snapshot.
+func (f *Field) KeyAt(p unsafe.Pointer) (any, bool) {
+	if f.key != nil {
+		return f.key(p)
+	}
+
+	return keyOf(reflect.NewAt(f.Type, p).Elem())
+}
+
+// CopyAt copies the value of this field at src to dst, which hold values of its
+// type. The common types are copied with no reflection.
+func (f *Field) CopyAt(dst, src unsafe.Pointer) {
+	if f.copy != nil {
+		f.copy(dst, src)
+
+		return
+	}
+
+	reflect.NewAt(f.Type, dst).Elem().Set(reflect.NewAt(f.Type, src).Elem())
+}
+
+// intKeyReader returns the function that reads a key of integer type t as an
+// int64 with no reflection, or nil if t is not one. Only types that keyOf widens
+// to int64 as they are have one: they implement no driver.Valuer. The bool is
+// false for a nil pointer, which is NULL.
+func intKeyReader(t reflect.Type) func(unsafe.Pointer) (int64, bool) {
+	switch t {
+	case reflect.TypeFor[int64]():
+		return func(p unsafe.Pointer) (int64, bool) { return *(*int64)(p), true }
+	case reflect.TypeFor[int]():
+		return func(p unsafe.Pointer) (int64, bool) { return int64(*(*int)(p)), true }
+	case reflect.TypeFor[int32]():
+		return func(p unsafe.Pointer) (int64, bool) { return int64(*(*int32)(p)), true }
+	case reflect.TypeFor[uint]():
+		return func(p unsafe.Pointer) (int64, bool) { return int64(*(*uint)(p)), true }
+	case reflect.TypeFor[uint32]():
+		return func(p unsafe.Pointer) (int64, bool) { return int64(*(*uint32)(p)), true }
+	case reflect.TypeFor[uint64]():
+		return func(p unsafe.Pointer) (int64, bool) { return int64(*(*uint64)(p)), true }
+	case reflect.TypeFor[*int64]():
+		return func(p unsafe.Pointer) (int64, bool) {
+			if v := *(**int64)(p); v != nil {
+				return *v, true
+			}
+
+			return 0, false
+		}
+	case reflect.TypeFor[*int]():
+		return func(p unsafe.Pointer) (int64, bool) {
+			if v := *(**int)(p); v != nil {
+				return int64(*v), true
+			}
+
+			return 0, false
+		}
+	}
+
+	return nil
+}
+
+// keyReader returns the function that reads a key of type t with no reflection,
+// which saves two allocations per row, or nil.
+func keyReader(t reflect.Type) func(unsafe.Pointer) (any, bool) {
+	if read := intKeyReader(t); read != nil {
+		return func(p unsafe.Pointer) (any, bool) {
+			n, ok := read(p)
+			if !ok {
+				return nil, false
+			}
+
+			return n, true
+		}
+	}
+
+	switch t {
+	case reflect.TypeFor[string]():
+		return func(p unsafe.Pointer) (any, bool) { return *(*string)(p), true }
+	case reflect.TypeFor[*string]():
+		return func(p unsafe.Pointer) (any, bool) {
+			if v := *(**string)(p); v != nil {
+				return *v, true
+			}
+
+			return nil, false
+		}
+	}
+
+	return nil
+}
+
+// Indirect reports whether a value of t can share memory with its copy.
+func Indirect(t reflect.Type) bool {
+	if t == timeType {
+		return false
+	}
+
+	switch t.Kind() {
+	case reflect.Pointer, reflect.Slice, reflect.Map, reflect.Interface:
+		return true
+	case reflect.Struct:
+		for sf := range t.Fields() {
+			if sf.IsExported() && Indirect(sf.Type) {
+				return true
+			}
+		}
+	case reflect.Array:
+		return Indirect(t.Elem())
+	}
+
+	return false
 }
 
 // KeyValue returns v in the form Field.Key uses.
@@ -173,6 +302,60 @@ func pointerTo(t reflect.Type) func(unsafe.Pointer) any {
 
 	return func(p unsafe.Pointer) any { return reflect.NewAt(t, p).Interface() }
 }
+
+// copiers copy values of the common types with no reflection.
+var copiers = func() map[reflect.Type]func(dst, src unsafe.Pointer) {
+	out := map[reflect.Type]func(dst, src unsafe.Pointer){}
+
+	for t := range pointers {
+		switch t {
+		case reflect.TypeFor[string]():
+			out[t] = copier[string]
+		case reflect.TypeFor[int]():
+			out[t] = copier[int]
+		case reflect.TypeFor[int16]():
+			out[t] = copier[int16]
+		case reflect.TypeFor[int32]():
+			out[t] = copier[int32]
+		case reflect.TypeFor[int64]():
+			out[t] = copier[int64]
+		case reflect.TypeFor[uint]():
+			out[t] = copier[uint]
+		case reflect.TypeFor[uint32]():
+			out[t] = copier[uint32]
+		case reflect.TypeFor[uint64]():
+			out[t] = copier[uint64]
+		case reflect.TypeFor[bool]():
+			out[t] = copier[bool]
+		case reflect.TypeFor[float32]():
+			out[t] = copier[float32]
+		case reflect.TypeFor[float64]():
+			out[t] = copier[float64]
+		case reflect.TypeFor[[]byte]():
+			out[t] = copier[[]byte]
+		case reflect.TypeFor[time.Time]():
+			out[t] = copier[time.Time]
+		case reflect.TypeFor[*string]():
+			out[t] = copier[*string]
+		case reflect.TypeFor[*int]():
+			out[t] = copier[*int]
+		case reflect.TypeFor[*int32]():
+			out[t] = copier[*int32]
+		case reflect.TypeFor[*int64]():
+			out[t] = copier[*int64]
+		case reflect.TypeFor[*bool]():
+			out[t] = copier[*bool]
+		case reflect.TypeFor[*float64]():
+			out[t] = copier[*float64]
+		case reflect.TypeFor[*time.Time]():
+			out[t] = copier[*time.Time]
+		}
+	}
+
+	return out
+}()
+
+func copier[T any](dst, src unsafe.Pointer) { *(*T)(dst) = *(*T)(src) }
 
 func typed[T any]() (reflect.Type, func(unsafe.Pointer) any) {
 	return reflect.TypeFor[T](), func(p unsafe.Pointer) any { return (*T)(p) }
@@ -480,6 +663,111 @@ type Model struct {
 	columns   map[string]*Field
 	configure sync.Once
 	err       error
+	// frozen is set once configuration is over and the fields no longer change,
+	// and lists holds what is derived from them from then on.
+	frozen   atomic.Bool
+	lists    atomic.Pointer[fieldLists]
+	slice    atomic.Pointer[reflect.Type]
+	snapshot atomic.Pointer[Snapshot]
+}
+
+// Snapshot is the layout of the change tracker's copy of an entity: every
+// column but the computed ones, packed, with no relations. Computed values are
+// never written, and relations are compared through the tracker's records of
+// them, so a snapshot of a model with relations is smaller than the entity.
+type Snapshot struct {
+	Type   reflect.Type // a struct of the fields' types
+	Slice  reflect.Type // a slice of Type, which blocks of snapshots are made of
+	Fields []*Field     // the fields kept, in the model's order
+	Shared []*Field     // those whose values can share memory with a copy
+
+	offsets []uintptr // by field index; meaningful for the fields kept
+	kept    []bool    // by field index
+}
+
+// Holds reports whether the snapshot keeps f.
+func (s *Snapshot) Holds(f *Field) bool { return f.index < len(s.kept) && s.kept[f.index] }
+
+// At returns the address of f's value in the snapshot at p. f must be kept.
+func (s *Snapshot) At(p unsafe.Pointer, f *Field) unsafe.Pointer {
+	return unsafe.Add(p, s.offsets[f.index])
+}
+
+// Value returns f's value in the snapshot at p, or the zero Value if f is not
+// kept.
+func (s *Snapshot) Value(p unsafe.Pointer, f *Field) reflect.Value {
+	if !s.Holds(f) {
+		return reflect.Value{}
+	}
+
+	return reflect.NewAt(f.Type, s.At(p, f)).Elem()
+}
+
+// Key returns the model's key as KeyOf does, read from the snapshot at p.
+func (s *Snapshot) Key(m *Model, p unsafe.Pointer) (any, bool) {
+	return m.keyFrom(func(f *Field) (any, bool) {
+		if !s.Holds(f) {
+			return nil, false
+		}
+
+		return f.KeyAt(s.At(p, f))
+	})
+}
+
+// SnapshotLayout returns the layout of the model's snapshots. Whether a field
+// is computed is fixed when the model is built, so it never changes.
+func (m *Model) SnapshotLayout() *Snapshot {
+	if s := m.snapshot.Load(); s != nil {
+		return s
+	}
+
+	s := &Snapshot{
+		offsets: make([]uintptr, len(m.Fields)),
+		kept:    make([]bool, len(m.Fields)),
+	}
+
+	var fields []reflect.StructField
+
+	for _, f := range m.Fields {
+		if f.Computed {
+			continue
+		}
+
+		fields = append(fields, reflect.StructField{
+			Name: "F" + strconv.Itoa(len(fields)),
+			Type: f.Type,
+		})
+
+		s.Fields = append(s.Fields, f)
+
+		if f.Indirect {
+			s.Shared = append(s.Shared, f)
+		}
+	}
+
+	s.Type = reflect.StructOf(fields)
+	s.Slice = reflect.SliceOf(s.Type)
+
+	for i, f := range s.Fields {
+		s.offsets[f.index], s.kept[f.index] = s.Type.Field(i).Offset, true
+	}
+
+	m.snapshot.CompareAndSwap(nil, s)
+
+	return m.snapshot.Load()
+}
+
+// fieldLists holds the field lists a model is asked for on every query and
+// every tracked row. Each is clipped, so that appending to one copies it.
+type fieldLists struct {
+	stored, writable, updatable, tokens, indirect []*Field
+	// selection is the select list of the stored columns, and self the model
+	// alone, as the list of models a condition on one of its columns refers to.
+	selection []qb.Selected
+	self      []*Model
+	// columns holds each field's column, in m.Fields order, already in a
+	// qb.Expr, so a condition on it puts nothing new on the heap.
+	columns []qb.Expr
 }
 
 // Partition says how a table is split, declared with b.PartitionBy.
@@ -539,6 +827,9 @@ type Check struct {
 type Filter struct {
 	Name  string
 	Build func(context.Context) (qb.Cond, error)
+	// Static means Build gives the same condition whatever the context, with
+	// no bound values, so the SQL of a query that applies it can be kept.
+	Static bool
 }
 
 // SoftDeleteFilter names the built-in filter of a soft-deleted model.
@@ -605,7 +896,81 @@ func (m *Model) Configure(f func() error) {
 		if m.err == nil {
 			m.err = f()
 		}
+
+		m.frozen.Store(true)
 	})
+}
+
+// derived returns the model's field lists. They are built once configuration is
+// over, and on every call until then, while the fields may still change. The
+// lists are shared, so a caller must not change one in place.
+func (m *Model) derived() *fieldLists {
+	if l := m.lists.Load(); l != nil {
+		return l
+	}
+
+	l := new(fieldLists)
+
+	for _, f := range m.Fields {
+		if !f.Computed && !f.WriteOnly {
+			l.stored = append(l.stored, f)
+		}
+
+		if !f.Computed && !f.ReadOnly {
+			l.writable = append(l.writable, f)
+
+			if !f.Primary && !f.Immutable && f != m.Created {
+				l.updatable = append(l.updatable, f)
+			}
+		}
+
+		if f.Token {
+			l.tokens = append(l.tokens, f)
+		}
+
+		if f.Indirect {
+			l.indirect = append(l.indirect, f)
+		}
+	}
+
+	l.stored = slices.Clip(l.stored)
+	l.writable = slices.Clip(l.writable)
+	l.updatable = slices.Clip(l.updatable)
+	l.tokens = slices.Clip(l.tokens)
+	l.indirect = slices.Clip(l.indirect)
+
+	l.selection = make([]qb.Selected, len(l.stored))
+
+	for i, f := range l.stored {
+		l.selection[i] = qb.Selected{Value: m.Col(f)}
+	}
+
+	l.self = []*Model{m}
+
+	l.columns = make([]qb.Expr, len(m.Fields))
+
+	for i, f := range m.Fields {
+		l.columns[i] = m.Col(f)
+	}
+
+	if m.frozen.Load() {
+		m.lists.Store(l)
+	}
+
+	return l
+}
+
+// SliceType returns the type of a slice of the model, which blocks of entities
+// and of snapshots are made of.
+func (m *Model) SliceType() reflect.Type {
+	if t := m.slice.Load(); t != nil {
+		return *t
+	}
+
+	t := reflect.SliceOf(m.Type)
+	m.slice.Store(&t)
+
+	return t
 }
 
 // Err returns the error from building or configuring the model.
@@ -614,17 +979,26 @@ func (m *Model) Err() error { return m.err }
 // KeyOf returns the primary key of the model value at entity, false if the
 // model has none or part of it is NULL. A composite key comes as a string.
 func (m *Model) KeyOf(entity unsafe.Pointer) (any, bool) {
+	if len(m.Keys) == 1 {
+		return m.Keys[0].Key(entity)
+	}
+
+	return m.keyFrom(func(f *Field) (any, bool) { return f.Key(entity) })
+}
+
+// keyFrom is KeyOf with each part read by key.
+func (m *Model) keyFrom(key func(*Field) (any, bool)) (any, bool) {
 	switch len(m.Keys) {
 	case 0:
 		return nil, false
 	case 1:
-		return m.Keys[0].Key(entity)
+		return key(m.Keys[0])
 	}
 
 	var parts strings.Builder
 
 	for _, f := range m.Keys {
-		v, ok := f.Key(entity)
+		v, ok := key(f)
 		if !ok {
 			return nil, false
 		}
@@ -634,6 +1008,25 @@ func (m *Model) KeyOf(entity unsafe.Pointer) (any, bool) {
 	}
 
 	return parts.String(), true
+}
+
+// IntegerKey reports whether the model has a single key of an integer type.
+func (m *Model) IntegerKey() bool {
+	return len(m.Keys) == 1 && IsInteger(m.Keys[0].Type)
+}
+
+// IntKey reads the model's key as an int64 with no allocation, when it is a
+// single key of a plain integer type, which fast says. ok is false if the key is
+// NULL. The value is the one KeyOf returns, unboxed.
+func (m *Model) IntKey(entity unsafe.Pointer) (n int64, ok, fast bool) {
+	if len(m.Keys) != 1 || m.Keys[0].intKey == nil {
+		return 0, false, false
+	}
+
+	f := m.Keys[0]
+	n, ok = f.intKey(unsafe.Add(entity, f.Offset))
+
+	return n, ok, true
 }
 
 // Key returns the primary key field, or nil if the model has none or the key is
@@ -668,51 +1061,41 @@ func (m *Model) Col(f *Field) qb.Column {
 	return qb.Column{Table: m.Table, Name: f.Column}
 }
 
-// Stored returns the fields queries read, in declaration order.
-func (m *Model) Stored() []*Field {
-	out := make([]*Field, 0, len(m.Fields))
-
-	for _, f := range m.Fields {
-		if !f.Computed && !f.WriteOnly {
-			out = append(out, f)
-		}
+// ColumnOf returns the AST column for f as an expression, made once for the
+// model and shared, which saves putting a new qb.Column on the heap for every
+// condition and ordering on it. It is the same value Col returns.
+func (m *Model) ColumnOf(f *Field) qb.Expr {
+	if l := m.derived(); f.index < len(l.columns) && m.Fields[f.index] == f {
+		return l.columns[f.index]
 	}
 
-	return out
+	return m.Col(f)
 }
+
+// Stored returns the fields queries read, in declaration order. This list and
+// the ones below are shared: a caller that changes one copies it first.
+func (m *Model) Stored() []*Field { return m.derived().stored }
 
 // Writable returns the fields inserts write, in declaration order.
-func (m *Model) Writable() []*Field {
-	out := make([]*Field, 0, len(m.Fields))
-
-	for _, f := range m.Fields {
-		if !f.Computed && !f.ReadOnly {
-			out = append(out, f)
-		}
-	}
-
-	return out
-}
+func (m *Model) Writable() []*Field { return m.derived().writable }
 
 // Tokens returns the fields compared on writes.
-func (m *Model) Tokens() []*Field {
-	var out []*Field
-
-	for _, f := range m.Fields {
-		if f.Token {
-			out = append(out, f)
-		}
-	}
-
-	return out
-}
+func (m *Model) Tokens() []*Field { return m.derived().tokens }
 
 // Updatable returns the fields updates can write.
-func (m *Model) Updatable() []*Field {
-	return slices.DeleteFunc(m.Writable(), func(f *Field) bool {
-		return f.Primary || f.Immutable || f == m.Created
-	})
-}
+func (m *Model) Updatable() []*Field { return m.derived().updatable }
+
+// Selection returns the select list of the stored columns, as a query with no
+// columns chosen or left out reads them.
+func (m *Model) Selection() []qb.Selected { return m.derived().selection }
+
+// Self returns the model alone, as the models a condition or an expression on
+// one of its columns refers to.
+func (m *Model) Self() []*Model { return m.derived().self }
+
+// Shared returns the fields whose values can share memory with a copy, which a
+// snapshot copies in depth.
+func (m *Model) Shared() []*Field { return m.derived().indirect }
 
 // Column returns the field mapped to the given column name.
 func (m *Model) Column(name string) *Field { return m.columns[name] }
@@ -939,9 +1322,13 @@ func build(t reflect.Type) *Model {
 	if soft := m.SoftDelete; soft != nil {
 		m.Filters = append(
 			m.Filters,
-			Filter{SoftDeleteFilter, func(context.Context) (qb.Cond, error) {
-				return qb.IsNull{Left: m.Col(soft)}, nil
-			}},
+			Filter{
+				Name: SoftDeleteFilter,
+				Build: func(context.Context) (qb.Cond, error) {
+					return qb.IsNull{Left: m.Col(soft)}, nil
+				},
+				Static: true,
+			},
 		)
 	}
 
@@ -1002,6 +1389,7 @@ func walk(m *Model, t reflect.Type, offset uintptr, prefix, columnPrefix string)
 		}
 
 		m.Fields = append(m.Fields, &Field{
+			index:     len(m.Fields),
 			Name:      name,
 			Short:     sf.Name,
 			Column:    columnPrefix + column,
@@ -1018,7 +1406,11 @@ func walk(m *Model, t reflect.Type, offset uintptr, prefix, columnPrefix string)
 			Token:     tag.token || tag.version,
 			Version:   tag.version,
 			Storage:   Storage{Default: tag.defaultSQL},
+			Indirect:  Indirect(sf.Type),
 			pointer:   pointerTo(sf.Type),
+			key:       keyReader(sf.Type),
+			intKey:    intKeyReader(sf.Type),
+			copy:      copiers[sf.Type],
 		})
 	}
 

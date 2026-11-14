@@ -84,6 +84,10 @@ type state struct {
 // sharedState is mutable state shared by a context's sessions.
 type sharedState struct {
 	nextReplica atomic.Uint64
+	// selects and inserts keep the SQL of statements by shape (shape.go). The
+	// SQL depends on the dialect, which a context's sessions share.
+	selects plans[selectShape]
+	inserts plans[insertShape]
 }
 
 // claimed is the context.Context key for an operation's claim on one tracker.

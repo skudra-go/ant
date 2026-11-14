@@ -49,6 +49,16 @@ func (impl) Placeholder(n int) string { return dialect.Numbered("@p", n) }
 
 func (impl) Quote(ident string) string { return dialect.QuoteWith(ident, "[", "]") }
 
+// AppendQuote and AppendPlaceholder are Quote and Placeholder written into a
+// buffer, which Render uses.
+func (impl) AppendQuote(dst []byte, ident string) []byte {
+	return dialect.AppendQuoteWith(dst, ident, "[", "]")
+}
+
+func (impl) AppendPlaceholder(dst []byte, n int) []byte {
+	return dialect.AppendNumbered(dst, "@p", n)
+}
+
 // SupportsReturning is true because OUTPUT does the same job.
 func (impl) SupportsReturning() bool { return true }
 

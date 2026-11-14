@@ -6,6 +6,7 @@ import (
 	"errors"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -509,5 +510,195 @@ func TestValuerSliceIsAColumn(t *testing.T) {
 	m := Of[order]()
 	if len(m.Relations) != 0 || m.Column("lines") == nil {
 		t.Errorf("relations %v, columns %v", m.Relations, m.Fields)
+	}
+}
+
+type listed struct {
+	ID       int64
+	Name     string
+	Total    int    `ant:"computed"`
+	Password string `ant:"writeonly"`
+	Serial   int    `ant:"readonly"`
+	Code     string `ant:"immutable"`
+	Stamp    int    `ant:"token"`
+	Bio      *string
+	Tags     []string
+}
+
+func shorts(fields []*Field) []string {
+	out := make([]string, len(fields))
+
+	for i, f := range fields {
+		out[i] = f.Short
+	}
+
+	return out
+}
+
+// The lists follow the fields while a model is still being configured, and are
+// built once, and shared, from then on.
+func TestFieldListsAreBuiltOnceConfigured(t *testing.T) {
+	m := Of[listed]()
+
+	if got := shorts(m.Stored()); !slices.Contains(got, "Name") {
+		t.Fatalf("stored = %v", got)
+	}
+
+	// A change made by configuration shows at once.
+	name := m.field("Name")
+	name.Computed = true
+
+	if got := shorts(m.Stored()); slices.Contains(got, "Name") {
+		t.Errorf("stored = %v after Name became computed", got)
+	}
+
+	name.Computed = false
+
+	m.Configure(func() error { return nil })
+
+	want := map[string][]string{
+		"stored":    {"ID", "Name", "Serial", "Code", "Stamp", "Bio", "Tags"},
+		"writable":  {"ID", "Name", "Password", "Code", "Stamp", "Bio", "Tags"},
+		"updatable": {"Name", "Password", "Stamp", "Bio", "Tags"},
+		"tokens":    {"Stamp"},
+		"shared":    {"Bio", "Tags"},
+	}
+
+	lists := map[string]func() []*Field{
+		"stored":    m.Stored,
+		"writable":  m.Writable,
+		"updatable": m.Updatable,
+		"tokens":    m.Tokens,
+		"shared":    m.Shared,
+	}
+
+	for name, list := range lists {
+		got := list()
+		if !slices.Equal(shorts(got), want[name]) {
+			t.Errorf("%s = %v, want %v", name, shorts(got), want[name])
+		}
+
+		// The same list every time, with no room for an append to write into it.
+		if again := list(); &again[0] != &got[0] {
+			t.Errorf("%s was built again", name)
+		}
+
+		if cap(got) != len(got) {
+			t.Errorf("%s has room for %d more fields", name, cap(got)-len(got))
+		}
+
+		_ = append(got, nil)
+
+		if !slices.Equal(shorts(list()), want[name]) {
+			t.Errorf("%s changed when it was appended to", name)
+		}
+	}
+
+	selection := m.Selection()
+	if len(selection) != len(want["stored"]) {
+		t.Fatalf("selection has %d columns", len(selection))
+	}
+
+	for i, f := range m.Stored() {
+		if selection[i].Value != m.Col(f) || selection[i].Alias != "" {
+			t.Errorf("selection[%d] = %+v", i, selection[i])
+		}
+	}
+
+	if self := m.Self(); len(self) != 1 || self[0] != m || cap(self) != 1 {
+		t.Errorf("self = %v", self)
+	}
+}
+
+type keyed struct {
+	I64   int64
+	I     int
+	I32   int32
+	U     uint
+	U32   uint32
+	U64   uint64
+	S     string
+	PI64  *int64
+	PI    *int
+	PS    *string
+	NI64  *int64
+	NS    *string
+	Named namedInt
+	At    time.Time
+	Null  sql.NullInt64
+}
+
+type namedInt int64
+
+// A key read with no reflection is the key reflection reads.
+func TestKeyReadersMatchReflection(t *testing.T) {
+	m := Of[keyed]()
+
+	v := &keyed{
+		I64:   -7,
+		I:     70_000,
+		I32:   12,
+		U:     9,
+		U32:   10,
+		U64:   11,
+		S:     "k",
+		PI64:  new(int64(300)),
+		PI:    new(5),
+		PS:    new("p"),
+		Named: 44,
+		At:    time.Date(2026, 1, 2, 3, 4, 5, 6789, time.FixedZone("x", 3600)),
+		Null:  sql.NullInt64{Int64: 3, Valid: true},
+	}
+
+	fast := 0
+
+	for _, f := range m.Fields {
+		got, ok := f.Key(unsafe.Pointer(v))
+		want, wantOK := keyOf(f.Value(unsafe.Pointer(v)))
+
+		if ok != wantOK || !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: key = %#v, %v, want %#v, %v", f.Short, got, ok, want, wantOK)
+		}
+
+		if f.key != nil {
+			fast++
+		}
+	}
+
+	if fast != 12 {
+		t.Errorf("%d fields are read with no reflection, want 12", fast)
+	}
+
+	// Types with methods of their own, or a meaning of their own, are left to
+	// reflection.
+	for _, short := range []string{"Named", "At", "Null"} {
+		if m.field(short).key != nil {
+			t.Errorf("%s is read with no reflection", short)
+		}
+	}
+}
+
+func TestIndirect(t *testing.T) {
+	cases := []struct {
+		v    any
+		want bool
+	}{
+		{1, false},
+		{"s", false},
+		{time.Time{}, false},
+		{new(1), true},
+		{[]byte{}, true},
+		{map[string]int{}, true},
+		{[2]int{}, false},
+		{[2]*int{}, true},
+		{struct{ A int }{}, false},
+		{struct{ A []int }{}, true},
+		{struct{ a []int }{}, false},
+	}
+
+	for _, c := range cases {
+		if got := Indirect(reflect.TypeOf(c.v)); got != c.want {
+			t.Errorf("Indirect(%T) = %v", c.v, got)
+		}
 	}
 }

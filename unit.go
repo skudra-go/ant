@@ -37,6 +37,9 @@ type node struct {
 	// that is gone, as one this context deleted, fails rather than vanishing.
 	linked []*meta.Field
 	walked bool // its relations were followed, as InsertOnly's are not
+	// dropped says the unit let go of the node, as when its entry moved to
+	// another address, so it is no longer the node of its entity.
+	dropped bool
 
 	generated []*meta.Field // filled by the database in this unit
 	stamped   []*meta.Field // filled in Go in this unit
@@ -108,7 +111,8 @@ type unit struct {
 	order  []*node // in discovery order
 	pivots []pivotChange
 	// versions holds the version each versioned row has after a write of this
-	// unit, so that another instance of the row is written over it.
+	// unit, so that another instance of the row is written over it. It is made
+	// by the first such write.
 	versions map[rowID]reflect.Value
 	// dry plans the unit without changing any entity, for HasChanges.
 	dry bool
@@ -179,7 +183,7 @@ func pivotDelete(p *meta.Pivot, local any, foreign []any) *qb.Delete {
 }
 
 func newUnit(s *state) *unit {
-	return &unit{s: s, nodes: map[unsafe.Pointer]*node{}, versions: map[rowID]reflect.Value{}}
+	return &unit{s: s, nodes: map[unsafe.Pointer]*node{}}
 }
 
 func (u *unit) add(model *meta.Model, entity unsafe.Pointer) *node {
@@ -216,8 +220,29 @@ func (u *unit) insert(model *meta.Model, entity unsafe.Pointer, related bool) er
 // they are matched by key, an entry's memory may hold another row.
 func (u *unit) collect() error {
 	entries := u.s.tracker.Entries()
-	for _, e := range entries {
-		n := u.add(e.Model, e.Entity)
+
+	// Every entry has an address of its own and the unit is new, so each gets a
+	// node, made here in one block and not looked up one by one.
+	nodes := make([]node, len(entries))
+
+	fresh := len(u.nodes) == 0
+
+	if fresh {
+		u.nodes = make(map[unsafe.Pointer]*node, len(entries))
+		u.order = make([]*node, 0, len(entries))
+	}
+
+	for i, e := range entries {
+		var n *node
+
+		if fresh {
+			n = &nodes[i]
+			n.model, n.entity = e.Model, e.Entity
+			u.nodes[e.Entity] = n
+			u.order = append(u.order, n)
+		} else {
+			n = u.add(e.Model, e.Entity)
+		}
 
 		n.entry = e
 
@@ -244,6 +269,10 @@ func (u *unit) collect() error {
 		}
 	}
 
+	if err := u.adopt(); err != nil {
+		return err
+	}
+
 	for _, n := range slices.Clone(u.order) {
 		if u.current(n) && !n.remove {
 			if err := u.walk(n); err != nil {
@@ -261,8 +290,10 @@ func (u *unit) collect() error {
 	return nil
 }
 
-// current reports whether n has not been replaced during reconciliation.
-func (u *unit) current(n *node) bool { return u.nodes[n.entity] == n }
+// current reports whether n has not been replaced during reconciliation. Only
+// drop takes a node out, and it says so on the node, which spares a lookup for
+// every tracked entity of every save.
+func (u *unit) current(n *node) bool { return !n.dropped }
 
 // claims finds, by key, the entity that each relation of a tracked entity holds,
 // so a row moved to another parent is not mistaken for one removed. A relation
@@ -296,6 +327,89 @@ func (u *unit) claims() (map[rowID]unsafe.Pointer, error) {
 	}
 
 	return claimed, nil
+}
+
+// adopt finds the elements that moved with a relation slice of a parent whose
+// members the tracker has no record of, as one detached and attached again:
+// reconcile follows the moves of the members it knows, and this the rest. An
+// element no entry holds, whose row a tracked element held at an address that
+// no tracked parent's relation holds any more, is that element moved, and its
+// entry goes with it. Without this the edit made to it would be lost, since the
+// entry would compare its old memory, which nothing changes, with its snapshot.
+func (u *unit) adopt() error {
+	held := map[unsafe.Pointer]bool{}
+
+	type orphan struct {
+		row    rowID
+		entity unsafe.Pointer
+	}
+
+	var untracked []orphan
+
+	for _, n := range u.order {
+		if n.entry == nil || !u.current(n) {
+			continue
+		}
+
+		for _, r := range n.model.Relations {
+			if r.Kind != meta.Many || r.Pivot != nil || r.Empty(n.entity) {
+				continue
+			}
+
+			link, err := linkFor(r)
+			if err != nil {
+				return err
+			}
+
+			for _, entity := range r.Related(n.entity) {
+				held[entity] = true
+
+				if u.s.tracker.Get(entity) != nil {
+					continue
+				}
+
+				if key, ok := link.Target.KeyOf(entity); ok {
+					untracked = append(untracked, orphan{rowID{link.Target, key}, entity})
+				}
+			}
+		}
+	}
+
+	if len(untracked) == 0 {
+		return nil
+	}
+
+	// The elements left behind, by row. A row left behind twice is not
+	// guessed at.
+	left := map[rowID]*track.Entry{}
+
+	for _, n := range u.order {
+		e := n.entry
+		if e == nil || !e.Element() || held[e.Entity] || !u.current(n) || n.remove {
+			continue
+		}
+
+		key, ok := e.Model.KeyOf(e.Entity)
+		if !ok {
+			continue
+		}
+
+		row := rowID{e.Model, key}
+		if _, twice := left[row]; twice {
+			left[row] = nil
+		} else {
+			left[row] = e
+		}
+	}
+
+	for _, o := range untracked {
+		if e := left[o.row]; e != nil && u.nodes[o.entity] == nil {
+			u.relocate(e, o.entity)
+			delete(left, o.row)
+		}
+	}
+
+	return nil
 }
 
 // reconcile matches a parent's loaded relations against what they hold now.
@@ -462,6 +576,8 @@ func (u *unit) relocate(entry *track.Entry, entity unsafe.Pointer) {
 // drop removes the node an entry had, if it still owns its address.
 func (u *unit) drop(entry *track.Entry) {
 	if stale := u.nodes[entry.Entity]; stale != nil && stale.entry == entry {
+		stale.dropped = true
+
 		delete(u.nodes, entry.Entity)
 		u.order = slices.DeleteFunc(u.order, func(other *node) bool { return other == stale })
 	}
@@ -602,12 +718,29 @@ func (u *unit) sorted() ([]*node, error) {
 		done     = 2
 	)
 
-	marks := make(map[*node]int, len(u.order))
 	out := make([]*node, 0, len(u.order))
+
+	// A node with no parent to write first has nothing to visit, which is every
+	// node of most saves, so the marks are made only when one has.
+	var marks map[*node]int
 
 	var visit func(*node) error
 
 	visit = func(n *node) error {
+		if len(n.links) == 0 && marks == nil {
+			out = append(out, n)
+
+			return nil
+		}
+
+		if marks == nil {
+			marks = make(map[*node]int, len(u.order))
+
+			for _, seen := range out {
+				marks[seen] = done
+			}
+		}
+
 		switch marks[n] {
 		case done:
 			return nil
@@ -758,7 +891,7 @@ func (n *node) pending(assigned []*meta.Field) []*meta.Field {
 	case n.forced:
 		// A forced entity has no snapshot, so its UpdatedAt cannot be told from
 		// one the application set: leave it out, and update stamps it.
-		return slices.DeleteFunc(n.model.Updatable(), func(f *meta.Field) bool {
+		return slices.DeleteFunc(slices.Clone(n.model.Updatable()), func(f *meta.Field) bool {
 			return f == n.model.Updated
 		})
 	}
@@ -774,7 +907,7 @@ func (u *unit) writes() int {
 
 	for _, n := range u.order {
 		if n.insert || n.remove || n.forced || len(n.links) > 0 || n.changed != nil ||
-			n.entry != nil && n.entity == n.entry.Entity && len(n.entry.Changed()) > 0 {
+			n.entry != nil && n.entity == n.entry.Entity && n.entry.Dirty() {
 			count++
 
 			if slices.ContainsFunc(n.model.Relations, func(r *meta.Relation) bool {
@@ -799,7 +932,7 @@ func (u *unit) writesAnything() bool {
 
 	for _, n := range u.order {
 		if n.insert || n.remove || n.forced || n.changed != nil ||
-			n.entry != nil && n.entity == n.entry.Entity && len(n.entry.Changed()) > 0 {
+			n.entry != nil && n.entity == n.entry.Entity && n.entry.Dirty() {
 			return true
 		}
 
@@ -1017,6 +1150,12 @@ func (u *unit) write(ctx context.Context, to exec.Executor, n *node, assigned []
 
 // setTime stores a time in a timestamp field of either kind.
 func setTime(f *meta.Field, entity unsafe.Pointer, now time.Time) {
+	if f.Type == reflect.TypeFor[time.Time]() {
+		*(*time.Time)(unsafe.Add(entity, f.Offset)) = now
+
+		return
+	}
+
 	f.Value(entity).Set(timeValue(f, now))
 }
 
@@ -1037,7 +1176,7 @@ func (u *unit) stamp(n *node) {
 
 	now := u.s.settings.timestamp()
 
-	for _, f := range []*meta.Field{n.model.Created, n.model.Updated} {
+	for _, f := range [...]*meta.Field{n.model.Created, n.model.Updated} {
 		if f != nil && f.Value(n.entity).IsZero() {
 			setTime(f, n.entity, now)
 			n.stamped = append(n.stamped, f)
@@ -1063,43 +1202,49 @@ func (u *unit) create(ctx context.Context, to exec.Executor, n *node) error {
 	}
 
 	u.stamp(n)
-	stmt := &qb.Insert{Table: n.model.Table}
 
+	writable := n.model.Writable()
+
+	// The fields the database fills are read back, not written: those zero
+	// that have a default or are generated, and the read-only ones.
 	var (
-		row       []qb.Expr
+		filled    filledFields
 		returning []*meta.Field
 	)
 
-	for _, f := range n.model.Writable() {
+	for i, f := range writable {
 		if f.FromDatabase() && f.Value(n.entity).IsZero() {
+			filled.set(i, len(writable))
+
 			returning = append(returning, f)
-			stmt.Returning = append(stmt.Returning, qb.Selected{Value: qb.Column{Name: f.Column}})
-
-			continue
 		}
-
-		stmt.Columns = append(stmt.Columns, f.Column)
-		row = append(row, fieldParam(f, f.Value(n.entity).Interface()))
 	}
 
 	for _, f := range n.model.Fields {
 		if f.ReadOnly && !f.Computed && !f.WriteOnly {
 			returning = append(returning, f)
-			stmt.Returning = append(stmt.Returning, qb.Selected{Value: qb.Column{Name: f.Column}})
 		}
 	}
 
-	if len(row) > 0 {
-		stmt.Rows = [][]qb.Expr{row}
-	}
-
 	if len(returning) > 0 && !u.s.dialect.SupportsReturning() {
-		stmt.Returning = nil
+		values := make([]any, 0, len(writable))
 
-		return u.createThenRead(ctx, to, n, stmt, returning)
+		for i, f := range writable {
+			if !filled.has(i) {
+				values = append(values, fieldParam(f, f.Value(n.entity).Interface()).Value)
+			}
+		}
+
+		return u.createThenRead(
+			ctx,
+			to,
+			n,
+			oneRowInsert(n.model, writable, &filled, nil, values),
+			returning,
+		)
 	}
 
-	text, args, err := u.s.dialect.Render(stmt)
+	text, args, err := u.insertSQL(n, writable, &filled, returning)
 	if err != nil {
 		return err
 	}
@@ -1221,6 +1366,19 @@ func (u *unit) createThenRead(
 
 // assignKey sets a generated key from the int64 a driver reports.
 func assignKey(key *meta.Field, entity unsafe.Pointer, id int64) error {
+	// The usual key types are set as they are, and the rest converted as a scan
+	// would, which costs a lookup by reflection for every row.
+	switch p := key.Addr(entity).(type) {
+	case *int64:
+		*p = id
+
+		return nil
+	case *int:
+		*p = int(id)
+
+		return nil
+	}
+
 	return sql.ConvertAssign(driver.ScanContext{}, key.Addr(entity), id)
 }
 
@@ -1234,11 +1392,12 @@ const insertBatchLimit = 200
 // key may come back, because keys are matched to rows by sorting them.
 func (u *unit) insertBatch(ctx context.Context, order []*node) []*node {
 	first := order[0]
-	hooks := hooksOf(first.model)
 	// Without a transaction, rows before a failure must stay, so each goes alone.
 	if !first.insert || first.model.ReadOnly || !u.s.settings.autoTx {
 		return nil
 	}
+
+	hooks := hooksOf(first.model)
 
 	if ctx.Value(skipHooks{}) == nil &&
 		(hooks.validate || hooks.beforeInsert || hooks.afterInsert) {
@@ -1297,13 +1456,19 @@ func (u *unit) createMany(ctx context.Context, to exec.Executor, batch []*node) 
 	key := model.Key()
 	generated := key != nil && key.Generated && key.Value(batch[0].entity).IsZero()
 	columns := insertColumns(model, generated)
-	stmt := &qb.Insert{Table: model.Table}
-
-	for _, f := range columns {
-		stmt.Columns = append(stmt.Columns, f.Column)
+	stmt := &qb.Insert{
+		Table:   model.Table,
+		Columns: make([]string, len(columns)),
+		Rows:    make([][]qb.Expr, len(batch)),
 	}
 
-	for _, n := range batch {
+	for i, f := range columns {
+		stmt.Columns[i] = f.Column
+	}
+
+	values := newRowBlock(len(batch), len(columns))
+
+	for i, n := range batch {
 		if _, err := n.assignForeignKeys(); err != nil {
 			return err
 		}
@@ -1314,13 +1479,7 @@ func (u *unit) createMany(ctx context.Context, to exec.Executor, batch []*node) 
 
 		u.stamp(n)
 
-		row := make([]qb.Expr, len(columns))
-
-		for i, f := range columns {
-			row[i] = fieldParam(f, f.Value(n.entity).Interface())
-		}
-
-		stmt.Rows = append(stmt.Rows, row)
+		stmt.Rows[i] = values.row(i, columns, n.entity)
 	}
 
 	if !generated {
@@ -1352,12 +1511,15 @@ func (u *unit) createMany(ctx context.Context, to exec.Executor, batch []*node) 
 	// As in InsertMany, ascending keys match rows in order.
 	slices.Sort(keys)
 
+	// Every node of the batch got the key alone, so they share the list.
+	generatedKey := []*meta.Field{key}
+
 	for i, n := range batch {
-		if err := sql.ConvertAssign(driver.ScanContext{}, key.Addr(n.entity), keys[i]); err != nil {
+		if err := assignKey(key, n.entity, keys[i]); err != nil {
 			return err
 		}
 
-		n.generated = []*meta.Field{key}
+		n.generated = generatedKey
 	}
 
 	return nil
@@ -1369,13 +1531,17 @@ func (n *node) keyCondition() ([]qb.Cond, error) {
 		return nil, ErrNoKey
 	}
 
-	source := n.entity
+	if n.entry != nil && n.entry.HasOriginal() {
+		out := make([]qb.Cond, len(n.model.Keys))
 
-	if n.entry != nil && n.entry.Original() != nil {
-		source = n.entry.Original()
+		for i, f := range n.model.Keys {
+			out[i] = keyEquals(n.model, f, n.entry.OriginalValue(f).Interface())[0]
+		}
+
+		return out, nil
 	}
 
-	return keyConditions(n.model, source), nil
+	return keyConditions(n.model, n.entity), nil
 }
 
 // keyConditions matches the primary key of the model value at entity.
@@ -1437,14 +1603,14 @@ func (n *node) owns() bool { return n.entry != nil && (n.entity == n.entry.Entit
 // The version is the one an earlier write of this unit gave the row, if any, as
 // when another instance of the row was saved first.
 func (u *unit) tokenConditions(n *node) []qb.Cond {
-	if n.entry == nil || n.entry.Original() == nil {
+	if n.entry == nil || !n.entry.HasOriginal() {
 		return nil
 	}
 
 	var out []qb.Cond
 
 	for _, f := range n.model.Tokens() {
-		value := f.Value(n.entry.Original()).Interface()
+		value := n.entry.OriginalValue(f).Interface()
 
 		if f == n.model.Version {
 			if written, ok := u.versions[n.row()]; ok {
@@ -1453,11 +1619,11 @@ func (u *unit) tokenConditions(n *node) []qb.Cond {
 		}
 
 		if isNull(value) {
-			out = append(out, qb.IsNull{Left: n.model.Col(f)})
+			out = append(out, qb.IsNull{Left: n.model.ColumnOf(f)})
 		} else {
 			out = append(
 				out,
-				qb.Compare{Left: n.model.Col(f), Op: qb.OpEq, Right: qb.Param{Value: value}},
+				qb.Compare{Left: n.model.ColumnOf(f), Op: qb.OpEq, Right: qb.Param{Value: value}},
 			)
 		}
 	}
@@ -1491,13 +1657,13 @@ func (u *unit) bumpVersion(n *node) {
 
 // row returns the identity of n's row, by the key it was loaded with.
 func (n *node) row() rowID {
-	source := n.entity
+	var key any
 
-	if n.entry != nil && n.entry.Original() != nil {
-		source = n.entry.Original()
+	if n.entry != nil && n.entry.HasOriginal() {
+		key, _ = n.entry.OriginalKey()
+	} else {
+		key, _ = n.model.KeyOf(n.entity)
 	}
-
-	key, _ := n.model.KeyOf(source)
 
 	return rowID{n.model, key}
 }
@@ -1506,6 +1672,10 @@ func (n *node) row() rowID {
 // instance of the row written later in the unit.
 func (u *unit) wroteVersion(n *node) {
 	if v := n.model.Version; v != nil && n.owns() {
+		if u.versions == nil {
+			u.versions = map[rowID]reflect.Value{}
+		}
+
 		u.versions[n.row()] = copyOf(v, n.entity)
 	}
 }
@@ -1595,7 +1765,9 @@ func (u *unit) commit() {
 
 	for _, n := range u.order {
 		if !n.remove && n.entry != nil {
-			undo = append(undo, u.remember(n))
+			if change := u.remember(n); !change.IsZero() {
+				undo = append(undo, change)
+			}
 		}
 	}
 
@@ -1611,8 +1783,11 @@ func (u *unit) remember(n *node) track.Change {
 	entry := n.entry
 	oldMembers, oldParents := entry.Members, entry.Parents
 
-	members := make(map[*meta.Relation]map[any]*track.Entry, len(oldMembers))
-	parents := make(map[*meta.Relation]any, len(oldParents))
+	// Made when the first relation is remembered: most entities hold none.
+	var (
+		members map[*meta.Relation]map[any]*track.Entry
+		parents map[*meta.Relation]any
+	)
 
 	for _, r := range n.model.Relations {
 		if r.Pivot != nil && r.Pivot.ReadOnly {
@@ -1636,6 +1811,10 @@ func (u *unit) remember(n *node) track.Change {
 				key, _ = link.Target.KeyOf(entity)
 			}
 
+			if parents == nil {
+				parents = make(map[*meta.Relation]any, len(oldParents))
+			}
+
 			parents[r] = key
 
 			continue
@@ -1653,7 +1832,27 @@ func (u *unit) remember(n *node) track.Change {
 			}
 		}
 
+		if members == nil {
+			members = make(map[*meta.Relation]map[any]*track.Entry, len(oldMembers))
+		}
+
 		members[r] = current
+	}
+
+	// An entity that held no relation and holds none now has nothing to
+	// remember, and nothing a rollback would put back, unless an earlier write
+	// to its relations is still open, which this one must be settled after.
+	if members == nil && parents == nil && len(oldMembers) == 0 && len(oldParents) == 0 &&
+		!entry.Unsettled() {
+		return track.Change{}
+	}
+
+	if members == nil {
+		members = map[*meta.Relation]map[any]*track.Entry{}
+	}
+
+	if parents == nil {
+		parents = map[*meta.Relation]any{}
 	}
 
 	return entry.SetLinks(members, parents)

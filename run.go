@@ -32,10 +32,15 @@ func (s *state) reader(ctx context.Context, stmt qb.Statement) exec.Executor {
 		return s.exec
 	}
 
-	if len(s.replicas) == 0 || s.tx != nil || selecting.Lock != nil ||
-		ctx.Value(primaryKey{}) != nil {
+	return s.selectReader(ctx, selecting.Lock != nil)
+}
+
+// selectReader is reader for a SELECT, which locked says takes row locks.
+func (s *state) selectReader(ctx context.Context, locked bool) exec.Executor {
+	if len(s.replicas) == 0 || s.tx != nil || locked || ctx.Value(primaryKey{}) != nil {
 		return s.exec
 	}
+
 	if sticky := s.settings.sticky; sticky > 0 &&
 		time.Since(time.Unix(0, s.lastWrite.Load())) < sticky {
 		return s.exec
@@ -59,6 +64,11 @@ func (s *state) query(ctx context.Context, stmt qb.Statement) (*sql.Rows, error)
 	}
 
 	return s.reader(ctx, stmt).QueryContext(ctx, text, args...)
+}
+
+// querySQL runs a SELECT with no row locks, already rendered.
+func (s *state) querySQL(ctx context.Context, text string, args []any) (*sql.Rows, error) {
+	return s.selectReader(ctx, false).QueryContext(ctx, text, args...)
 }
 
 // run renders and runs a statement, returning the rows affected.
@@ -143,8 +153,14 @@ func collect[T any](rows *sql.Rows) (out []T, err error) {
 
 	out = []T{}
 
+	// One value is scanned into for every row and copied into the results,
+	// which saves an allocation per row. It is cleared first, since a scan
+	// leaves a field with no column as it was.
+	var v, zero T
+
 	for rows.Next() {
-		var v T
+		v = zero
+
 		if err := into(&v); err != nil {
 			return nil, err
 		}
@@ -155,9 +171,15 @@ func collect[T any](rows *sql.Rows) (out []T, err error) {
 	return out, rows.Err()
 }
 
+// entityBlock is the most entities one block holds. A block lives as long as
+// any entity in it, so it is kept small enough for that to cost little.
+const entityBlock = 1024
+
 // collectEntities reads all rows and closes them. Entities are allocated in
-// blocks, which saves most of the per-row allocations.
-func collectEntities[T any](rows *sql.Rows) (out []*T, err error) {
+// blocks, which saves most of the per-row allocations. limit is the most rows
+// the statement can return, or 0 if it has no limit: the first block is no
+// larger, so that reading one row by its key does not allocate eight.
+func collectEntities[T any](rows *sql.Rows, limit int) (out []*T, err error) {
 	defer func() { err = errors.Join(err, rows.Close()) }()
 
 	into, err := scan.For[T](rows)
@@ -165,13 +187,18 @@ func collectEntities[T any](rows *sql.Rows) (out []*T, err error) {
 		return nil, err
 	}
 
-	out = []*T{}
+	first := 8
+	if limit > 0 && limit < first {
+		first = limit
+	}
+
+	out = make([]*T, 0, first)
 
 	var block []T
 
 	for rows.Next() {
 		if len(block) == 0 {
-			block = make([]T, min(max(len(out), 8), 1024))
+			block = make([]T, min(max(len(out), first), entityBlock))
 		}
 
 		v := &block[0]
@@ -230,8 +257,14 @@ func stream[T any](rows *sql.Rows, yield func(T, error) bool) {
 		return
 	}
 
+	// One value is scanned into for every row, and the consumer gets a copy,
+	// which saves an allocation per row. It is cleared first, since a scan
+	// leaves a field with no column as it was.
+	var v T
+
 	for rows.Next() {
-		var v T
+		v = zero
+
 		if err := into(&v); err != nil {
 			yield(zero, err)
 

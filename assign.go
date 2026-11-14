@@ -1,6 +1,8 @@
 package ant
 
 import (
+	"unsafe"
+
 	"fmt"
 
 	"github.com/skudra-go/ant/internal/meta"
@@ -32,6 +34,46 @@ func fieldParam(f *meta.Field, v any) qb.Param {
 	}
 
 	return qb.Param{Value: v}
+}
+
+// rowBlock makes the VALUES rows of one INSERT from two blocks, one of cells and
+// one of the values bound in them, in place of a slice per row and an
+// allocation per value. A cell holds a pointer to its qb.Param, which, unlike
+// the qb.Param itself, goes into a qb.Expr with no allocation.
+type rowBlock struct {
+	cells  []qb.Expr
+	params []qb.Param
+	width  int
+}
+
+func newRowBlock(rows, width int) *rowBlock {
+	return &rowBlock{
+		cells:  make([]qb.Expr, rows*width),
+		params: make([]qb.Param, rows*width),
+		width:  width,
+	}
+}
+
+// row fills in and returns row i: the entity's value of each column, or DEFAULT
+// for a zero value of a column that has a default.
+func (b *rowBlock) row(i int, columns []*meta.Field, entity unsafe.Pointer) []qb.Expr {
+	start := i * b.width
+	row := b.cells[start : start+b.width : start+b.width]
+
+	for j, f := range columns {
+		value := f.Value(entity)
+		if f.Default && value.IsZero() {
+			row[j] = qb.Default{}
+
+			continue
+		}
+
+		p := &b.params[start+j]
+		*p = fieldParam(f, value.Interface())
+		row[j] = p
+	}
+
+	return row
 }
 
 // SetExpr assigns an expression to field, such as another column.

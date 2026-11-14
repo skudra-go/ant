@@ -725,8 +725,11 @@ func TestOverlappingRollbacks(t *testing.T) {
 				t.Errorf("state %s, want %s", e.State, tt.want)
 			}
 
-			if len(e.columns.writes) != 0 {
-				t.Errorf("%d writes still held after both settled", len(e.columns.writes))
+			if len(e.unsettled().columns.writes) != 0 {
+				t.Errorf(
+					"%d writes still held after both settled",
+					len(e.unsettled().columns.writes),
+				)
 			}
 		})
 	}
@@ -762,22 +765,22 @@ func TestKeptWritesAreLetGo(t *testing.T) {
 		e.SetLinks(nil, nil).Keep()
 	}
 
-	if len(e.columns.writes) != 1 || len(e.links.writes) != 0 {
+	if len(e.unsettled().columns.writes) != 1 || len(e.unsettled().links.writes) != 0 {
 		t.Errorf(
 			"held %d and %d writes, want only the open one",
-			len(e.columns.writes),
-			len(e.links.writes),
+			len(e.unsettled().columns.writes),
+			len(e.unsettled().links.writes),
 		)
 	}
 
-	if !e.columns.writes[0].overtaken {
+	if !e.unsettled().columns.writes[0].overtaken {
 		t.Error("the open write forgot that a kept write came after it")
 	}
 
 	open.Keep()
 
-	if e.columns.writes != nil {
-		t.Errorf("held %d writes once all were kept", len(e.columns.writes))
+	if e.unsettled().columns.writes != nil {
+		t.Errorf("held %d writes once all were kept", len(e.unsettled().columns.writes))
 	}
 }
 
@@ -792,7 +795,7 @@ func TestSettledHistoryHoldsNothing(t *testing.T) {
 		changes = append(changes, e.Saved(Unchanged))
 	}
 
-	array := e.columns.writes[:cap(e.columns.writes)]
+	array := e.unsettled().columns.writes[:cap(e.unsettled().columns.writes)]
 
 	for _, c := range changes[4:] {
 		c.Undo()
@@ -808,7 +811,7 @@ func TestSettledHistoryHoldsNothing(t *testing.T) {
 		c.Undo()
 	}
 
-	if e.columns.writes != nil {
+	if e.unsettled().columns.writes != nil {
 		t.Error("an empty history kept its array")
 	}
 }
@@ -917,7 +920,7 @@ func TestColumnsSettleInAnyOrder(t *testing.T) {
 					state = Modified
 				}
 
-				if got := (*row)(e.Original()).Name; got != want || e.State != state {
+				if got := (*row)(e.Scratch()).Name; got != want || e.State != state {
 					t.Errorf(
 						"ends %v in order %v: snapshot %q and %s, want %q and %s",
 						ends,
@@ -929,12 +932,12 @@ func TestColumnsSettleInAnyOrder(t *testing.T) {
 					)
 				}
 
-				if e.columns.writes != nil {
+				if e.unsettled().columns.writes != nil {
 					t.Errorf(
 						"ends %v in order %v: %d writes held",
 						ends,
 						order,
-						len(e.columns.writes),
+						len(e.unsettled().columns.writes),
 					)
 				}
 			}
@@ -1024,12 +1027,12 @@ func TestLinksSettleInAnyOrder(t *testing.T) {
 					)
 				}
 
-				if e.links.writes != nil {
+				if e.unsettled().links.writes != nil {
 					t.Errorf(
 						"ends %v in order %v: %d writes held",
 						ends,
 						order,
-						len(e.links.writes),
+						len(e.unsettled().links.writes),
 					)
 				}
 			}
@@ -1306,5 +1309,348 @@ func TestChangedValues(t *testing.T) {
 				t.Errorf("changed = %q, want %q", got, c.want)
 			}
 		})
+	}
+}
+
+// unsettled returns the entry's histories, empty if it never recorded a write.
+func (e *Entry) unsettled() histories {
+	if e.pending == nil {
+		return histories{}
+	}
+
+	return *e.pending
+}
+
+// numbered returns n rows with the keys from, from+1, and so on.
+func numbered(from int64, n int) []*row {
+	out := make([]*row, n)
+
+	for i := range out {
+		out[i] = fresh()
+		out[i].ID = from + int64(i)
+	}
+
+	return out
+}
+
+func pointers(rows []*row) []unsafe.Pointer {
+	out := make([]unsafe.Pointer, len(rows))
+
+	for i, r := range rows {
+		out[i] = unsafe.Pointer(r)
+	}
+
+	return out
+}
+
+// LoadAll does for the rows of a query what Load does for one: each new row is
+// tracked with a snapshot of its own, and a row the tracker holds, or that came
+// earlier in the same load, gives way to the first instance.
+func TestLoadAllMatchesLoad(t *testing.T) {
+	m := meta.Of[row]()
+
+	// More rows than one block, so that blocks of every size are used.
+	const count = 3*blockLimit + 17
+
+	one, all := New(), New()
+
+	held := fresh()
+	held.ID = 5
+
+	for _, tr := range []*Tracker{one, all} {
+		tr.Load(m, unsafe.Pointer(held))
+	}
+
+	rows := numbered(1, count)
+	rows = append(rows, numbered(40, 3)...) // rows that came earlier in the load
+
+	want := make([]unsafe.Pointer, len(rows))
+
+	for i, p := range pointers(rows) {
+		want[i] = one.Load(m, p)
+	}
+
+	got := pointers(rows)
+	all.LoadAll(m, got)
+
+	if !slices.Equal(got, want) {
+		t.Fatal("LoadAll resolved rows to other instances than Load")
+	}
+
+	if got[4] != unsafe.Pointer(held) || got[count] != unsafe.Pointer(rows[39]) {
+		t.Error("a row that was tracked did not give way to the first instance")
+	}
+
+	if one.Len() != all.Len() || all.Len() != count {
+		t.Fatalf("tracked %d rows, Load tracked %d, want %d", all.Len(), one.Len(), count)
+	}
+
+	entries, wantEntries := all.Entries(), one.Entries()
+
+	for i, e := range entries {
+		w := wantEntries[i]
+
+		if e.Entity != w.Entity || e.seq != w.seq || e.State != Unchanged || !e.keyed ||
+			e.id != w.id {
+			t.Fatalf("entry %d = %+v, want %+v", i, e, w)
+		}
+
+		if e.snapshot == nil || e.snapshot == e.Entity || e.Dirty() || e.KeyChanged() {
+			t.Fatalf("entry %d has no clean snapshot of its own", i)
+		}
+
+		if all.Get(e.Entity) != e || all.Find(m, e.id.value()) != e {
+			t.Fatalf("entry %d is not found by address and by key", i)
+		}
+	}
+
+	// Snapshots lie side by side in a block: a change to one row must show in
+	// that row alone, through a pointer and a slice too.
+	for _, i := range []int{0, 7, 8, blockLimit, len(entries) - 1} {
+		r := (*row)(entries[i].Entity)
+		r.Name, *r.Bio, r.Tags[0], r.Home.Tags[0] = "n", "n", "n", "n"
+		r.Attrs["g"] = "n"
+	}
+
+	for i, e := range entries {
+		dirty := slices.Contains([]int{0, 7, 8, blockLimit, len(entries) - 1}, i)
+
+		if e.Dirty() != dirty {
+			t.Fatalf("entry %d: dirty = %v", i, e.Dirty())
+		}
+
+		if dirty && !slices.Equal(changed(e), []string{"Name", "Bio", "Tags", "Home", "Attrs"}) {
+			t.Fatalf("entry %d: changed = %v", i, changed(e))
+		}
+
+		if original := (*row)(e.Scratch()); original.Name != "a" || *original.Bio != "b" ||
+			original.Tags[0] != "d" || original.Peers != nil {
+			t.Fatalf("entry %d: snapshot = %+v", i, original)
+		}
+	}
+}
+
+func TestLoadAllSkipsWhatHasNoKey(t *testing.T) {
+	type keyless struct{ Name string }
+
+	tr := New()
+
+	v := &keyless{"a"}
+	loaded := []unsafe.Pointer{unsafe.Pointer(v)}
+	tr.LoadAll(meta.Of[keyless](), loaded)
+
+	if loaded[0] != unsafe.Pointer(v) || tr.Len() != 0 {
+		t.Error("keyless entity was tracked")
+	}
+
+	type optional struct {
+		ID   *int64
+		Name string
+	}
+
+	// A NULL key is no key, and the rows after it are still tracked.
+	rows := []*optional{{Name: "a"}, {ID: new(int64(2))}}
+	loaded = []unsafe.Pointer{unsafe.Pointer(rows[0]), unsafe.Pointer(rows[1])}
+	tr.LoadAll(meta.Of[optional](), loaded)
+
+	if tr.Len() != 1 || tr.Get(unsafe.Pointer(rows[1])) == nil {
+		t.Errorf("tracked %d rows, want the one with a key", tr.Len())
+	}
+
+	tr.LoadAll(meta.Of[row](), nil) // nothing to load is no error
+}
+
+// Keys of every kind find their row, and a key of one model is not a key of
+// another.
+func TestFirstInstancesByKeyKind(t *testing.T) {
+	type named struct {
+		ID   string
+		Name string
+	}
+
+	type timed struct {
+		ID   time.Time
+		Name string
+	}
+
+	tr := New()
+	at := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	a, b, c := fresh(), &named{ID: "1"}, &timed{ID: at}
+	tr.Load(meta.Of[row](), unsafe.Pointer(a))
+	tr.Load(meta.Of[named](), unsafe.Pointer(b))
+	tr.Load(meta.Of[timed](), unsafe.Pointer(c))
+
+	if e := tr.Find(meta.Of[row](), int64(1)); e == nil || e.Entity != unsafe.Pointer(a) {
+		t.Error("integer key not found")
+	}
+
+	if e := tr.Find(meta.Of[named](), "1"); e == nil || e.Entity != unsafe.Pointer(b) {
+		t.Error("string key not found")
+	}
+
+	if e := tr.Find(meta.Of[timed](), at); e == nil || e.Entity != unsafe.Pointer(c) {
+		t.Error("time key not found")
+	}
+
+	if tr.Find(meta.Of[named](), int64(1)) != nil || tr.Find(meta.Of[row](), "1") != nil {
+		t.Error("a key of one kind found a row of another")
+	}
+
+	tr.Remove(unsafe.Pointer(b))
+	tr.Remove(unsafe.Pointer(c))
+
+	if tr.Find(meta.Of[named](), "1") != nil || tr.Find(meta.Of[timed](), at) != nil {
+		t.Error("a removed row is still found by key")
+	}
+
+	// A second instance takes over nothing while the first is tracked, and a
+	// later load is the first once it is gone.
+	again := fresh()
+	if got := tr.Load(meta.Of[row](), unsafe.Pointer(again)); got != unsafe.Pointer(a) {
+		t.Error("second instance replaced the first")
+	}
+
+	tr.Remove(unsafe.Pointer(a))
+
+	if got := tr.Load(meta.Of[row](), unsafe.Pointer(again)); got != unsafe.Pointer(again) {
+		t.Error("the row was not tracked again once its first instance was gone")
+	}
+}
+
+// Entries stays oldest first, and holds exactly what is tracked, through
+// everything that takes entries out and puts them back.
+func TestEntriesFollowEveryChange(t *testing.T) {
+	tr, m := New(), meta.Of[row]()
+
+	check := func(when string) {
+		t.Helper()
+
+		entries := tr.Entries()
+		if len(entries) != tr.Len() {
+			t.Fatalf("%s: %d entries, %d tracked", when, len(entries), tr.Len())
+		}
+
+		for i, e := range entries {
+			if tr.Get(e.Entity) != e {
+				t.Fatalf("%s: entry %d is not tracked", when, i)
+			}
+
+			if i > 0 && entries[i-1].seq >= e.seq {
+				t.Fatalf("%s: entry %d is out of order", when, i)
+			}
+		}
+	}
+
+	rows := numbered(1, 200)
+	loaded := pointers(rows)
+	tr.LoadAll(m, loaded)
+	check("loaded")
+
+	entries := tr.Entries()
+
+	// What Entries returns is the caller's own.
+	entries[0] = nil
+
+	check("after the caller changed its copy")
+
+	entries = tr.Entries()
+
+	// Enough forgotten that the order is cleaned on the way, and not.
+	var changes []Change
+
+	for i, e := range entries {
+		if i%3 != 0 {
+			changes = append(changes, tr.Forget(e))
+		}
+	}
+
+	check("most forgotten")
+
+	// Restored entries come back in their old places, though they are put back
+	// newest first.
+	for _, c := range slices.Backward(changes) {
+		c.Undo()
+	}
+
+	check("restored")
+
+	if tr.Len() != 200 {
+		t.Fatalf("%d tracked after restoring, want 200", tr.Len())
+	}
+
+	// An entry that moved keeps its place.
+	moved := fresh()
+	moved.ID = 3
+	tr.Move(entries[2], unsafe.Pointer(moved))
+	check("moved")
+
+	if got := tr.Entries()[2]; got != entries[2] {
+		t.Error("a moved entry lost its place")
+	}
+
+	// An entry whose address another took is out, and back in once it moves to
+	// an address of its own.
+	taken := tr.Track(m, entries[5].Entity, Unchanged)
+	if taken != entries[5] {
+		t.Fatal("tracking a tracked address made a new entry")
+	}
+
+	mark := tr.Mark()
+	late := numbered(1000, 40)
+	tr.LoadAll(m, pointers(late))
+	check("more loaded")
+
+	tr.ForgetSince(mark)
+	check("forgotten since the mark")
+
+	if tr.Len() != 200 {
+		t.Fatalf("%d tracked after ForgetSince, want 200", tr.Len())
+	}
+
+	tr.Clear()
+	check("cleared")
+
+	if len(tr.Entries()) != 0 {
+		t.Error("entries survived Clear")
+	}
+
+	// A restore after Clear tracks the entry again, once.
+	tr.Restore(entries[9])
+	tr.Restore(entries[9])
+	tr.Restore(entries[1])
+	check("restored after Clear")
+
+	if got := tr.Entries(); len(got) != 2 || got[0] != entries[1] || got[1] != entries[9] {
+		t.Errorf("restored entries = %d, or out of order", len(got))
+	}
+}
+
+// An entry that never recorded a write holds no history, and one that did
+// lets go of what it settled.
+func TestHistoriesAreMadeOnTheFirstWrite(t *testing.T) {
+	tr, m := New(), meta.Of[row]()
+
+	a := fresh()
+	e := tr.Track(m, unsafe.Pointer(a), Unchanged)
+
+	if e.pending != nil || e.Unsettled() {
+		t.Fatal("a loaded entry holds histories")
+	}
+
+	c := e.SetLinks(map[*meta.Relation]map[any]*Entry{}, map[*meta.Relation]any{})
+
+	if !e.Unsettled() {
+		t.Error("an open write to the relations is not unsettled")
+	}
+
+	if c.IsZero() || !(Change{}).IsZero() {
+		t.Error("IsZero is wrong about a change")
+	}
+
+	c.Keep()
+
+	if e.Unsettled() {
+		t.Error("a kept write is still unsettled")
 	}
 }

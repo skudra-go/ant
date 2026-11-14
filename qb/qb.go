@@ -28,8 +28,25 @@ type Column struct {
 	Name  string
 }
 
-// Param is a bound value.
+// Param is a bound value. A statement can hold a *Param in place of a Param,
+// which means the same and lets many values share one allocation, as the rows
+// of a multi-row INSERT do.
 type Param struct{ Value any }
+
+// ParamOf returns the bound value e is, whether it is held as a Param or as a
+// *Param.
+func ParamOf(e Expr) (Param, bool) {
+	switch p := e.(type) {
+	case Param:
+		return p, true
+	case *Param:
+		if p != nil {
+			return *p, true
+		}
+	}
+
+	return Param{}, false
+}
 
 // Secret holds a value that must stay out of logs. It reaches the driver as the
 // value inside, and prints as [redacted].

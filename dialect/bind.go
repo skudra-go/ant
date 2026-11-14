@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/skudra-go/ant/qb"
@@ -56,7 +57,7 @@ func addressed(v any) any {
 	}
 
 	t := reflect.TypeOf(v)
-	if t == nil || t.Implements(valuerType) || !reflect.PointerTo(t).Implements(valuerType) {
+	if t == nil || !byPointer(t) {
 		return v
 	}
 
@@ -65,6 +66,22 @@ func addressed(v any) any {
 
 	return p.Interface()
 }
+
+// byPointer reports whether only a pointer to a value of t converts itself. The
+// answer is kept for each type: finding it compares method sets by reflection,
+// which took more time than everything else in rendering a large INSERT.
+func byPointer(t reflect.Type) bool {
+	if known, ok := pointerValuers.Load(t); ok {
+		return known.(bool)
+	}
+
+	only := !t.Implements(valuerType) && reflect.PointerTo(t).Implements(valuerType)
+	pointerValuers.Store(t, only)
+
+	return only
+}
+
+var pointerValuers sync.Map // reflect.Type to bool
 
 func bind(d Dialect, query string, args []any) (string, []any, error) {
 	named := map[string]any{}
@@ -105,7 +122,12 @@ func utcAt(v any, depth int) any {
 
 	switch t := v.(type) {
 	case time.Time:
-		return t.UTC()
+		// A time that is in UTC already goes on as it is, not as a copy.
+		if at := t.UTC(); at != t {
+			return at
+		}
+
+		return v
 	case *time.Time:
 		if t != nil {
 			return t.UTC()

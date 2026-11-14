@@ -35,13 +35,13 @@ func TestAllocationBudgets(t *testing.T) {
 		budget float64
 		run    func()
 	}{
-		{"a condition", 5, func() { _ = ant.Eq(&Users.Age, 18) }},
-		{"building a query", 35, func() {
+		{"a condition", 2, func() { _ = ant.Eq(&Users.Age, 18) }},
+		{"building a query", 18, func() {
 			_ = db.Users.Where(ant.Eq(&Users.Age, 18), ant.Like(&Users.Name, "A%")).
 				OrderBy(&Users.Name).
 				Limit(10)
 		}},
-		{"building and rendering a query", 85, func() {
+		{"building and rendering a query", 22, func() {
 			q := db.Users.Where(ant.Eq(&Users.Age, 18), ant.Like(&Users.Name, "A%")).
 				OrderBy(&Users.Name).
 				Limit(10)

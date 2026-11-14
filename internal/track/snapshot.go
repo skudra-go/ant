@@ -10,18 +10,58 @@ import (
 	"github.com/skudra-go/ant/internal/meta"
 )
 
-// snapshotOf copies entity, deep-copying what a field points to, so changes
-// through a pointer or slice show up in a diff. Relations are left out.
+// snapshotOf copies the columns of entity into a snapshot of the model's
+// compact layout (meta.Snapshot), deep-copying what a field points to, so that
+// changes through a pointer or slice show up in a diff.
 func snapshotOf(m *meta.Model, entity unsafe.Pointer) unsafe.Pointer {
-	copied := reflect.New(m.Type)
-	copied.Elem().Set(reflect.NewAt(m.Type, entity).Elem())
-	out := copied.UnsafePointer()
+	out := reflect.New(m.SnapshotLayout().Type).UnsafePointer()
+	snapshotInto(m, out, entity)
 
-	for _, f := range m.Fields {
-		if indirect(f.Type) {
-			v := f.Value(out)
-			v.Set(deepCopy(v))
-		}
+	return out
+}
+
+// snapshotInto is snapshotOf into memory the caller made, which holds a zero
+// snapshot.
+func snapshotInto(m *meta.Model, out, entity unsafe.Pointer) {
+	layout := m.SnapshotLayout()
+
+	for _, f := range layout.Fields {
+		f.CopyAt(layout.At(out, f), unsafe.Add(entity, f.Offset))
+	}
+
+	for _, f := range layout.Shared {
+		v := reflect.NewAt(f.Type, layout.At(out, f)).Elem()
+		v.Set(deepCopy(v))
+	}
+}
+
+// entityOf returns a new entity holding the values of the snapshot at snapshot,
+// deep-copied, with no relations and no computed values.
+func entityOf(m *meta.Model, snapshot unsafe.Pointer) unsafe.Pointer {
+	layout := m.SnapshotLayout()
+	out := reflect.New(m.Type).UnsafePointer()
+
+	for _, f := range layout.Fields {
+		f.CopyAt(unsafe.Add(out, f.Offset), layout.At(snapshot, f))
+	}
+
+	for _, f := range layout.Shared {
+		v := f.Value(out)
+		v.Set(deepCopy(v))
+	}
+
+	return out
+}
+
+// copyOf returns a private copy of entity, deep-copying what a field points to,
+// with its relations left out.
+func copyOf(m *meta.Model, entity unsafe.Pointer) unsafe.Pointer {
+	out := reflect.New(m.Type).UnsafePointer()
+	reflect.NewAt(m.Type, out).Elem().Set(reflect.NewAt(m.Type, entity).Elem())
+
+	for _, f := range m.Shared() {
+		v := f.Value(out)
+		v.Set(deepCopy(v))
 	}
 
 	for _, r := range m.Relations {
@@ -31,26 +71,36 @@ func snapshotOf(m *meta.Model, entity unsafe.Pointer) unsafe.Pointer {
 	return out
 }
 
-// indirect reports whether a value of t can share memory with its copy.
-func indirect(t reflect.Type) bool {
-	if t == timeType {
-		return false
+// block hands out the entries and snapshots of the rows of one load from memory
+// allocated a block at a time, as the rows themselves are, which saves two
+// allocations per row. Blocks start small and double, so a load that finds most
+// of its rows tracked already wastes little. A block lives as long as any entry
+// or snapshot in it does.
+type block struct {
+	entries   []Entry
+	snapshots unsafe.Pointer // the block's first snapshot
+	used      int
+}
+
+const blockLimit = 512
+
+// next returns an entry and the memory of its snapshot. left is how many rows
+// the load may still track, this one included.
+func (b *block) next(m *meta.Model, left int) (*Entry, unsafe.Pointer) {
+	if b.used == len(b.entries) {
+		size := min(max(len(b.entries)*2, 8), blockLimit, left)
+		b.entries = make([]Entry, size)
+		b.snapshots = reflect.MakeSlice(m.SnapshotLayout().Slice, size, size).UnsafePointer()
+		b.used = 0
 	}
 
-	switch t.Kind() {
-	case reflect.Pointer, reflect.Slice, reflect.Map, reflect.Interface:
-		return true
-	case reflect.Struct:
-		for sf := range t.Fields() {
-			if sf.IsExported() && indirect(sf.Type) {
-				return true
-			}
-		}
-	case reflect.Array:
-		return indirect(t.Elem())
-	}
+	// The address is worked out from the first snapshot each time, so that no
+	// pointer is ever kept to just past the block's end.
+	e := &b.entries[b.used]
+	snapshot := unsafe.Add(b.snapshots, uintptr(b.used)*m.SnapshotLayout().Type.Size())
+	b.used++
 
-	return false
+	return e, snapshot
 }
 
 // deepCopy copies v and whatever it refers to. Unexported struct fields are
@@ -101,7 +151,7 @@ func deepCopy(v reflect.Value) reflect.Value {
 
 		return out
 	case reflect.Struct:
-		if !indirect(v.Type()) {
+		if !meta.Indirect(v.Type()) {
 			return v
 		}
 
@@ -310,12 +360,31 @@ func times(a, b reflect.Value) (time.Time, time.Time, bool) {
 	return time.Time{}, time.Time{}, false
 }
 
-func equal(f *meta.Field, a, b unsafe.Pointer) bool {
-	x, y := unsafe.Add(a, f.Offset), unsafe.Add(b, f.Offset)
+// unchanged reports whether f's value in entity is the one in the snapshot. A field
+// the snapshot does not keep is never a change.
+func unchanged(m *meta.Model, f *meta.Field, entity, snapshot unsafe.Pointer) bool {
+	layout := m.SnapshotLayout()
+	if !layout.Holds(f) {
+		return true
+	}
 
+	return equalAt(f, unsafe.Add(entity, f.Offset), layout.At(snapshot, f))
+}
+
+// equalAt compares two values of f, at x and y.
+func equalAt(f *meta.Field, x, y unsafe.Pointer) bool {
 	if f.Equal != nil {
 		return f.Equal(x, y)
 	}
 
-	return comparerFor(f.Type)(x, y)
+	// The field keeps its comparer, so that it is looked up once and not for
+	// every row of every save.
+	if c := f.Comparer.Load(); c != nil {
+		return (*c)(x, y)
+	}
+
+	c := (func(a, b unsafe.Pointer) bool)(comparerFor(f.Type))
+	f.Comparer.Store(&c)
+
+	return c(x, y)
 }

@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/skudra-go/ant/internal/errs"
 	"github.com/skudra-go/ant/qb"
@@ -19,7 +20,13 @@ import (
 // Dialects call it from their Render method, and describe what differs with
 // Syntax.
 func Render(d Dialect, stmt qb.Statement) (string, []any, error) {
-	r := &renderer{d: d, s: SyntaxOf(d), ctx: context.Background()}
+	r := &renderer{
+		d:   d,
+		s:   SyntaxOf(d),
+		ctx: context.Background(),
+		sql: buffers.Get().(*bytes.Buffer),
+	}
+	r.fast, _ = d.(Appender)
 
 	if c, ok := stmt.(qb.Contextual); ok {
 		r.ctx, stmt = c.Context, c.Statement
@@ -41,18 +48,38 @@ func Render(d Dialect, stmt qb.Statement) (string, []any, error) {
 		r.fail("statement", stmt)
 	}
 
+	text := ""
+
+	if r.err == nil {
+		text = r.sql.String()
+	}
+
+	// The text is a copy, so the buffer goes back for the next statement,
+	// unless one huge statement made it too large to be worth keeping.
+	if r.sql.Cap() <= maxPooledBuffer {
+		r.sql.Reset()
+		buffers.Put(r.sql)
+	}
+
 	if r.err != nil {
 		return "", nil, r.err
 	}
 
-	return r.sql.String(), r.args, nil
+	return text, r.args, nil
 }
+
+// buffers holds the buffers statements are written into, so that rendering one
+// allocates its text once, at its final size, and not a buffer that grows.
+var buffers = sync.Pool{New: func() any { return new(bytes.Buffer) }}
+
+const maxPooledBuffer = 64 << 10
 
 type renderer struct {
 	d    Dialect
 	s    *Syntax
+	fast Appender // d, if it writes identifiers and placeholders in place
 	ctx  context.Context
-	sql  bytes.Buffer
+	sql  *bytes.Buffer
 	args []any
 	err  error
 
@@ -122,17 +149,68 @@ func (r *renderer) need(f Feature) {
 
 func (r *renderer) write(s string) { r.sql.WriteString(s) }
 
-func (r *renderer) quote(ident string) { r.write(r.d.Quote(ident)) }
+func (r *renderer) quote(ident string) {
+	if r.fast != nil {
+		r.sql.Write(r.fast.AppendQuote(r.sql.AvailableBuffer(), ident))
+
+		return
+	}
+
+	r.write(r.d.Quote(ident))
+}
 
 func (r *renderer) bind(v any) {
-	v = addressed(v)
+	v = boundValue(r.s, v)
 
-	if r.s.UTCTimes {
-		v = utc(v)
+	if r.args == nil {
+		r.args = make([]any, 0, 8)
 	}
 
 	r.args = append(r.args, v)
+
+	if r.fast != nil {
+		r.sql.Write(r.fast.AppendPlaceholder(r.sql.AvailableBuffer(), len(r.args)))
+
+		return
+	}
+
 	r.write(r.d.Placeholder(len(r.args)))
+}
+
+// Arg returns v as Render binds it for d: by pointer if only its pointer
+// converts itself, and in UTC where d's database drops a time's zone. It lets a
+// caller that keeps a statement's text bind new values to it, as ant's cache of
+// statement shapes does.
+func Arg(d Dialect, v any) any { return boundValue(SyntaxOf(d), v) }
+
+func boundValue(s *Syntax, v any) any {
+	if plain(v) {
+		return v
+	}
+
+	v = addressed(v)
+
+	if s.UTCTimes {
+		v = utc(v)
+	}
+
+	return v
+}
+
+// plain reports whether v is of a type that binds as it is: one with no Value
+// method on it or on its pointer, and no time inside. Most bound values are, and
+// telling so here saves each of them two lookups by reflection.
+func plain(v any) bool {
+	switch v.(type) {
+	case nil, string, []byte, bool,
+		int, int8, int16, int32, int64,
+		uint, uint8, uint16, uint32, uint64,
+		float32, float64,
+		*string, *bool, *int, *int32, *int64, *float64:
+		return true
+	}
+
+	return false
 }
 
 // derived runs after a derived table is written, with read saying whether a
@@ -199,6 +277,8 @@ func (r *renderer) expr(e qb.Expr) {
 
 		r.quote(e.Name)
 	case qb.Param:
+		r.bind(e.Value)
+	case *qb.Param:
 		r.bind(e.Value)
 	case qb.Star:
 		r.write("*")
@@ -1028,6 +1108,12 @@ func (r *renderer) output(items []qb.Selected, row string) {
 }
 
 func (r *renderer) insert(s *qb.Insert) {
+	// Room for a value in every cell, so that a large INSERT does not grow its
+	// arguments step by step.
+	if r.args == nil && len(s.Rows) > 1 {
+		r.args = make([]any, 0, len(s.Rows)*len(s.Columns))
+	}
+
 	if len(s.Returning) > 0 {
 		r.need(ReturningInsert)
 	}
@@ -1619,7 +1705,7 @@ func arrayOf(values []qb.Expr) (any, bool) {
 	var out reflect.Value
 
 	for i, e := range values {
-		p, ok := e.(qb.Param)
+		p, ok := qb.ParamOf(e)
 		if !ok {
 			return nil, false
 		}

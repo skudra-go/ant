@@ -194,20 +194,26 @@ func untrackedUnless[R any](sub *Query[R], tracked bool) *Query[R] {
 // order. Parents with a NULL key are left out.
 func groupByKey(field *meta.Field, parents []unsafe.Pointer) (map[any][]unsafe.Pointer, []any) {
 	groups := make(map[any][]unsafe.Pointer, len(parents))
+	keys := make([]any, 0, len(parents))
 
-	var keys []any
+	// Most keys have one parent, so each group starts as one cell of a block
+	// that is as long as the parents, with no room to grow: a second parent with
+	// the same key copies the group out on append.
+	cells := make([]unsafe.Pointer, len(parents))
 
-	for _, p := range parents {
+	for i, p := range parents {
 		key, ok := field.Key(p)
 		if !ok {
 			continue
 		}
 
-		if _, seen := groups[key]; !seen {
+		group, seen := groups[key]
+		if !seen {
 			keys = append(keys, key)
+			group = cells[i : i : i+1]
 		}
 
-		groups[key] = append(groups[key], p)
+		groups[key] = append(group, p)
 	}
 
 	return groups, keys
@@ -227,10 +233,14 @@ func fetchRelated[R any](
 	var out []*R
 
 	for batch := range slices.Chunk(keys, loadSize(sub.state.dialect)) {
+		// The values are bound from one block, by pointer, which puts each in
+		// its qb.Expr with no allocation.
 		values := make([]qb.Expr, len(batch))
+		params := make([]qb.Param, len(batch))
 
 		for i, k := range batch {
-			values[i] = qb.Param{Value: k}
+			params[i].Value = k
+			values[i] = &params[i]
 		}
 
 		q := sub.next()
@@ -402,16 +412,49 @@ func loadMany[R any](
 		return err
 	}
 
-	loaded := make(map[unsafe.Pointer][]R, len(parents))
+	// The parents of each row, found once.
+	owners := make([][]unsafe.Pointer, len(children))
 
-	for _, child := range children {
-		key, ok := link.Foreign.Key(unsafe.Pointer(child))
-		if !ok {
-			continue
+	// The rows are counted for each parent first, so that each slice is cut to
+	// its size from a block, not grown one row at a time: growing costs an
+	// allocation for most rows and leaves up to half of a slice unused. A slice
+	// with no room moves on the next append, and the tracker follows a tracked
+	// element there by its key (unit.reconcile and unit.adopt).
+	counts := make(map[unsafe.Pointer]int, len(parents))
+	total := 0
+
+	for i, child := range children {
+		if key, ok := link.Foreign.Key(unsafe.Pointer(child)); ok {
+			owners[i] = groups[key]
+
+			for _, p := range owners[i] {
+				counts[p]++
+				total++
+			}
 		}
+	}
 
-		for _, p := range groups[key] {
-			loaded[p] = append(loaded[p], *child)
+	loaded := make(map[unsafe.Pointer][]R, len(counts))
+
+	var block []R
+
+	for i, child := range children {
+		for _, p := range owners[i] {
+			elements, started := loaded[p]
+			if !started {
+				// A block holds the rows of many parents, as a block of entities
+				// does, and is never larger than that, unless one parent needs
+				// more.
+				n := counts[p]
+				if len(block) < n {
+					block = make([]R, max(n, min(total, entityBlock)))
+				}
+
+				elements, block = block[:0:n], block[n:]
+				total -= n
+			}
+
+			loaded[p] = append(elements, *child)
 		}
 	}
 

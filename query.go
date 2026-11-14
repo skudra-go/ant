@@ -35,15 +35,16 @@ func newQuery[T any](s *state) *Query[T] {
 	return &Query[T]{builder: builder{state: s, sources: []source{sourceOf[T]()}}}
 }
 
-// next returns a copy of q that shares no slices with it.
+// next returns a copy of q for a builder method to add to. See builder.cloned
+// for what the two share.
 func (q *Query[T]) next() *Query[T] {
 	c := *q
 	c.builder = q.builder.cloned()
-	c.selected = slices.Clone(q.selected)
+	c.selected = slices.Clip(q.selected)
 	c.omitted = slices.Clone(q.omitted)
-	c.computed = slices.Clone(q.computed)
-	c.includes = slices.Clone(q.includes)
-	c.inJoin = slices.Clone(q.inJoin)
+	c.computed = slices.Clip(q.computed)
+	c.includes = slices.Clip(q.includes)
+	c.inJoin = slices.Clip(q.inJoin)
 
 	return &c
 }
@@ -350,10 +351,16 @@ func (q *Query[T]) tracked() bool {
 		len(q.selected) == 0 && len(q.omitted) == 0 && len(q.computed) == 0
 }
 
+// columns returns the fields the query reads. The list may be the model's own,
+// so a caller must not change it.
 func (q *Query[T]) columns() []*meta.Field {
 	fields := q.selected
 	if len(fields) == 0 {
 		fields = q.model().Stored()
+	}
+
+	if len(q.omitted) == 0 {
+		return fields
 	}
 
 	return slices.DeleteFunc(slices.Clone(fields), func(f *meta.Field) bool {
@@ -361,8 +368,16 @@ func (q *Query[T]) columns() []*meta.Field {
 	})
 }
 
+// selection returns the select list. For a query that chose and left out no
+// column, which most are, it is the model's own list, made once: appending to
+// it copies it, and no caller changes it in place.
 func (q *Query[T]) selection() []qb.Selected {
 	root := q.sources[0]
+
+	if len(q.selected) == 0 && len(q.omitted) == 0 && len(q.computed) == 0 && root.alias == "" {
+		return root.model.Selection()
+	}
+
 	fields := q.columns()
 
 	out := make([]qb.Selected, 0, len(fields)+len(q.computed))
@@ -388,6 +403,64 @@ func (q *Query[T]) readyToRead() error {
 
 // fetch runs stmt and returns entities with their includes loaded.
 func (q *Query[T]) fetch(ctx context.Context, stmt *qb.Select) ([]*T, error) {
+	return q.fetchWith(ctx, stmt.Limit, func(ctx context.Context) (*sql.Rows, error) {
+		q.addJoined(stmt)
+
+		if q.debug {
+			q.state.debugStatement(ctx, stmt)
+		}
+
+		return q.state.query(ctx, stmt)
+	})
+}
+
+// fetchSQL is fetch for a statement already rendered, as the cache of shapes
+// gives one.
+func (q *Query[T]) fetchSQL(
+	ctx context.Context,
+	limit *int,
+	text string,
+	args []any,
+) ([]*T, error) {
+	return q.fetchWith(ctx, limit, func(ctx context.Context) (*sql.Rows, error) {
+		return q.state.querySQL(ctx, text, args)
+	})
+}
+
+// read returns the rows of q's read with the given row count, from the cache of
+// shapes where it takes q, and the usual way otherwise. key adds a condition
+// on the primary key, as Find does.
+func (q *Query[T]) read(
+	ctx context.Context,
+	limit *int,
+	key *meta.Field,
+	keyValue any,
+) ([]*T, error) {
+	if text, args, ok := q.cachedSQL(key, keyValue, limit); ok {
+		return q.fetchSQL(ctx, limit, text, args)
+	}
+
+	n := q
+
+	if key != nil {
+		n = q.next()
+		n.where = append(n.where, keyEquals(q.model(), key, keyValue)...)
+	}
+
+	stmt := n.statement(n.selection())
+	stmt.Limit = limit
+
+	return n.fetch(ctx, stmt)
+}
+
+// fetchWith claims the tracker, runs the query that query makes, and returns
+// its entities with their includes loaded. limit is the statement's row count,
+// or nil.
+func (q *Query[T]) fetchWith(
+	ctx context.Context,
+	limit *int,
+	query func(context.Context) (*sql.Rows, error),
+) ([]*T, error) {
 	ctx, release, err := q.state.claim(ctx, q.tracked())
 	if err != nil {
 		return nil, err
@@ -395,13 +468,7 @@ func (q *Query[T]) fetch(ctx context.Context, stmt *qb.Select) ([]*T, error) {
 
 	defer release()
 
-	q.addJoined(stmt)
-
-	if q.debug {
-		q.state.debugStatement(ctx, stmt)
-	}
-
-	rows, err := q.state.query(ctx, stmt)
+	rows, err := query(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -417,7 +484,13 @@ func (q *Query[T]) fetch(ctx context.Context, stmt *qb.Select) ([]*T, error) {
 	if len(q.inJoin) > 0 {
 		items, err = q.collectJoined(rows)
 	} else {
-		items, err = collectEntities[T](rows)
+		most := 0
+
+		if limit != nil {
+			most = *limit
+		}
+
+		items, err = collectEntities[T](rows, most)
 	}
 
 	if err != nil {
@@ -437,11 +510,12 @@ func (q *Query[T]) fetch(ctx context.Context, stmt *qb.Select) ([]*T, error) {
 	}
 
 	if q.tracked() && !q.inSlice {
-		model := q.model()
-
-		for i, item := range items {
-			items[i] = (*T)(q.state.tracker.Load(model, unsafe.Pointer(item)))
-		}
+		// A []*T is a []unsafe.Pointer to the tracker, which swaps in the
+		// instances it already holds.
+		q.state.tracker.LoadAll(
+			q.model(),
+			unsafe.Slice((*unsafe.Pointer)(unsafe.Pointer(unsafe.SliceData(items))), len(items)),
+		)
 	}
 
 	if err := q.load(ctx, items); err != nil {
@@ -485,7 +559,7 @@ func (q *Query[T]) All(ctx context.Context) ([]*T, error) {
 		return nil, err
 	}
 
-	return q.fetch(ctx, q.statement(q.selection()))
+	return q.read(ctx, q.limit, nil, nil)
 }
 
 // atMost returns the smaller of limit and n, treating nil as no limit.
@@ -504,10 +578,12 @@ func (q *Query[T]) First(ctx context.Context) (*T, error) {
 		return nil, err
 	}
 
-	stmt := q.statement(q.selection())
-	stmt.Limit = atMost(q.limit, 1)
+	return q.first(ctx, nil, nil)
+}
 
-	found, err := q.fetch(ctx, stmt)
+// first is First, with a condition on the primary key if key is set.
+func (q *Query[T]) first(ctx context.Context, key *meta.Field, keyValue any) (*T, error) {
+	found, err := q.read(ctx, atMost(q.limit, 1), key, keyValue)
 
 	switch {
 	case err != nil:
@@ -526,10 +602,7 @@ func (q *Query[T]) Single(ctx context.Context) (*T, error) {
 		return nil, err
 	}
 
-	stmt := q.statement(q.selection())
-	stmt.Limit = atMost(q.limit, 2)
-
-	found, err := q.fetch(ctx, stmt)
+	found, err := q.read(ctx, atMost(q.limit, 2), nil, nil)
 
 	switch {
 	case err != nil:
@@ -622,14 +695,11 @@ func (q *Query[T]) Find[K comparable](ctx context.Context, key K) (*T, error) {
 		return nil, err
 	}
 
-	if err := q.ready(); err != nil {
+	if err := q.readyToRead(); err != nil {
 		return nil, err
 	}
 
-	n := q.next()
-	n.where = append(n.where, keyEquals(q.model(), field, key)...)
-
-	return n.First(ctx)
+	return q.first(ctx, field, key)
 }
 
 // Each streams matching rows, stopping after the first error. Values are
@@ -650,7 +720,17 @@ func (q *Query[T]) Each(ctx context.Context) iter.Seq2[T, error] {
 			return
 		}
 
-		rows, err := q.state.query(ctx, q.statement(q.selection()))
+		var (
+			rows *sql.Rows
+			err  error
+		)
+
+		if text, args, ok := q.cachedSQL(nil, nil, q.limit); ok {
+			rows, err = q.state.querySQL(ctx, text, args)
+		} else {
+			rows, err = q.state.query(ctx, q.statement(q.selection()))
+		}
+
 		if err != nil {
 			yield(zero, err)
 
@@ -964,7 +1044,7 @@ func (q *Query[T]) readRows(ctx context.Context, stmt qb.Statement) ([]*T, error
 		return nil, err
 	}
 
-	return collectEntities[T](rows)
+	return collectEntities[T](rows, 0)
 }
 
 // writable returns every error that stops a bulk write from running.

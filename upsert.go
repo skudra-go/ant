@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"context"
 	"database/sql"
-	"database/sql/driver"
 	"errors"
 	"fmt"
 	"slices"
@@ -477,10 +476,12 @@ func (t *Table[T]) InsertMany(
 		}
 	}
 
-	stamper := newUnit(t.state)
+	// One node serves every row: nothing here reads what stamp notes on it.
+	stamper, stamped := newUnit(t.state), node{model: model}
 
 	for _, e := range entities {
-		stamper.stamp(&node{model: model, entity: unsafe.Pointer(e)})
+		stamped.entity, stamped.stamped = unsafe.Pointer(e), stamped.stamped[:0]
+		stamper.stamp(&stamped)
 	}
 
 	var (
@@ -553,9 +554,13 @@ func keyGroups[T any](model *meta.Model, entities []*T) [][]*T {
 }
 
 func insertColumns(model *meta.Model, generated bool) []*meta.Field {
+	if !generated {
+		return model.Writable()
+	}
+
 	return slices.DeleteFunc(
-		model.Writable(),
-		func(f *meta.Field) bool { return generated && f.Generated },
+		slices.Clone(model.Writable()),
+		func(f *meta.Field) bool { return f.Generated },
 	)
 }
 
@@ -568,24 +573,20 @@ func (t *Table[T]) insertBatch(
 	conflict *Conflict,
 	generated bool,
 ) (int64, error) {
-	stmt := &qb.Insert{Table: model.Table}
-
-	for _, f := range columns {
-		stmt.Columns = append(stmt.Columns, f.Column)
+	stmt := &qb.Insert{
+		Table:   model.Table,
+		Columns: make([]string, len(columns)),
+		Rows:    make([][]qb.Expr, len(batch)),
 	}
 
-	for _, e := range batch {
-		row := make([]qb.Expr, len(columns))
+	for i, f := range columns {
+		stmt.Columns[i] = f.Column
+	}
 
-		for i, f := range columns {
-			if value := f.Value(unsafe.Pointer(e)); f.Default && value.IsZero() {
-				row[i] = qb.Default{}
-			} else {
-				row[i] = fieldParam(f, value.Interface())
-			}
-		}
+	values := newRowBlock(len(batch), len(columns))
 
-		stmt.Rows = append(stmt.Rows, row)
+	for i, e := range batch {
+		stmt.Rows[i] = values.row(i, columns, unsafe.Pointer(e))
 	}
 
 	if conflict != nil {
@@ -649,11 +650,7 @@ func (t *Table[T]) insertBatch(
 	slices.SortFunc(keys, func(a, b int64) int { return cmp.Compare(a, b) })
 
 	for i, e := range batch {
-		if err := sql.ConvertAssign(
-			driver.ScanContext{},
-			key.Addr(unsafe.Pointer(e)),
-			keys[i],
-		); err != nil {
+		if err := assignKey(key, unsafe.Pointer(e), keys[i]); err != nil {
 			return 0, err
 		}
 	}

@@ -86,7 +86,7 @@ func checkKey[K any](key *meta.Field) error {
 }
 
 func keyEquals(model *meta.Model, key *meta.Field, v any) []qb.Cond {
-	return []qb.Cond{qb.Compare{Left: model.Col(key), Op: qb.OpEq, Right: qb.Param{Value: v}}}
+	return []qb.Cond{qb.Compare{Left: model.ColumnOf(key), Op: qb.OpEq, Right: qb.Param{Value: v}}}
 }
 
 // Insert writes entities and the new entities related to them, parents first,

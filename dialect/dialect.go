@@ -3,6 +3,7 @@
 package dialect
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/skudra-go/ant/qb"
@@ -26,7 +27,45 @@ type Dialect interface {
 	Render(stmt qb.Statement) (sql string, args []any, err error)
 }
 
+// Appender is implemented by a dialect that can write a quoted identifier and a
+// placeholder straight into the statement being rendered. It is optional: Render
+// uses it when it is there, which saves an allocation for every identifier and
+// placeholder of every statement, and Quote and Placeholder when it is not. The
+// two must write what Quote and Placeholder return.
+type Appender interface {
+	// AppendQuote appends the quoted identifier to dst.
+	AppendQuote(dst []byte, ident string) []byte
+	// AppendPlaceholder appends the bind parameter for position n to dst.
+	AppendPlaceholder(dst []byte, n int) []byte
+}
+
 // QuoteWith wraps ident in open and close, doubling any embedded close.
 func QuoteWith(ident, open, close string) string {
 	return open + strings.ReplaceAll(ident, close, close+close) + close
+}
+
+// AppendQuoteWith appends what QuoteWith returns to dst.
+func AppendQuoteWith(dst []byte, ident, open, close string) []byte {
+	dst = append(dst, open...)
+
+	for {
+		i := strings.Index(ident, close)
+		if i < 0 || close == "" {
+			break
+		}
+
+		dst = append(dst, ident[:i]...)
+		dst = append(dst, close...)
+		dst = append(dst, close...)
+		ident = ident[i+len(close):]
+	}
+
+	dst = append(dst, ident...)
+
+	return append(dst, close...)
+}
+
+// AppendNumbered appends what Numbered returns to dst.
+func AppendNumbered(dst []byte, prefix string, n int) []byte {
+	return strconv.AppendInt(append(dst, prefix...), int64(n), 10)
 }

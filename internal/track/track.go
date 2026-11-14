@@ -6,6 +6,7 @@ package track
 import (
 	"cmp"
 	"maps"
+	"reflect"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -42,15 +43,42 @@ type Entry struct {
 	id       identity
 	keyed    bool
 	gone     bool // let go of, as by Detach, until tracked again
-	seq      uint64
-	// columns and links hold the writes to the entry's stored values and to
-	// its relations that a transaction may yet take back.
-	columns, links history
+	listed   bool // in the tracker's order
+	// element says the entity lives in a relation slice, as Copy tracks it, so
+	// that an append can move it with the slice.
+	element bool
+	seq     uint64
+	// pending holds the writes a transaction may yet take back. Most entries
+	// are only ever read, so it is made when the first write is recorded.
+	pending *histories
 	// Members holds the entries of a loaded one-to-many relation by key, and
 	// Parents the key of a loaded many-to-one relation, to detect changes.
 	Members map[*meta.Relation]map[any]*Entry
 	Parents map[*meta.Relation]any
 }
+
+// histories holds the writes to an entry's stored values, in columns, and to
+// its relations, in links, that a transaction may yet take back.
+type histories struct {
+	columns, links history
+}
+
+// writes returns the entry's histories, making them on first use.
+func (e *Entry) writes() *histories {
+	if e.pending == nil {
+		e.pending = new(histories)
+	}
+
+	return e.pending
+}
+
+// Element reports whether the entity was tracked where it lives in a relation
+// slice, which an append can move.
+func (e *Entry) Element() bool { return e.element }
+
+// Unsettled reports whether a write to the entry's relations may yet be taken
+// back.
+func (e *Entry) Unsettled() bool { return e.pending != nil && len(e.pending.links.writes) > 0 }
 
 // Refresh makes the current values the snapshot.
 func (e *Entry) Refresh() { e.snapshot = snapshotOf(e.Model, e.Entity) }
@@ -65,12 +93,27 @@ func (e *Entry) Changed() []*meta.Field {
 	var out []*meta.Field
 
 	for _, f := range e.Model.Updatable() {
-		if !equal(f, e.Entity, e.snapshot) {
+		if !unchanged(e.Model, f, e.Entity, e.snapshot) {
 			out = append(out, f)
 		}
 	}
 
 	return out
+}
+
+// Dirty reports whether Changed would return any field.
+func (e *Entry) Dirty() bool {
+	if e.snapshot == nil {
+		return false
+	}
+
+	for _, f := range e.Model.Updatable() {
+		if !unchanged(e.Model, f, e.Entity, e.snapshot) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // KeyChanged reports whether the primary key differs from the snapshot.
@@ -79,10 +122,13 @@ func (e *Entry) KeyChanged() bool {
 		return false
 	}
 
-	return slices.ContainsFunc(
-		e.Model.Keys,
-		func(f *meta.Field) bool { return !equal(f, e.Entity, e.snapshot) },
-	)
+	for _, f := range e.Model.Keys {
+		if !unchanged(e.Model, f, e.Entity, e.snapshot) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // Holds reports whether the entity at entity is this entry's row. Slices reuse
@@ -92,26 +138,48 @@ func (e *Entry) Holds(entity unsafe.Pointer) bool {
 		return true
 	}
 
-	key, ok := e.Model.KeyOf(entity)
+	id, ok := keyOf(e.Model, entity)
 
-	return ok && key == e.id.key
+	return ok && id == e.id
 }
 
-// Original returns the snapshot's copy of the entity, or nil if there is none.
-func (e *Entry) Original() unsafe.Pointer { return e.snapshot }
+// HasOriginal reports whether the entry holds the values its row was loaded or
+// last saved with.
+func (e *Entry) HasOriginal() bool { return e.snapshot != nil }
 
-// Scratch returns a private copy of the snapshot that a caller may change.
+// OriginalValue returns f's value as it was loaded or last saved, or the zero
+// Value if there is none, or f is computed.
+func (e *Entry) OriginalValue(f *meta.Field) reflect.Value {
+	if e.snapshot == nil {
+		return reflect.Value{}
+	}
+
+	return e.Model.SnapshotLayout().Value(e.snapshot, f)
+}
+
+// OriginalKey returns the key the row was loaded or last saved with, as KeyOf
+// gives it, or false if there is none.
+func (e *Entry) OriginalKey() (any, bool) {
+	if e.snapshot == nil {
+		return nil, false
+	}
+
+	return e.Model.SnapshotLayout().Key(e.Model, e.snapshot)
+}
+
+// Scratch returns a private copy of the entity as it was loaded or last saved,
+// which a caller may change, or nil. Relations and computed fields are zero.
 func (e *Entry) Scratch() unsafe.Pointer {
 	if e.snapshot == nil {
 		return nil
 	}
 
-	return snapshotOf(e.Model, e.snapshot)
+	return entityOf(e.Model, e.snapshot)
 }
 
 // Current returns a private copy of the entity as it is now, which a caller may
 // change. Relations are left out, as in a snapshot.
-func (e *Entry) Current() unsafe.Pointer { return snapshotOf(e.Model, e.Entity) }
+func (e *Entry) Current() unsafe.Pointer { return copyOf(e.Model, e.Entity) }
 
 // Saved records a state and snapshot as saved, and returns the change.
 func (e *Entry) Saved(state State) Change { return e.saved(state, nil) }
@@ -122,7 +190,7 @@ func (e *Entry) saved(state State, wrap func(func()) func()) Change {
 	e.State = state
 	e.Refresh()
 
-	return e.columns.record(
+	return e.writes().columns.record(
 		wrapped(wrap, func() {
 			e.State, e.snapshot = oldState, oldSnapshot
 		}),
@@ -188,7 +256,7 @@ func (e *Entry) SetLinks(
 	oldMembers, oldParents := e.Members, e.Parents
 	e.Members, e.Parents = members, parents
 
-	return e.links.record(
+	return e.writes().links.record(
 		func() { e.Members, e.Parents = oldMembers, oldParents },
 		func() {
 			e.Members = revertMembers(e.Members, members, oldMembers)
@@ -262,10 +330,10 @@ func (e *Entry) reloaded(before unsafe.Pointer, wrap func(func()) func()) Change
 	e.Refresh()
 	read := e.snapshot
 
-	return e.columns.record(
+	return e.writes().columns.record(
 		wrapped(wrap, func() {
 			for _, f := range e.Model.Stored() {
-				if equal(f, e.Entity, read) {
+				if unchanged(e.Model, f, e.Entity, read) {
 					f.Value(e.Entity).Set(f.Value(before))
 				}
 			}
@@ -283,6 +351,10 @@ func (e *Entry) reloaded(before unsafe.Pointer, wrap func(func()) func()) Change
 type Change struct {
 	undo, keep func()
 }
+
+// IsZero reports whether the change is of nothing, with nothing to take back or
+// to keep.
+func (c Change) IsZero() bool { return c.undo == nil && c.keep == nil }
 
 // Undo takes the change back.
 func (c Change) Undo() {
@@ -366,10 +438,118 @@ func (h *history) settle() {
 	h.writes = nil
 }
 
+// identity is a row: its model and its key. An integer key, which most are, is
+// held as n with key nil, so that finding or tracking a row by it puts nothing on
+// the heap; any other key is in key. Every identity is made by identityOf or
+// keyOf, so two identities of one row are equal.
 type identity struct {
 	model *meta.Model
+	n     int64
 	key   any
 }
+
+// identityOf returns the identity of the row of m with key, in the form
+// meta.KeyValue gives it.
+func identityOf(m *meta.Model, key any) identity {
+	if n, ok := key.(int64); ok {
+		return identity{model: m, n: n}
+	}
+
+	return identity{model: m, key: key}
+}
+
+// value returns the key as meta.KeyValue gives it.
+func (id identity) value() any {
+	if id.key == nil {
+		return id.n
+	}
+
+	return id.key
+}
+
+// firsts holds, for each model, the first tracked instance of each row, by key.
+// Most keys are integers, which every loaded row is looked up by and most are
+// then stored under, so those have a map of their own: its keys are hashed as
+// integers and take 8 bytes, where a key in an interface is hashed through its
+// type and takes 16, next to the model. The model's rows are found once for a
+// whole load.
+type firsts map[*meta.Model]*rows
+
+type rows struct {
+	ints  map[int64]*Entry
+	other map[any]*Entry
+}
+
+// of returns the rows of a model, making them if make is set, or nil.
+func (f firsts) of(m *meta.Model, make bool) *rows {
+	r := f[m]
+	if r == nil && make {
+		r = &rows{}
+		f[m] = r
+	}
+
+	return r
+}
+
+func (r *rows) get(id identity) *Entry {
+	if r == nil {
+		return nil
+	}
+
+	if id.key == nil {
+		return r.ints[id.n]
+	}
+
+	return r.other[id.key]
+}
+
+// claim makes e the first instance of its row, unless the row has one.
+func (r *rows) claim(id identity, e *Entry) {
+	if id.key == nil {
+		if _, seen := r.ints[id.n]; !seen {
+			if r.ints == nil {
+				r.ints = map[int64]*Entry{}
+			}
+
+			r.ints[id.n] = e
+		}
+
+		return
+	}
+
+	if _, seen := r.other[id.key]; !seen {
+		if r.other == nil {
+			r.other = map[any]*Entry{}
+		}
+
+		r.other[id.key] = e
+	}
+}
+
+// release lets go of e as the first instance of its row, if it is.
+func (r *rows) release(id identity, e *Entry) {
+	if r == nil {
+		return
+	}
+
+	if id.key == nil {
+		if r.ints[id.n] == e {
+			delete(r.ints, id.n)
+		}
+
+		return
+	}
+
+	if r.other[id.key] == e {
+		delete(r.other, id.key)
+	}
+}
+
+func (f firsts) get(id identity) *Entry { return f.of(id.model, false).get(id) }
+
+func (f firsts) claim(id identity, e *Entry) { f.of(id.model, true).claim(id, e) }
+
+func (f firsts) release(id identity, e *Entry) { f.of(id.model, false).release(id, e) }
 
 // Tracker holds the tracked entities of one context. It is safe for concurrent
 // use, but an entity should not change while SaveChanges reads it.
@@ -380,7 +560,12 @@ type Tracker struct {
 	undo    []func() // rollback work waiting for the claim, under mu
 	seq     uint64
 	entries map[unsafe.Pointer]*Entry
-	first   map[identity]*Entry
+	first   firsts
+	// order lists the entries oldest first, so that Entries need not sort them
+	// on every save. It can also hold entries that are tracked no longer, which
+	// compact takes out, and sorted says it is still in the order of seq.
+	order  []*Entry
+	sorted bool
 	// deletions holds the deletions of each row whose entries were forgotten,
 	// so that a rollback that comes late can tell a newer deletion happened. It
 	// holds a row only while one of its deletions is unsettled.
@@ -504,41 +689,112 @@ func (t *Tracker) Empty() bool {
 // New returns an empty tracker.
 func New() *Tracker {
 	return &Tracker{
-		held:      make(chan struct{}, 1),
-		entries:   map[unsafe.Pointer]*Entry{},
-		first:     map[identity]*Entry{},
-		deletions: map[identity]*history{},
+		held:    make(chan struct{}, 1),
+		entries: map[unsafe.Pointer]*Entry{},
+		first:   firsts{},
+		sorted:  true,
 	}
 }
 
 func keyOf(m *meta.Model, entity unsafe.Pointer) (identity, bool) {
+	if n, ok, fast := m.IntKey(entity); fast {
+		return identity{model: m, n: n}, ok
+	}
+
 	v, ok := m.KeyOf(entity)
 
-	return identity{m, v}, ok
+	return identityOf(m, v), ok
 }
 
 func (t *Tracker) add(m *meta.Model, entity unsafe.Pointer, state State) *Entry {
-	t.seq++
+	e := &Entry{}
 
-	e := &Entry{
-		Model:  m,
-		Entity: entity,
-		State:  state,
-		seq:    t.seq,
-	}
+	var snapshot unsafe.Pointer
 
 	if state != Added {
-		e.Refresh()
+		snapshot = reflect.New(m.SnapshotLayout().Type).UnsafePointer()
+	}
+
+	id, keyed := keyOf(m, entity)
+	t.start(e, m, entity, state, snapshot, id, keyed, nil)
+
+	return e
+}
+
+// start fills in a new entry and tracks it. snapshot is memory for its
+// snapshot, or nil for an entry that has none, id is its key, if keyed, and
+// known the rows of its model, if the caller has them.
+func (t *Tracker) start(
+	e *Entry,
+	m *meta.Model,
+	entity unsafe.Pointer,
+	state State,
+	snapshot unsafe.Pointer,
+	id identity,
+	keyed bool,
+	known *rows,
+) {
+	t.seq++
+
+	e.Model, e.Entity, e.State, e.seq = m, entity, state, t.seq
+
+	if snapshot != nil {
+		snapshotInto(m, snapshot, entity)
+		e.snapshot = snapshot
 	}
 
 	t.entries[entity] = e
-	t.identify(e)
+	t.list(e)
+
+	// An entity's memory can later hold another row, as when a slice shifts, so
+	// the key is kept in the entry.
+	if keyed {
+		e.id, e.keyed = id, true
+
+		if known == nil {
+			known = t.first.of(m, true)
+		}
+
+		known.claim(id, e)
+	}
 
 	if t.OnTrack != nil {
 		t.OnTrack(e)
 	}
+}
 
-	return e
+// list puts an entry that entries holds into order, if it is not there.
+func (t *Tracker) list(e *Entry) {
+	if e.listed {
+		return
+	}
+
+	if n := len(t.order); n > 0 && t.order[n-1].seq > e.seq {
+		t.sorted = false
+	}
+
+	e.listed = true
+	t.order = append(t.order, e)
+}
+
+// compact takes the entries that are tracked no longer out of order.
+func (t *Tracker) compact() {
+	kept := t.order[:0]
+
+	for _, e := range t.order {
+		if t.entries[e.Entity] == e {
+			kept = append(kept, e)
+		} else {
+			e.listed = false
+		}
+	}
+
+	clear(t.order[len(kept):])
+	t.order = kept
+
+	if len(kept) == 0 {
+		t.order, t.sorted = nil, true
+	}
 }
 
 // identify records the entry's key, if it has one yet. An entity's memory can
@@ -547,9 +803,7 @@ func (t *Tracker) identify(e *Entry) {
 	if id, ok := keyOf(e.Model, e.Entity); ok {
 		e.id, e.keyed = id, true
 
-		if _, seen := t.first[id]; !seen {
-			t.first[id] = e
-		}
+		t.first.claim(id, e)
 	}
 }
 
@@ -565,11 +819,67 @@ func (t *Tracker) Load(m *meta.Model, entity unsafe.Pointer) unsafe.Pointer {
 		return entity
 	}
 
-	if existing, seen := t.first[id]; seen {
+	known := t.first.of(m, true)
+
+	if existing := known.get(id); existing != nil {
 		return existing.Entity
 	}
 
-	return t.add(m, entity, Unchanged).Entity
+	e := &Entry{}
+	t.start(
+		e,
+		m,
+		entity,
+		Unchanged,
+		reflect.New(m.SnapshotLayout().Type).UnsafePointer(),
+		id,
+		true,
+		known,
+	)
+
+	return entity
+}
+
+// LoadAll is Load for the rows of one query: it puts in place of each entity
+// the instance to use. The tracker is locked once, and the entries and
+// snapshots of the rows come from blocks, not one allocation each.
+func (t *Tracker) LoadAll(m *meta.Model, entities []unsafe.Pointer) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if len(m.Keys) == 0 {
+		return
+	}
+
+	// A tracker that holds nothing yet gets maps of the size it will need, so
+	// that they do not grow step by step.
+	if len(t.entries) == 0 && len(entities) > 8 {
+		t.entries = make(map[unsafe.Pointer]*Entry, len(entities))
+	}
+
+	known := t.first.of(m, true)
+
+	if len(known.ints) == 0 && len(entities) > 8 && m.IntegerKey() {
+		known.ints = make(map[int64]*Entry, len(entities))
+	}
+
+	var from block
+
+	for i, entity := range entities {
+		id, ok := keyOf(m, entity)
+		if !ok {
+			continue
+		}
+
+		if existing := known.get(id); existing != nil {
+			entities[i] = existing.Entity
+
+			continue
+		}
+
+		e, snapshot := from.next(m, len(entities)-i)
+		t.start(e, m, entity, Unchanged, snapshot, id, true, known)
+	}
 }
 
 // Copy tracks a loaded value that lives inside a relation slice. Such a value
@@ -583,7 +893,10 @@ func (t *Tracker) Copy(m *meta.Model, entity unsafe.Pointer) *Entry {
 		return nil
 	}
 
-	return t.put(m, entity, Unchanged)
+	e := t.put(m, entity, Unchanged)
+	e.element = true
+
+	return e
 }
 
 // Track starts tracking entity in the given state, or changes its state.
@@ -637,9 +950,7 @@ func (t *Tracker) revert(e *Entry, revert func(entity unsafe.Pointer)) {
 	defer t.mu.Unlock()
 
 	if e.keyed && !e.Holds(e.Entity) {
-		if t.first[e.id] == e {
-			delete(t.first, e.id)
-		}
+		t.first.release(e.id, e)
 
 		e.id, e.keyed = identity{}, false
 	}
@@ -687,7 +998,7 @@ func (t *Tracker) Added(
 		return t.put(m, entity, Unchanged)
 	}()
 
-	return e.columns.record(
+	return e.writes().columns.record(
 		func() {
 			t.Forget(e)
 
@@ -719,6 +1030,7 @@ func (t *Tracker) Move(e *Entry, entity unsafe.Pointer) {
 
 	e.Entity = entity
 	t.entries[entity] = e
+	t.list(e)
 }
 
 // Get returns the entry for an entity, or nil.
@@ -744,7 +1056,7 @@ func (t *Tracker) Find(m *meta.Model, key any) *Entry {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	return t.first[identity{m, key}]
+	return t.first.get(identityOf(m, key))
 }
 
 // Remove stops tracking an entity.
@@ -774,7 +1086,7 @@ func (t *Tracker) ForgetRow(m *meta.Model, key any) Change {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	id := identity{m, key}
+	id := identityOf(m, key)
 
 	var gone []*Entry
 
@@ -825,6 +1137,11 @@ func (t *Tracker) undoDeletion(id identity, gone []*Entry) Change {
 		}
 
 		h = &history{}
+
+		if t.deletions == nil {
+			t.deletions = map[identity]*history{}
+		}
+
 		t.deletions[id] = h
 	}
 
@@ -876,9 +1193,17 @@ func (t *Tracker) ForgetSince(mark uint64) {
 		}
 	}
 
-	for _, e := range t.first {
-		if e.seq > mark && !slices.Contains(gone, e) {
-			gone = append(gone, e)
+	for _, known := range t.first {
+		for _, e := range known.ints {
+			if e.seq > mark && !slices.Contains(gone, e) {
+				gone = append(gone, e)
+			}
+		}
+
+		for _, e := range known.other {
+			if e.seq > mark && !slices.Contains(gone, e) {
+				gone = append(gone, e)
+			}
 		}
 	}
 
@@ -894,8 +1219,14 @@ func (t *Tracker) forget(e *Entry) {
 		delete(t.entries, e.Entity)
 	}
 
-	if e.keyed && t.first[e.id] == e {
-		delete(t.first, e.id)
+	if e.keyed {
+		t.first.release(e.id, e)
+	}
+
+	// The order is not searched for one entry. It is cleaned once it holds
+	// more that are gone than that are tracked.
+	if len(t.order) > 2*len(t.entries)+32 {
+		t.compact()
 	}
 }
 
@@ -915,12 +1246,11 @@ func (t *Tracker) restore(e *Entry) {
 	}
 
 	t.entries[e.Entity] = e
+	t.list(e)
 	e.gone = false
 
 	if e.keyed {
-		if _, seen := t.first[e.id]; !seen {
-			t.first[e.id] = e
-		}
+		t.first.claim(e.id, e)
 	}
 }
 
@@ -933,8 +1263,14 @@ func (t *Tracker) Clear() {
 		e.gone = true
 	}
 
+	for _, e := range t.order {
+		e.listed = false
+	}
+
 	clear(t.entries)
 	clear(t.first)
+
+	t.order, t.sorted = nil, true
 }
 
 // Entries returns every entry, oldest first.
@@ -942,15 +1278,18 @@ func (t *Tracker) Entries() []*Entry {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	out := make([]*Entry, 0, len(t.entries))
-
-	for _, e := range t.entries {
-		out = append(out, e)
+	// Every entry that entries holds is in order, once, so the two hold the
+	// same entries when they are as long as each other.
+	if len(t.order) != len(t.entries) {
+		t.compact()
 	}
 
-	slices.SortFunc(out, func(a, b *Entry) int { return cmp.Compare(a.seq, b.seq) })
+	if !t.sorted {
+		slices.SortFunc(t.order, func(a, b *Entry) int { return cmp.Compare(a.seq, b.seq) })
+		t.sorted = true
+	}
 
-	return out
+	return slices.Clone(t.order)
 }
 
 // Len returns the number of tracked entities.

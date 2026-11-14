@@ -642,6 +642,9 @@ dialect: const SubqueryWith
 dialect: func (s *Syntax) Lacks(f Feature) bool
 dialect: func (s *Syntax) ParameterLimit() int
 dialect: func (s *Syntax) SavepointCommands() (save, rollback, release string)
+dialect: func AppendNumbered(dst []byte, prefix string, n int) []byte
+dialect: func AppendQuoteWith(dst []byte, ident, open, close string) []byte
+dialect: func Arg(d Dialect, v any) any
 dialect: func Bind(d Dialect, query string, args []any) (string, []any, error)
 dialect: func Numbered(prefix string, n int) string
 dialect: func QuoteWith(ident, open, close string) string
@@ -650,6 +653,7 @@ dialect: func Render(d Dialect, stmt qb.Statement) (string, []any, error)
 dialect: func StateOf(err error) string
 dialect: func Supports(d Dialect, f Feature) bool
 dialect: func SyntaxOf(d Dialect) *Syntax
+dialect: type Appender
 dialect: type Dialect
 dialect: type Feature
 dialect: type Syntactic
@@ -776,6 +780,7 @@ qb: func (Secret) String() string
 qb: func (s Secret) Value() (driver.Value, error)
 qb: func Aliased(c Cond, table *TableRef, alias string) Cond
 qb: func MatchesAll(c Cond) bool
+qb: func ParamOf(e Expr) (Param, bool)
 qb: type And
 qb: type Assignment
 qb: type Between

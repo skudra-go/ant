@@ -28,25 +28,25 @@ type Cond struct {
 }
 
 // on builds a condition on one column.
-func on[V any](field *V, node func(qb.Column) qb.Cond) Cond {
-	col, model, err := column(field)
+func on[V any](field *V, node func(qb.Expr) qb.Cond) Cond {
+	col, f, model, err := columnExpr(field)
 	if err != nil {
 		return Cond{err: err}
 	}
 
 	built := node(col)
 
-	if f := model.Column(col.Name); f != nil && f.Sensitive {
+	if f.Sensitive {
 		built = hideParams(built)
 	}
 
-	return Cond{node: built, refs: []*meta.Model{model}}
+	return Cond{node: built, refs: model.Self()}
 }
 
 // hideParams marks the values a condition compares with as secret.
 func hideParams(c qb.Cond) qb.Cond {
 	hide := func(e qb.Expr) qb.Expr {
-		if p, ok := e.(qb.Param); ok {
+		if p, ok := qb.ParamOf(e); ok {
 			return qb.Param{Value: qb.Secret{V: p.Value}}
 		}
 
@@ -77,14 +77,26 @@ func hideParams(c qb.Cond) qb.Cond {
 	return c
 }
 
+// compare is on for a comparison with a value, written out so that the most
+// common condition allocates no closure.
 func compare[V any](field *V, op qb.Op, v any) Cond {
-	return on(field, func(c qb.Column) qb.Cond {
-		return qb.Compare{Left: c, Op: op, Right: qb.Param{Value: v}}
-	})
+	f, model, err := fieldOf(field)
+	if err != nil {
+		return Cond{err: err}
+	}
+
+	if f.Sensitive {
+		v = qb.Secret{V: v}
+	}
+
+	return Cond{
+		node: qb.Compare{Left: model.ColumnOf(f), Op: op, Right: qb.Param{Value: v}},
+		refs: model.Self(),
+	}
 }
 
 func nullCheck[V any](field *V, negate bool) Cond {
-	return on(field, func(c qb.Column) qb.Cond { return qb.IsNull{Left: c, Negate: negate} })
+	return on(field, func(c qb.Expr) qb.Cond { return qb.IsNull{Left: c, Negate: negate} })
 }
 
 // membership is In or NotIn. A value stored as NULL means what it means to Eq
@@ -104,7 +116,7 @@ func membership[V any](field *V, values []V, negate bool) Cond {
 		nodes = append(nodes, qb.Param{Value: v})
 	}
 
-	return on(field, func(c qb.Column) qb.Cond {
+	return on(field, func(c qb.Expr) qb.Cond {
 		in := qb.In{Left: c, Values: nodes, Negate: negate}
 
 		switch {
@@ -180,7 +192,7 @@ func NotIn[V comparable](field *V, values ...V) Cond { return membership(field, 
 
 // Between matches rows where field is within low and high, inclusive.
 func Between[V Ordered](field *V, low, high V) Cond {
-	return on(field, func(c qb.Column) qb.Cond {
+	return on(field, func(c qb.Expr) qb.Cond {
 		return qb.Between{Left: c, Low: qb.Param{Value: low}, High: qb.Param{Value: high}}
 	})
 }
@@ -254,12 +266,12 @@ func IsNotNull[V any](field *V) Cond { return nullCheck(field, true) }
 
 // EqCol matches rows where two columns are equal.
 func EqCol[V comparable](a, b *V) Cond {
-	left, leftModel, err := column(a)
+	left, _, leftModel, err := columnExpr(a)
 	if err != nil {
 		return Cond{err: err}
 	}
 
-	right, rightModel, err := column(b)
+	right, _, rightModel, err := columnExpr(b)
 	if err != nil {
 		return Cond{err: err}
 	}

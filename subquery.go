@@ -49,7 +49,7 @@ func inSub[V any](field *V, sub Sub[V], negate bool) Cond {
 		return Cond{err: sub.err}
 	}
 
-	c := on(field, func(col qb.Column) qb.Cond {
+	c := on(field, func(col qb.Expr) qb.Cond {
 		return qb.In{Left: col, Sub: sub.stmt, Negate: negate}
 	})
 	c.refs = append(c.refs, sub.refs...)

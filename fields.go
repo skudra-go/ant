@@ -17,14 +17,15 @@ func Fields[T any]() *T {
 	return meta.Probe[T]()
 }
 
-// column resolves a probe field to its column.
-func column[V any](field *V) (qb.Column, *meta.Model, error) {
+// columnExpr resolves a probe field to its column as a shared expression, and
+// its metadata.
+func columnExpr[V any](field *V) (qb.Expr, *meta.Field, *meta.Model, error) {
 	f, model, err := fieldOf(field)
 	if err != nil {
-		return qb.Column{}, nil, err
+		return nil, nil, nil, err
 	}
 
-	return model.Col(f), model, nil
+	return model.ColumnOf(f), f, model, nil
 }
 
 // fieldOf resolves a probe field to its metadata.
