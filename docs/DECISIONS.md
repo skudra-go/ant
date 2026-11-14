@@ -604,7 +604,7 @@ Decision: what is derived from a model is built once, when its configuration end
 
 The rows of an Include are cut to size from a block, tracked or not. A slice with no room moves on its next append, and the tracker follows each tracked element there by its key (decision 108).
 
-`tests/benchmarks/fake_test.go` is a `database/sql` driver that answers from memory, which makes the counts exact, and `budget_test.go` holds them as tests, for each row and for the operation apart from its rows. A budget is raised only on purpose. `docs/api.txt` gains `dialect.Appender`, `dialect.AppendQuoteWith`, `dialect.AppendNumbered` and `qb.ParamOf`; package `ant` is unchanged.
+`tests/benchmarks/fake_test.go` is a `database/sql` driver that answers from memory, which makes the counts exact, and `budget_test.go` holds them as tests, for each row and for the operation apart from its rows. A budget is raised only on purpose. The budgets skip themselves under the race detector, which drops a random share of what goes back into a `sync.Pool`, so counts there move from run to run; CI's database jobs run them without it. `docs/api.txt` gains `dialect.Appender`, `dialect.AppendQuoteWith`, `dialect.AppendNumbered` and `qb.ParamOf`; package `ant` is unchanged.
 
 ## 108. Kept SQL by shape, unboxed keys, compact snapshots, and moved elements followed
 

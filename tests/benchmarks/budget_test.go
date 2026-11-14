@@ -36,6 +36,8 @@ func perRow(run func(size int)) (row, fixed float64) {
 }
 
 func TestRowAllocationBudgets(t *testing.T) {
+	skipUnderRace(t)
+
 	db, raw, f := fakeDB(t, ant.WithTracking(false))
 	ctx := context.Background()
 
@@ -155,6 +157,8 @@ func TestRowAllocationBudgets(t *testing.T) {
 }
 
 func TestQueryAllocationBudgets(t *testing.T) {
+	skipUnderRace(t)
+
 	db, raw, f := fakeDB(t, ant.WithTracking(false))
 	ctx := context.Background()
 

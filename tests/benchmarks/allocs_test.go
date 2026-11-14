@@ -27,7 +27,21 @@ func unconnected(t testing.TB) *AppDB {
 	return db
 }
 
+// skipUnderRace skips an allocation budget under the race detector, which
+// instruments the code and drops a random share of what goes back into a
+// sync.Pool, so that counts move from run to run. The jobs that run the tests
+// without it, as the database jobs in CI do, enforce the budgets.
+func skipUnderRace(t *testing.T) {
+	t.Helper()
+
+	if raceEnabled {
+		t.Skip("allocation counts are not stable under the race detector")
+	}
+}
+
 func TestAllocationBudgets(t *testing.T) {
+	skipUnderRace(t)
+
 	db := unconnected(t)
 
 	cases := []struct {
