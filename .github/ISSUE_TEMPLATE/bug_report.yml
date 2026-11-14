@@ -21,7 +21,7 @@ body:
     attributes:
       label: ant version
       description: The version or commit in your go.mod.
-      placeholder: v0.1.0
+      placeholder: v0.3.1
     validations:
       required: true
 
