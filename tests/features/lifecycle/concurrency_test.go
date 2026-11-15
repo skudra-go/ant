@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/skudra-go/ant"
+	"github.com/skudra-go/ant/dialect/postgres"
 	"github.com/skudra-go/ant/tests/features/fixture"
 )
 
@@ -140,4 +141,64 @@ func TestOptimisticConcurrency(t *testing.T) {
 			require.NoError(t, db.SaveChanges(ctx))
 		})
 	})
+}
+
+// A version field is a counter ant moves itself, so it must be a signed integer.
+// Any other type is refused when the context opens, with an error that names the
+// field and points at ant:"token", rather than panicking in the first write.
+type UnsignedDoc struct {
+	ID  int64
+	Rev uint32 `ant:"version"`
+}
+
+type StringDoc struct {
+	ID  int64
+	Rev string `ant:"version"`
+}
+
+type PointerDoc struct {
+	ID  int64
+	Rev *int64 `ant:"version"`
+}
+
+type Revision int32
+
+type NamedDoc struct {
+	ID  int64
+	Rev Revision `ant:"version"`
+}
+
+func TestVersionMustBeASignedInteger(t *testing.T) {
+	type unsignedDB struct {
+		ant.Context
+		Docs ant.Table[UnsignedDoc]
+	}
+
+	type stringDB struct {
+		ant.Context
+		Docs ant.Table[StringDoc]
+	}
+
+	type pointerDB struct {
+		ant.Context
+		Docs ant.Table[PointerDoc]
+	}
+
+	type namedDB struct {
+		ant.Context
+		Docs ant.Table[NamedDoc]
+	}
+
+	_, err := ant.Wrap[unsignedDB](postgres.Dialect, nil)
+	require.ErrorContains(t, err, "version field UnsignedDoc.Rev must be a signed integer, got uint32")
+	require.ErrorContains(t, err, `ant:"token"`)
+
+	_, err = ant.Wrap[stringDB](postgres.Dialect, nil)
+	require.ErrorContains(t, err, "version field StringDoc.Rev must be a signed integer, got string")
+
+	_, err = ant.Wrap[pointerDB](postgres.Dialect, nil)
+	require.ErrorContains(t, err, "version field PointerDoc.Rev must be a signed integer, got *int64")
+
+	_, err = ant.Wrap[namedDB](postgres.Dialect, nil)
+	require.NoError(t, err)
 }
