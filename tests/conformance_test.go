@@ -2108,7 +2108,14 @@ func TestConformanceSoftDeleteMovesVersion(t *testing.T) {
 			require.Equal(t, now, after.UpdatedAt.UTC(), "%s stamps UpdatedAt", step.name)
 
 			copyOf.Name = "stale"
-			require.ErrorAs(t, stale.SaveChanges(ctx), &conflict, "%s: a stale copy saved", step.name)
+
+			require.ErrorAs(
+				t,
+				stale.SaveChanges(ctx),
+				&conflict,
+				"%s: a stale copy saved",
+				step.name,
+			)
 		}
 	})
 }

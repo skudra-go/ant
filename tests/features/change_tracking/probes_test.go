@@ -704,6 +704,84 @@ func TestProbeVersionedMoveThenEdit(t *testing.T) {
 	})
 }
 
+// An untracked copy moved into a loaded relation is checked and moved on by its
+// own version, as a tracked one is, and gets UpdatedAt.
+func TestProbeVersionedUntrackedChildMoved(t *testing.T) {
+	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
+		ctx := t.Context()
+		_, bSeed := seedAB(t, db)
+		ses := ant.Session(db)
+		a, _ := loadAB(t, ses)
+
+		b1, err := db.Emps.NoTracking().Where(ant.Eq(&Emps.DeptID, bSeed.ID)).First(ctx)
+		require.NoError(t, err)
+
+		a.Emps = append(a.Emps, *b1)
+
+		require.NoError(t, ses.SaveChanges(ctx))
+
+		stored := storedEmp(t, db, b1.ID)
+		assert.Equal(t, a.ID, stored.DeptID)
+		assert.EqualValues(t, 2, stored.Version, "the move is a write")
+		assert.EqualValues(t, 2, a.Emps[len(a.Emps)-1].Version)
+	})
+}
+
+// A stale untracked copy moved into a loaded relation is refused.
+func TestProbeVersionedUntrackedChildConflict(t *testing.T) {
+	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
+		ctx := t.Context()
+		_, bSeed := seedAB(t, db)
+		ses := ant.Session(db)
+		a, _ := loadAB(t, ses)
+
+		b1, err := db.Emps.NoTracking().Where(ant.Eq(&Emps.DeptID, bSeed.ID)).First(ctx)
+		require.NoError(t, err)
+
+		b1.Version = 99
+		a.Emps = append(a.Emps, *b1)
+
+		require.ErrorIs(t, ses.SaveChanges(ctx), ant.ErrConcurrency)
+
+		stored := storedEmp(t, db, b1.ID)
+		assert.Equal(t, bSeed.ID, stored.DeptID, "the stale copy did not move the row")
+		assert.EqualValues(t, 1, stored.Version)
+		assert.EqualValues(t, 99, a.Emps[len(a.Emps)-1].Version, "a failed save restores it")
+	})
+}
+
+// A copy with no version, as one built from a key alone, has none to check, but
+// its move still moves the stored version on, and stamps UpdatedAt.
+func TestProbeVersionlessUntrackedChildMoved(t *testing.T) {
+	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
+		ctx := t.Context()
+		g := &Grp{Name: "g"}
+		require.NoError(t, db.Grps.InsertOnly(ctx, g))
+
+		item := &Item{Label: "loose"}
+		require.NoError(t, db.Items.InsertOnly(ctx, item))
+
+		before := storedItem(t, db, item.ID)
+
+		ses := ant.Session(db)
+		loadedGrp, err := ses.Grps.Include(&Grps.Items).Find(ctx, g.ID)
+		require.NoError(t, err)
+
+		loadedGrp.Items = append(loadedGrp.Items, Item{
+			Base:  ant.Base{ID: item.ID},
+			Label: "loose",
+		})
+
+		require.NoError(t, ses.SaveChanges(ctx))
+
+		stored := storedItem(t, db, item.ID)
+		require.NotNil(t, stored.GrpID)
+		assert.Equal(t, g.ID, *stored.GrpID)
+		assert.EqualValues(t, before.Ver+1, stored.Ver, "the stored version moved on")
+		assert.True(t, stored.UpdatedAt.After(before.UpdatedAt), "UpdatedAt is stamped")
+	})
+}
+
 // An orphan delete after an earlier save of the same row uses the new version.
 func TestProbeVersionedOrphanAfterEditSave(t *testing.T) {
 	probe(t, func(t *testing.T, db *ProbeDB, w *wlog) {
