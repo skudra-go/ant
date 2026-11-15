@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/skudra-go/ant"
+	"github.com/skudra-go/ant/dialect"
 )
 
 // Isolate returns a context bound to a transaction that rolls back when t ends, so
@@ -50,25 +51,28 @@ func Isolate[DB any](t testing.TB, db *DB) *DB {
 //
 // Files load in the order given, so parents go first. Rows are written as they are,
 // with no hooks, defaults from Go, or timestamps. A nested object or array is
-// stored as JSON text.
+// stored as JSON text. Names are quoted for the context's database, and a value
+// must be in a form that database reads: MySQL and MariaDB take a time as
+// "2026-01-01 00:00:00", which the others read too, and not with T and Z.
 func Load[DB any](t testing.TB, db *DB, fsys fs.FS, files ...string) {
 	t.Helper()
 
 	h, ok := any(db).(interface {
 		ant.Handle
+		Dialect() dialect.Dialect
 	})
 	if !ok {
 		t.Fatalf("anttest: %T does not embed ant.Context", db)
 	}
 
 	for _, file := range files {
-		if err := loadFile(t, h, fsys, file); err != nil {
+		if err := loadFile(t, h, h.Dialect(), fsys, file); err != nil {
 			t.Fatalf("anttest: load %s: %v", file, err)
 		}
 	}
 }
 
-func loadFile(t testing.TB, h ant.Handle, fsys fs.FS, file string) error {
+func loadFile(t testing.TB, h ant.Handle, d dialect.Dialect, fsys fs.FS, file string) error {
 	data, err := fs.ReadFile(fsys, file)
 	if err != nil {
 		return err
@@ -85,7 +89,7 @@ func loadFile(t testing.TB, h ant.Handle, fsys fs.FS, file string) error {
 	table := strings.TrimSuffix(file[strings.LastIndex(file, "/")+1:], ".json")
 
 	for i, row := range rows {
-		statement, args, err := insertRow(table, row)
+		statement, args, err := insertRow(d, table, row)
 		if err != nil {
 			return fmt.Errorf("row %d: %w", i, err)
 		}
@@ -98,7 +102,9 @@ func loadFile(t testing.TB, h ant.Handle, fsys fs.FS, file string) error {
 	return nil
 }
 
-func insertRow(table string, row map[string]any) (string, []any, error) {
+// insertRow writes one row's INSERT, with names quoted as d quotes them: a
+// double quote is a string to MySQL and MariaDB, which quote with backticks.
+func insertRow(d dialect.Dialect, table string, row map[string]any) (string, []any, error) {
 	columns := make([]string, 0, len(row))
 
 	for column := range row {
@@ -119,18 +125,16 @@ func insertRow(table string, row map[string]any) (string, []any, error) {
 		}
 
 		args[i] = value
-		columns[i] = quote(column)
+		columns[i] = d.Quote(column)
 	}
 
 	return fmt.Sprintf(
 		"INSERT INTO %s (%s) VALUES (%s)",
-		quote(table),
+		d.Quote(table),
 		strings.Join(columns, ", "),
 		strings.Join(marks, ", "),
 	), args, nil
 }
-
-func quote(name string) string { return `"` + strings.ReplaceAll(name, `"`, `""`) + `"` }
 
 func plain(v any) (any, error) {
 	switch v := v.(type) {
