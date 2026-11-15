@@ -113,7 +113,7 @@ func (q *Query[T]) ChunkByKey(ctx context.Context, size int, f func([]*T) error)
 		if after != nil {
 			page.where = append(
 				page.where,
-				qb.Compare{Left: column, Op: qb.OpGt, Right: qb.Param{Value: after}},
+				qb.Compare{Left: column, Op: qb.OpGt, Right: fieldParam(key, after)},
 			)
 		}
 
@@ -243,7 +243,7 @@ func seek(s source, columns []sortColumn, values []any) qb.Cond {
 				qb.Compare{
 					Left:  s.col(columns[j].field),
 					Op:    qb.OpEq,
-					Right: qb.Param{Value: values[j]},
+					Right: fieldParam(columns[j].field, values[j]),
 				},
 			)
 		}
@@ -259,7 +259,7 @@ func seek(s source, columns []sortColumn, values []any) qb.Cond {
 			qb.And{
 				Children: append(
 					all,
-					qb.Compare{Left: s.col(c.field), Op: op, Right: qb.Param{Value: values[i]}},
+					qb.Compare{Left: s.col(c.field), Op: op, Right: fieldParam(c.field, values[i])},
 				),
 			},
 		)

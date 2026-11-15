@@ -262,7 +262,7 @@ func Values[T any](h Handle, rows ...T) *Query[T] {
 		row := make([]qb.Expr, len(fields))
 
 		for i, f := range fields {
-			var cell qb.Expr = qb.Param{Value: f.Value(unsafe.Pointer(&rows[r])).Interface()}
+			var cell qb.Expr = fieldParam(f, f.Value(unsafe.Pointer(&rows[r])).Interface())
 
 			if types[i] != "" {
 				cell = qb.Cast{Value: cell, Type: types[i]}

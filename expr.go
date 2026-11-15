@@ -57,6 +57,11 @@ func SQL[V any](text string, args ...any) Expr[V] {
 		nodes[i] = qb.Param{Value: a}
 	}
 
+	// A value given with a sensitive column is as secret as the column.
+	if readsSensitive(qb.Fragment{Args: nodes}, e.refs) {
+		hideBare(nodes)
+	}
+
 	e.node = qb.Fragment{SQL: text, Args: nodes}
 
 	return e
@@ -84,7 +89,7 @@ func (e Expr[V]) parts() (qb.Expr, []*meta.Model, error) { return e.node, e.refs
 
 func (e Expr[V]) compare(op qb.Op, v V) Cond {
 	return Cond{
-		node: qb.Compare{Left: e.node, Op: op, Right: qb.Param{Value: v}},
+		node: qb.Compare{Left: e.node, Op: op, Right: hidden(v, readsSensitive(e.node, e.refs))},
 		refs: e.refs,
 		err:  e.err,
 	}
@@ -153,7 +158,7 @@ func (e Expr[V]) IsNotNull() Cond {
 
 func (e Expr[V]) binary(op string, v V) Expr[V] {
 	return Expr[V]{
-		node: qb.Binary{Left: e.node, Op: op, Right: qb.Param{Value: v}},
+		node: qb.Binary{Left: e.node, Op: op, Right: hidden(v, readsSensitive(e.node, e.refs))},
 		refs: e.refs,
 		err:  e.err,
 	}
@@ -359,6 +364,11 @@ func function[O any](name string, distinct bool, args ...exprNode) Expr[O] {
 		refs = append(refs, r...)
 	}
 
+	// A value given with a sensitive column is as secret as the column.
+	if readsSensitive(f, refs) {
+		hideBare(f.Args)
+	}
+
 	return Expr[O]{node: f, refs: refs}
 }
 
@@ -559,10 +569,11 @@ func (c CaseExpr[V]) WhenExpr(cond Cond, then Expr[V]) CaseExpr[V] {
 // ElseExpr finishes the expression, with an expression for rows no branch matched.
 func (c CaseExpr[V]) ElseExpr(value Expr[V]) Expr[V] {
 	c.node.Else = value.node
+	c.refs = append(slices.Clone(c.refs), value.refs...)
 
 	return Expr[V]{
-		node: c.node,
-		refs: append(c.refs, value.refs...),
+		node: c.hide(),
+		refs: c.refs,
 		err:  errors.Join(c.err, value.err),
 	}
 }
@@ -571,10 +582,34 @@ func (c CaseExpr[V]) ElseExpr(value Expr[V]) Expr[V] {
 func (c CaseExpr[V]) Else(value V) Expr[V] {
 	c.node.Else = qb.Param{Value: value}
 
-	return Expr[V]{node: c.node, refs: c.refs, err: c.err}
+	return Expr[V]{node: c.hide(), refs: c.refs, err: c.err}
 }
 
 // End finishes the expression, which is NULL when no branch matches.
 func (c CaseExpr[V]) End() Expr[sql.Null[V]] {
-	return Expr[sql.Null[V]]{node: c.node, refs: c.refs, err: c.err}
+	return Expr[sql.Null[V]]{node: c.hide(), refs: c.refs, err: c.err}
+}
+
+// hide returns the CASE with its values hidden from logs if it reads a
+// sensitive column: what it picks tells what the column holds.
+func (c CaseExpr[V]) hide() qb.Case {
+	if !readsSensitive(c.node, c.refs) {
+		return c.node
+	}
+
+	out := qb.Case{Whens: slices.Clone(c.node.Whens), Else: c.node.Else}
+
+	for i, w := range out.Whens {
+		then := []qb.Expr{w.Then}
+		hideBare(then)
+		out.Whens[i].Then = then[0]
+	}
+
+	if out.Else != nil {
+		other := []qb.Expr{out.Else}
+		hideBare(other)
+		out.Else = other[0]
+	}
+
+	return out
 }

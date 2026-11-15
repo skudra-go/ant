@@ -345,7 +345,7 @@ func InTuples(fields []FieldRef, tuples ...[]any) Cond {
 		row := qb.Row{Values: make([]qb.Expr, len(tuple))}
 
 		for j, v := range tuple {
-			row.Values[j] = qb.Param{Value: v}
+			row.Values[j] = fieldParam(fields[j].field, v)
 		}
 
 		values[i] = row

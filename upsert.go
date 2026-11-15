@@ -870,7 +870,7 @@ func (t *Table[T]) UpdateMany(
 			for _, ref := range fields {
 				stmt.Set = append(stmt.Set, qb.Assignment{
 					Column: ref.field.Column,
-					Value:  qb.Param{Value: ref.field.Value(entity).Interface()},
+					Value:  fieldParam(ref.field, ref.field.Value(entity).Interface()),
 				})
 			}
 
