@@ -117,7 +117,8 @@ Calls that take columns of mixed types take `ant.FieldRef`, made with
   `NULL`. Zero values are always written, never skipped.
 - Tags: `ant:"-"` (not a column), `column=name`, `unique`, `default=expr` (a zero
   value means "use the database default"), `readonly`, `writeonly`, `immutable`,
-  `computed` (filled by `Query.With`), `version` (optimistic concurrency),
+  `computed` (filled by `Query.With`), `version` (optimistic concurrency, a signed
+  integer field),
   `embedded` / `embedded,prefix=x_`. Combine with commas.
 - A field of type `ant.DeletedAt` turns on soft deletes. `ant.JSON[T]`
   stores a value as JSON.

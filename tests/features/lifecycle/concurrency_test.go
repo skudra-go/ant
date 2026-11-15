@@ -190,14 +190,27 @@ func TestVersionMustBeASignedInteger(t *testing.T) {
 	}
 
 	_, err := ant.Wrap[unsignedDB](postgres.Dialect, nil)
-	require.ErrorContains(t, err, "version field UnsignedDoc.Rev must be a signed integer, got uint32")
+	require.ErrorContains(
+		t,
+		err,
+		"version field UnsignedDoc.Rev must be a signed integer, got uint32",
+	)
+
 	require.ErrorContains(t, err, `ant:"token"`)
 
 	_, err = ant.Wrap[stringDB](postgres.Dialect, nil)
-	require.ErrorContains(t, err, "version field StringDoc.Rev must be a signed integer, got string")
+	require.ErrorContains(
+		t,
+		err,
+		"version field StringDoc.Rev must be a signed integer, got string",
+	)
 
 	_, err = ant.Wrap[pointerDB](postgres.Dialect, nil)
-	require.ErrorContains(t, err, "version field PointerDoc.Rev must be a signed integer, got *int64")
+	require.ErrorContains(
+		t,
+		err,
+		"version field PointerDoc.Rev must be a signed integer, got *int64",
+	)
 
 	_, err = ant.Wrap[namedDB](postgres.Dialect, nil)
 	require.NoError(t, err)

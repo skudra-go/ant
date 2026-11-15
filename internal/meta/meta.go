@@ -1335,6 +1335,11 @@ func build(t reflect.Type) *Model {
 	return m
 }
 
+// signedInt reports whether k is one of the signed integer kinds.
+func signedInt(k reflect.Kind) bool {
+	return k >= reflect.Int && k <= reflect.Int64
+}
+
 func walk(m *Model, t reflect.Type, offset uintptr, prefix, columnPrefix string) error {
 	for sf := range t.Fields() {
 		tag := parseTag(sf.Tag.Get("ant"))
@@ -1386,6 +1391,16 @@ func walk(m *Model, t reflect.Type, offset uintptr, prefix, columnPrefix string)
 		column := tag.column
 		if column == "" {
 			column = ColumnName(sf.Name)
+		}
+
+		// A write moves the version on by one, which needs a signed integer.
+		if tag.version && !signedInt(sf.Type.Kind()) {
+			return fmt.Errorf(
+				"ant: version field %s.%s must be a signed integer, got %s; use ant:\"token\" for a value the application manages",
+				m.Type.Name(),
+				name,
+				sf.Type,
+			)
 		}
 
 		m.Fields = append(m.Fields, &Field{
