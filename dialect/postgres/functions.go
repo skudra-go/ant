@@ -232,6 +232,8 @@ func L2Distance(field *Vector, v Vector) ant.Expr[float64] {
 }
 
 // Array stores a slice in a PostgreSQL array column of text, numbers, or booleans.
+// Its elements are never NULL: reading an array that has a NULL element is an
+// error.
 type Array[V string | int | int32 | int64 | float64 | bool] []V
 
 // ColumnType implements schema.Typed.
@@ -337,7 +339,10 @@ func parseElement[V string | int | int32 | int64 | float64 | bool](text string, 
 	return err
 }
 
-// parseArray splits a one-dimensional array literal into its elements.
+// parseArray splits a one-dimensional array literal into its elements. A NULL
+// element, which PostgreSQL writes as an unquoted NULL, is an error: an Array
+// holds plain values, so it would read as the text "NULL", false, or a parse
+// failure, and the next save would write that back in place of the NULL.
 func parseArray(text string) ([]string, error) {
 	if len(text) < 2 || text[0] != '{' || text[len(text)-1] != '}' {
 		return nil, fmt.Errorf("postgres: bad array %q", text)
@@ -351,8 +356,26 @@ func parseArray(text string) ([]string, error) {
 	var (
 		out     []string
 		current strings.Builder
-		quoted  bool
+		quoted  bool // inside quotes
+		quotes  bool // the current element has quotes
 	)
+
+	end := func() error {
+		if !quotes && strings.EqualFold(current.String(), "NULL") {
+			return fmt.Errorf(
+				"postgres: array %s has a NULL element, which an Array cannot hold",
+				text,
+			)
+		}
+
+		out = append(out, current.String())
+
+		current.Reset()
+
+		quotes = false
+
+		return nil
+	}
 
 	for i := 0; i < len(body); i++ {
 		switch c := body[i]; {
@@ -360,10 +383,11 @@ func parseArray(text string) ([]string, error) {
 			i++
 			current.WriteByte(body[i])
 		case c == '"':
-			quoted = !quoted
+			quoted, quotes = !quoted, true
 		case c == ',' && !quoted:
-			out = append(out, current.String())
-			current.Reset()
+			if err := end(); err != nil {
+				return nil, err
+			}
 		case c == '{' && !quoted:
 			return nil, fmt.Errorf("postgres: nested arrays are not supported: %q", text)
 		default:
@@ -371,5 +395,9 @@ func parseArray(text string) ([]string, error) {
 		}
 	}
 
-	return append(out, current.String()), nil
+	if err := end(); err != nil {
+		return nil, err
+	}
+
+	return out, nil
 }

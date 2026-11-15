@@ -78,10 +78,19 @@ func TestArrays(t *testing.T) {
 				`scores = ARRAY[1, NULL]`,
 				`flags = ARRAY[true, NULL]`,
 			} {
-				_, err := ant.Raw[any](db, `UPDATE items SET labels = NULL, scores = NULL, flags = NULL WHERE id = ?`, item.ID).
+				_, err := ant.Raw[any](
+					db,
+					`UPDATE items SET labels = NULL, scores = NULL, flags = NULL WHERE id = ?`,
+					item.ID,
+				).
 					Exec(ctx)
 				require.NoError(t, err)
-				_, err = ant.Raw[any](db, `UPDATE items SET `+set+` WHERE id = ?`, item.ID).Exec(ctx)
+
+				_, err = ant.Raw[any](
+					db,
+					`UPDATE items SET `+set+` WHERE id = ?`,
+					item.ID,
+				).Exec(ctx)
 				require.NoError(t, err)
 
 				_, err = db.Items.NoTracking().Find(ctx, item.ID)

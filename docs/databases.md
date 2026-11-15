@@ -85,7 +85,7 @@ Error helpers mean the same everywhere. `ant.IsUniqueViolation` works on all fiv
 
 **Parameters.** Limits differ: 65,535 on PostgreSQL and MySQL, 32,766 on SQLite, and about 2,100 on SQL Server, where ant stays at 2,000. `InsertMany`, `SaveChanges`, and `Include` split their work to fit. Your own `In` with a long list does not.
 
-**Types.** `postgres.Array`, `postgres.JSONSet`, `postgres.Vector`, and the rest of `dialect/postgres` need PostgreSQL. `Collate` quotes its name, which SQL Server does not accept.
+**Types.** `postgres.Array`, `postgres.JSONSet`, `postgres.Vector`, and the rest of `dialect/postgres` need PostgreSQL. A `postgres.Array` holds plain values, so reading an array with a NULL element is an error, not the text `NULL`, `false`, or zero. `Collate` quotes its name, which SQL Server does not accept.
 
 ## Drivers
 
