@@ -2012,34 +2012,115 @@ type EmpDB struct {
 	Emps ant.Table[Emp]
 }
 
+// openEmps makes conf_emps and opens EmpDB on it, with a clock that reads now.
+func openEmps(t *testing.T, target testdb.Target, now *time.Time) *EmpDB {
+	t.Helper()
+
+	ctx := t.Context()
+	_, err := target.DB.ExecContext(ctx, fmt.Sprintf(
+		`CREATE TABLE conf_emps (
+		id BIGINT PRIMARY KEY,
+		name VARCHAR(20) NOT NULL,
+		version BIGINT NOT NULL,
+		updated_at %[1]s NOT NULL,
+		deleted_at %[1]s NULL)`,
+		timestamps[target.Name],
+	))
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		_, _ = target.DB.ExecContext(context.Background(), "DROP TABLE conf_emps")
+	})
+
+	db, err := ant.Open[EmpDB](ctx, target.Dialect, target.DSN, ant.WithNow(func() time.Time {
+		return *now
+	}))
+	require.NoError(t, err)
+	t.Cleanup(func() { db.Close() })
+
+	return db
+}
+
+// A soft delete and a restore are updates: they move the version on and stamp
+// UpdatedAt, tracked or in bulk, so a copy loaded before either cannot save
+// into the row.
+func TestConformanceSoftDeleteMovesVersion(t *testing.T) {
+	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
+		ctx := t.Context()
+		now := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+		db := openEmps(t, target, &now)
+
+		require.NoError(t, db.Emps.InsertOnly(ctx, &Emp{ID: 1, Name: "a"}, &Emp{ID: 2, Name: "b"}))
+
+		stored := func(id int64) *Emp {
+			e, err := db.Emps.NoTracking().WithDeleted().Where(ant.Eq(&Emps.ID, id)).First(ctx)
+			require.NoError(t, err)
+
+			return e
+		}
+
+		var conflict *ant.ConcurrencyError
+
+		steps := []struct {
+			name  string
+			id    int64
+			write func() error
+		}{
+			{"tracked Remove", 1, func() error {
+				one := ant.Session(db)
+
+				e, err := one.Emps.Find(ctx, int64(1))
+				if err != nil {
+					return err
+				}
+
+				if err := ant.Remove(ctx, one, e); err != nil {
+					return err
+				}
+
+				return one.SaveChanges(ctx)
+			}},
+			{"Restore", 1, func() error {
+				_, err := db.Emps.Where(ant.Eq(&Emps.ID, int64(1))).Restore(ctx)
+
+				return err
+			}},
+			{"bulk Delete", 2, func() error {
+				_, err := db.Emps.Where(ant.Eq(&Emps.ID, int64(2))).Delete(ctx)
+
+				return err
+			}},
+			{"DeleteByID", 1, func() error { return db.Emps.DeleteByID(ctx, int64(1)) }},
+		}
+
+		for _, step := range steps {
+			stale := ant.Session(db)
+			copyOf, err := stale.Emps.WithDeleted().Where(ant.Eq(&Emps.ID, step.id)).First(ctx)
+			require.NoError(t, err)
+
+			before := stored(step.id).Version
+			now = now.Add(time.Hour)
+
+			require.NoError(t, step.write(), step.name)
+
+			after := stored(step.id)
+			require.Equal(t, before+1, after.Version, "%s moves the version on", step.name)
+			require.Equal(t, now, after.UpdatedAt.UTC(), "%s stamps UpdatedAt", step.name)
+
+			copyOf.Name = "stale"
+			require.ErrorAs(t, stale.SaveChanges(ctx), &conflict, "%s: a stale copy saved", step.name)
+		}
+	})
+}
+
 // UpdateMany keeps what a bulk Update keeps: it moves the version on, so a copy
 // loaded before cannot save over it, stamps UpdatedAt, and leaves soft-deleted
 // rows alone.
 func TestConformanceUpdateManyKeepsUp(t *testing.T) {
 	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
 		ctx := t.Context()
-		ts := timestamps[target.Name]
-		_, err := target.DB.ExecContext(ctx, fmt.Sprintf(
-			`CREATE TABLE conf_emps (
-			id BIGINT PRIMARY KEY,
-			name VARCHAR(20) NOT NULL,
-			version BIGINT NOT NULL,
-			updated_at %[1]s NOT NULL,
-			deleted_at %[1]s NULL)`,
-			ts,
-		))
-		require.NoError(t, err)
-
-		t.Cleanup(func() {
-			_, _ = target.DB.ExecContext(context.Background(), "DROP TABLE conf_emps")
-		})
-
 		now := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
-		db, err := ant.Open[EmpDB](ctx, target.Dialect, target.DSN, ant.WithNow(func() time.Time {
-			return now
-		}))
-		require.NoError(t, err)
-		t.Cleanup(func() { db.Close() })
+		db := openEmps(t, target, &now)
 
 		require.NoError(t, db.Emps.InsertOnly(
 			ctx,
@@ -2048,7 +2129,7 @@ func TestConformanceUpdateManyKeepsUp(t *testing.T) {
 			&Emp{ID: 3, Name: "gone"},
 		))
 
-		_, err = db.Emps.Where(ant.Eq(&Emps.ID, int64(3))).Delete(ctx)
+		_, err := db.Emps.Where(ant.Eq(&Emps.ID, int64(3))).Delete(ctx)
 		require.NoError(t, err)
 
 		stale, err := db.Emps.Where(ant.Eq(&Emps.ID, int64(1))).First(ctx)
