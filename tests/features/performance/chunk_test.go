@@ -80,6 +80,40 @@ func TestChunk(t *testing.T) {
 		t.Run("a bad size", func(t *testing.T) {
 			require.Error(t, ordered.Chunk(ctx, 0, func([]*User) error { return nil }))
 		})
+
+		// A shared query such as "the newest thousand" stays that when chunked.
+		t.Run("the query's own Limit and Offset are the rows to chunk", func(t *testing.T) {
+			read := func(q *ant.Query[User], size int) (names []string, sizes []int) {
+				require.NoError(t, q.Chunk(ctx, size, func(users []*User) error {
+					names = append(names, fixture.Names(users)...)
+					sizes = append(sizes, len(users))
+
+					return nil
+				}))
+
+				return names, sizes
+			}
+
+			names, sizes := read(ordered.Limit(7), 3)
+			require.Equal(t, []int{3, 3, 1}, sizes)
+			require.Equal(t, "u006", names[6])
+
+			names, sizes = read(ordered.Limit(6).Offset(20), 3)
+			require.Equal(t, []int{3, 2}, sizes, "the offset leaves five rows")
+			require.Equal(t, []string{"u020", "u021", "u022", "u023", "u024"}, names)
+
+			_, sizes = read(ordered.Limit(6), 3)
+			require.Equal(t, []int{3, 3}, sizes, "an exact multiple")
+
+			_, sizes = read(ordered.Limit(2), 10)
+			require.Equal(t, []int{2}, sizes)
+
+			names, _ = read(ordered.Offset(23), 10)
+			require.Equal(t, []string{"u023", "u024"}, names)
+
+			_, sizes = read(ordered.Limit(0), 10)
+			require.Empty(t, sizes)
+		})
 	})
 }
 
@@ -135,6 +169,37 @@ func TestChunkByKey(t *testing.T) {
 				require.Len(t, seen, 25)
 			})
 		}
+
+		// ChunkByKey orders by key, so the limit and offset count rows in key order.
+		t.Run("the query's own Limit and Offset are the rows to chunk", func(t *testing.T) {
+			read := func(q *ant.Query[User], size int) (names []string, sizes []int) {
+				require.NoError(t, q.ChunkByKey(ctx, size, func(users []*User) error {
+					names = append(names, fixture.Names(users)...)
+					sizes = append(sizes, len(users))
+
+					return nil
+				}))
+
+				return names, sizes
+			}
+
+			names, sizes := read(db.Users.Limit(7), 3)
+			require.Equal(t, []int{3, 3, 1}, sizes)
+			require.Equal(t, "u006", names[6])
+
+			names, sizes = read(db.Users.Limit(6).Offset(20), 3)
+			require.Equal(t, []int{3, 2}, sizes)
+			require.Equal(t, []string{"u020", "u021", "u022", "u023", "u024"}, names)
+
+			_, sizes = read(db.Users.Limit(6), 3)
+			require.Equal(t, []int{3, 3}, sizes)
+
+			names, _ = read(db.Users.Offset(23), 10)
+			require.Equal(t, []string{"u023", "u024"}, names)
+
+			_, sizes = read(db.Users.Limit(0), 10)
+			require.Empty(t, sizes)
+		})
 
 		t.Run("the callback can delete its rows", func(t *testing.T) {
 			require.NoError(

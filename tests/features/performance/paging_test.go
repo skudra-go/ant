@@ -54,6 +54,29 @@ func TestPage(t *testing.T) {
 			require.False(t, page.HasNext())
 		})
 
+		// Total already counted within the query's Limit, and the items agree.
+		t.Run("the query's own Limit and Offset are the rows to page", func(t *testing.T) {
+			top := q.Limit(12).Offset(10)
+
+			page, err := top.Page(ctx, 1, 5)
+			require.NoError(t, err)
+			require.EqualValues(t, 12, page.Total)
+			require.Equal(t, 3, page.Pages())
+			require.Equal(t, "u010", page.Items[0].Name)
+			require.Len(t, page.Items, 5)
+
+			page, err = top.Page(ctx, 3, 5)
+			require.NoError(t, err)
+			require.Equal(t, []string{"u020", "u021"}, fixture.Names(page.Items))
+			require.False(t, page.HasNext())
+
+			page, err = top.Page(ctx, 4, 5)
+			require.NoError(t, err)
+			require.NotNil(t, page.Items)
+			require.Empty(t, page.Items)
+			require.EqualValues(t, 12, page.Total)
+		})
+
 		t.Run("a bad page", func(t *testing.T) {
 			_, err := q.Page(ctx, 0, 10)
 			require.Error(t, err)
@@ -182,6 +205,15 @@ func TestAfter(t *testing.T) {
 
 		t.Run("a NULL in the ordering is refused, not skipped", func(t *testing.T) {
 			_, err := db.Users.Order(ant.Col(&Users.Bio).Asc()).After(ctx, "", 1)
+			require.ErrorIs(t, err, ant.ErrCursor)
+		})
+
+		// A cursor holds a place, not a count of the rows before it, so After
+		// cannot stop at a limit that spans its pages.
+		t.Run("Limit and Offset are refused", func(t *testing.T) {
+			_, err := db.Users.OrderBy(&Users.Name).Limit(5).After(ctx, "", 2)
+			require.ErrorIs(t, err, ant.ErrCursor)
+			_, err = db.Users.OrderBy(&Users.Name).Offset(5).After(ctx, "", 2)
 			require.ErrorIs(t, err, ant.ErrCursor)
 		})
 
