@@ -162,6 +162,8 @@ Appending to a relation slice can move its elements, and `slices.Delete` shifts 
 
 `SaveChanges` runs in one transaction, or a savepoint inside one, even for a single statement, as EF Core does, since PostgreSQL aborts the whole transaction when one statement fails. On failure nothing is saved, generated keys are cleared, and pending changes remain, so the call can be repeated. A rollback of an enclosing transaction also reverses what the tracker recorded as saved, which EF Core does not do. An entity whose row vanished is `ErrConcurrency`, and a changed primary key is `ErrKeyChanged`, rather than a write to the wrong row.
 
+With `WithoutAutoTx` and no transaction open, each statement stands once it runs, so a failure partway leaves the earlier rows written. Those keep their generated keys and stamps, and the tracker records them as saved and tells observers, so a retry, by hand or by `WithRetry`, writes only the rest; clearing them, as a rolled back save does, made the retry insert them again (#71). Refusing the retry instead was rejected: the rows are there, and the tracker should say so.
+
 ## 32. Navigation and foreign key changes
 
 A relation that still holds what was loaded does not touch the foreign key, so `post.UserID = 5` works with `post.User` loaded. A row removed from one loaded relation and added to another is moved, not deleted, whether the other relation was loaded or not, and whether its parent is new in the same save or not. A row in a new position only updates its foreign key. A pointer to a parent that held one when last loaded or saved, and is empty now, unlinks; one that was empty leaves the foreign key to the application.

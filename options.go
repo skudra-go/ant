@@ -79,6 +79,8 @@ type Option func(*settings)
 func WithTracking(on bool) Option { return func(s *settings) { s.tracking = on } }
 
 // WithoutAutoTx stops SaveChanges and Insert from opening a transaction of
-// their own, so a failure partway leaves earlier statements in place. Use it
-// only to control transactions yourself, or where a transaction is unavailable.
+// their own, so a failure partway leaves earlier statements in place. The
+// tracker records those as saved, with their generated keys, so a retry writes
+// only the rest. Use it only to control transactions yourself, or where a
+// transaction is unavailable.
 func WithoutAutoTx() Option { return func(s *settings) { s.autoTx = false } }

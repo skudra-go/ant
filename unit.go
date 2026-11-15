@@ -41,6 +41,10 @@ type node struct {
 	// another address, so it is no longer the node of its entity.
 	dropped bool
 
+	// wrote says the node's own statement ran. Outside a transaction it stays
+	// when a later statement of the unit fails.
+	wrote bool
+
 	generated []*meta.Field // filled by the database in this unit
 	stamped   []*meta.Field // filled in Go in this unit
 	restore   []prior       // values the unit replaced, put back if it fails
@@ -1011,11 +1015,20 @@ func (u *unit) run(ctx context.Context) error {
 
 	// Inside a transaction, even one write goes in a savepoint, so a failed
 	// save leaves the transaction usable, to be retried as SaveChanges promises.
-	err = u.s.transact(ctx, count > 1 || u.hooked() || u.s.tx != nil, func(to exec.Executor) error {
+	several := count > 1 || u.hooked() || u.s.tx != nil
+
+	// With no transaction, each statement stands once it runs.
+	standing := u.s.tx == nil && (!several || !u.s.settings.autoTx)
+
+	err = u.s.transact(ctx, several, func(to exec.Executor) error {
 		for i := 0; i < len(order); {
 			if batch := u.insertBatch(ctx, order[i:]); len(batch) > 1 {
 				if err := u.createMany(ctx, to, batch); err != nil {
 					return err
+				}
+
+				for _, n := range batch {
+					n.wrote = true
 				}
 
 				i += len(batch)
@@ -1051,6 +1064,8 @@ func (u *unit) run(ctx context.Context) error {
 				return err
 			}
 
+			n.wrote = true
+
 			if err := n.afterDelete(ctx); err != nil {
 				return err
 			}
@@ -1060,6 +1075,10 @@ func (u *unit) run(ctx context.Context) error {
 	})
 	if err != nil {
 		for _, n := range u.order {
+			if standing && n.wrote {
+				continue
+			}
+
 			for _, f := range slices.Concat(n.generated, n.stamped) {
 				f.Value(n.entity).SetZero()
 			}
@@ -1071,6 +1090,14 @@ func (u *unit) run(ctx context.Context) error {
 			}
 
 			n.restore = nil
+		}
+
+		// What was written stays, so the tracker records it, and a retry writes
+		// only the rest instead of inserting those rows again.
+		if standing {
+			u.order = slices.DeleteFunc(u.order, func(n *node) bool { return !n.wrote })
+			u.commit()
+			u.notify(ctx)
 		}
 
 		if f := u.s.settings.events.SaveFailed; f != nil {
@@ -1158,6 +1185,8 @@ func (u *unit) write(ctx context.Context, to exec.Executor, n *node, assigned []
 			return err
 		}
 
+		n.wrote = true
+
 		return n.afterInsert(ctx)
 	}
 
@@ -1178,6 +1207,8 @@ func (u *unit) write(ctx context.Context, to exec.Executor, n *node, assigned []
 	if err := u.update(ctx, to, n); err != nil {
 		return err
 	}
+
+	n.wrote = true
 
 	return n.afterUpdate(ctx)
 }
@@ -1944,7 +1975,9 @@ func (u *unit) remember(n *node) track.Change {
 // SaveChanges writes every change to tracked entities in one transaction:
 // inserts and updates with parents first, then deletes with children first. It
 // updates only the columns that changed. If anything fails, nothing is saved
-// and the tracker keeps its pending changes, so the call can be retried.
+// and the tracker keeps its pending changes, so the call can be retried. With
+// WithoutAutoTx, what was written before the failure stays saved, and only the
+// rest is pending.
 func (c *Context) SaveChanges(ctx context.Context) error {
 	s := c.state
 	if s == nil {

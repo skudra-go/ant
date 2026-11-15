@@ -234,6 +234,7 @@ func TestWithoutAutoTxRetrySavesTheRest(t *testing.T) {
 
 		first := &User{Name: "first", Email: "first@x"}
 		clash := &User{Name: "clash", Email: "taken@x"}
+
 		require.NoError(t, ant.Add(ctx, app, first))
 		require.NoError(t, ant.Add(ctx, app, clash))
 
