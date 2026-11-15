@@ -136,7 +136,9 @@ func (Post) Configure(b *ant.ModelBuilder[Post]) {
 Relations are found by name: `[]Post` on `User` with `UserID` on `Post` is
 one-to-many, `*User` on `Post` is many-to-one. Relation slices hold values (`[]Post`),
 not pointers. When the names don't fit, declare it with `b.HasMany`, `b.HasOne`,
-`b.BelongsTo` or `b.ManyToMany` and `.ForeignKey(&Posts.AuthorID)`. A relation is not
+`b.BelongsTo` or `b.ManyToMany` and `.ForeignKey(&Posts.AuthorID)`. Two relations to
+the same model (`Posts []Article` and `Edited []Article`) are `ErrNoForeignKey` until
+one sets `.ForeignKey`, because both would be guessed onto one key. A relation is not
 a column, so it can't go in `Where` or `OrderBy`.
 
 ## Queries
