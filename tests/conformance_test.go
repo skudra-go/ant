@@ -2274,3 +2274,111 @@ func TestConformanceJoinUsingFilters(t *testing.T) {
 		require.Equal(t, []string{"gone", "kept"}, got, "a probe of J, without filters")
 	})
 }
+
+// Shelf and Genre are many-to-many through conf_shelf_genres.
+type Shelf struct {
+	ID     int64
+	Name   string
+	Genres []Genre
+}
+
+func (Shelf) Configure(b *ant.ModelBuilder[Shelf]) {
+	b.Table("conf_shelves")
+	b.ManyToMany(&Shelves.Genres).Through("conf_shelf_genres").PivotColumns("shelf_id", "genre_id")
+}
+
+type Genre struct {
+	ID   int64
+	Name string
+}
+
+func (Genre) Configure(b *ant.ModelBuilder[Genre]) { b.Table("conf_genres") }
+
+var Shelves = ant.Fields[Shelf]()
+
+type ShelfDB struct {
+	ant.Context
+	Shelves ant.Table[Shelf]
+	Genres  ant.Table[Genre]
+}
+
+// Every many-to-many write works on every database: the join rows a save adds,
+// Link, Unlink, Toggle, and SyncLinks.
+func TestConformanceManyToMany(t *testing.T) {
+	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
+		ctx := t.Context()
+
+		for _, ddl := range []string{
+			`CREATE TABLE conf_shelves (id BIGINT PRIMARY KEY, name VARCHAR(20) NOT NULL)`,
+			`CREATE TABLE conf_genres (id BIGINT PRIMARY KEY, name VARCHAR(20) NOT NULL)`,
+			`CREATE TABLE conf_shelf_genres (shelf_id BIGINT NOT NULL, genre_id BIGINT NOT NULL,
+				PRIMARY KEY (shelf_id, genre_id))`,
+		} {
+			_, err := target.DB.ExecContext(ctx, ddl)
+			require.NoError(t, err)
+		}
+
+		t.Cleanup(func() {
+			for _, table := range []string{"conf_shelf_genres", "conf_genres", "conf_shelves"} {
+				_, _ = target.DB.ExecContext(context.Background(), "DROP TABLE "+table)
+			}
+		})
+
+		db, err := ant.Open[ShelfDB](ctx, target.Dialect, target.DSN)
+		require.NoError(t, err)
+		t.Cleanup(func() { db.Close() })
+
+		g := []*Genre{{ID: 1, Name: "a"}, {ID: 2, Name: "b"}, {ID: 3, Name: "c"}}
+		require.NoError(t, db.Genres.Insert(ctx, g...))
+
+		linked := func() []int64 {
+			rows, err := target.DB.QueryContext(
+				ctx,
+				"SELECT genre_id FROM conf_shelf_genres WHERE shelf_id = 1 ORDER BY genre_id",
+			)
+			require.NoError(t, err)
+
+			defer rows.Close()
+
+			var out []int64
+
+			for rows.Next() {
+				var id int64
+				require.NoError(t, rows.Scan(&id))
+
+				out = append(out, id)
+			}
+
+			require.NoError(t, rows.Err())
+
+			return out
+		}
+
+		shelf := &Shelf{ID: 1, Name: "s", Genres: []Genre{*g[0], *g[1]}}
+		require.NoError(t, db.Shelves.Insert(ctx, shelf), "Insert adds the join rows")
+		require.Equal(t, []int64{1, 2}, linked())
+
+		require.NoError(t, ant.Link(ctx, db, shelf, &Shelves.Genres, g[2], g[0], g[2]))
+		require.Equal(t, []int64{1, 2, 3}, linked(), "Link skips pairs already there")
+
+		require.NoError(t, ant.Unlink(ctx, db, shelf, &Shelves.Genres, g[1]))
+		require.Equal(t, []int64{1, 3}, linked())
+
+		require.NoError(t, ant.Toggle(ctx, db, shelf, &Shelves.Genres, g[0], g[1]))
+		require.Equal(t, []int64{2, 3}, linked(), "Toggle removes 1 and adds 2")
+
+		require.NoError(t, ant.SyncLinks(ctx, db, shelf, &Shelves.Genres, g[0], g[2]))
+		require.Equal(t, []int64{1, 3}, linked())
+
+		loaded, err := db.Shelves.Include(&Shelves.Genres).Find(ctx, int64(1))
+		require.NoError(t, err)
+
+		loaded.Genres = append(loaded.Genres, *g[1])
+		require.NoError(t, db.SaveChanges(ctx), "a save adds a join row")
+		require.Equal(t, []int64{1, 2, 3}, linked())
+
+		loaded.Genres = slices.DeleteFunc(loaded.Genres, func(x Genre) bool { return x.ID == 1 })
+		require.NoError(t, db.SaveChanges(ctx), "a save removes one")
+		require.Equal(t, []int64{2, 3}, linked())
+	})
+}
