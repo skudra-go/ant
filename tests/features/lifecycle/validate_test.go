@@ -135,3 +135,26 @@ func TestPrune(t *testing.T) {
 		require.Zero(t, count)
 	})
 }
+
+const uniqueSignupsDDL = `CREATE TABLE signups (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, age INT NOT NULL)`
+
+// Upsert checks the rules as Insert does.
+func TestFieldRulesOnUpsert(t *testing.T) {
+	fixture.RunWith(t, uniqueSignupsDDL, func(t *testing.T, db *ValidDB) {
+		ctx := t.Context()
+
+		_, err := db.Signups.Upsert(
+			ctx,
+			&Signup{Name: "", Email: "a@example.com"},
+			ant.OnConflict(&Signups.Email).DoUpdate(ant.F(&Signups.Name)),
+		)
+
+		var invalid *ant.ValidationError
+		require.ErrorAs(t, err, &invalid)
+		require.Equal(t, "Name", invalid.Field)
+
+		n, err := db.Signups.Count(ctx)
+		require.NoError(t, err)
+		require.Zero(t, n)
+	})
+}

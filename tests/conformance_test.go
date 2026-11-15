@@ -3,6 +3,7 @@ package tests
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -298,6 +299,41 @@ func TestConformanceUpsert(t *testing.T) {
 		)
 		require.NoError(t, err)
 		require.EqualValues(t, 1, n)
+	})
+}
+
+// A rolled back Upsert takes back what it filled in, as a rolled back Insert
+// does: the generated key and the timestamps, and the entity is no longer
+// tracked, so the next save inserts it.
+func TestConformanceUpsertRollback(t *testing.T) {
+	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
+		if !has(target, dialect.OnConflict) {
+			t.Skip("no upsert on " + target.Name)
+		}
+
+		app := openApp(t, target)
+		ctx := t.Context()
+		stop := errors.New("stop")
+		u := &User{Name: "a", Email: "a@x", Age: 1}
+
+		err := app.Tx(ctx, func(tx *AppDB) error {
+			if _, err := tx.Users.Upsert(ctx, u, ant.OnConflict(&Users.Email)); err != nil {
+				return err
+			}
+
+			return stop
+		})
+		require.ErrorIs(t, err, stop)
+		require.Zero(t, u.ID, "the rolled back key was taken back")
+		require.True(t, u.CreatedAt.IsZero(), "the rolled back stamp was taken back")
+
+		entry, err := ant.Entry(ctx, app, u)
+		require.NoError(t, err)
+		require.Equal(t, ant.Detached, entry.State())
+
+		require.NoError(t, ant.Add(ctx, app, u))
+		require.NoError(t, app.SaveChanges(ctx))
+		require.Equal(t, 1, countRows(t, target.DB, "users"))
 	})
 }
 

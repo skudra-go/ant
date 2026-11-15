@@ -362,3 +362,70 @@ func TestObserversWithoutTracking(t *testing.T) {
 		require.Equal(t, []string{"kept"}, inserted)
 	})
 }
+
+const uniqueMembersDDL = `CREATE TABLE members (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE)`
+
+// Upsert offers its entity as a new row, so it runs Validate and the insert
+// hooks, whichever way the database goes.
+func TestUpsertHooks(t *testing.T) {
+	fixture.RunTrackedWith(t, uniqueMembersDDL, func(t *testing.T, db *MembersDB) {
+		ctx := t.Context()
+		byEmail := func() *ant.Conflict {
+			return ant.OnConflict(&Members.Email).DoUpdate(ant.F(&Members.Name))
+		}
+		count := func() int64 {
+			n, err := db.Members.Count(ctx)
+			require.NoError(t, err)
+
+			return n
+		}
+
+		t.Run("an insert runs the hooks, in order", func(t *testing.T) {
+			m := &Member{Name: "Ann", Email: "ANN@X"}
+			wrote, err := db.Members.Upsert(ctx, m, byEmail())
+			require.NoError(t, err)
+			require.True(t, wrote)
+			require.Equal(t, []string{"before insert", "after insert"}, m.Log)
+			require.Equal(t, "ann@x", m.Email, "a before hook can change what is written")
+		})
+
+		t.Run("an update runs them too", func(t *testing.T) {
+			m := &Member{Name: "Anna", Email: "Ann@X"}
+			_, err := db.Members.Upsert(ctx, m, byEmail())
+			require.NoError(t, err)
+			require.Equal(t, []string{"before insert", "after insert"}, m.Log)
+
+			got, err := db.Members.NoTracking().Find(ctx, m.ID)
+			require.NoError(t, err)
+			require.Equal(t, "Anna", got.Name, "the lowered email found the row")
+		})
+
+		t.Run("Validate stops the write", func(t *testing.T) {
+			before := count()
+			m := &Member{Email: "nameless@x"}
+
+			_, err := db.Members.Upsert(ctx, m, byEmail())
+			require.ErrorIs(t, err, errInvalid)
+			require.Equal(t, before, count())
+			require.Zero(t, m.ID)
+		})
+
+		t.Run("an after hook's error undoes the write", func(t *testing.T) {
+			before := count()
+			m := &Member{Name: "fail after insert", Email: "fail@x"}
+
+			_, err := db.Members.Upsert(ctx, m, byEmail())
+			require.ErrorContains(t, err, "rejected")
+			require.Equal(t, before, count())
+			require.Zero(t, m.ID)
+			require.Equal(t, ant.Detached, fixture.Entry(t, db, m).State(), "a failed upsert is not tracked")
+		})
+
+		t.Run("WithoutHooks skips them", func(t *testing.T) {
+			m := &Member{Email: "NOT LOWERED"}
+			_, err := db.Members.Upsert(ant.WithoutHooks(ctx), m, byEmail())
+			require.NoError(t, err)
+			require.Empty(t, m.Log)
+		})
+	})
+}
