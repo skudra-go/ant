@@ -869,35 +869,7 @@ func (q *Query[T]) update(a []Assignment) (*qb.Update, *Query[T], error) {
 		return nil, nil, err
 	}
 
-	if updated := model.Updated; updated != nil &&
-		!slices.ContainsFunc(set, func(a qb.Assignment) bool {
-			return a.Column == updated.Column
-		}) {
-		set = append(
-			set,
-			qb.Assignment{
-				Column: updated.Column,
-				Value: qb.Param{
-					Value: timeValue(updated, n.state.settings.timestamp()).Interface(),
-				},
-			},
-		)
-	}
-
-	if v := model.Version; v != nil {
-		// Holders of a loaded copy must see this as a conflict.
-		set = append(
-			set,
-			qb.Assignment{
-				Column: v.Column,
-				Value: qb.Binary{
-					Left:  qb.Column{Name: v.Column},
-					Op:    "+",
-					Right: qb.Param{Value: 1},
-				},
-			},
-		)
-	}
+	set = stamps(model, set, n.state.settings.timestamp())
 
 	return &qb.Update{Table: model.Table, Set: set, Where: where}, n, nil
 }
@@ -926,6 +898,40 @@ func (q *Query[T]) UpdateReturning(ctx context.Context, a ...Assignment) ([]*T, 
 	return n.readRows(ctx, stmt)
 }
 
+// stamps adds what every UPDATE of model's rows writes: UpdatedAt, unless set
+// assigns it, and the version moved on, so holders of a loaded copy see the
+// write as a conflict.
+func stamps(model *meta.Model, set []qb.Assignment, now time.Time) []qb.Assignment {
+	if updated := model.Updated; updated != nil &&
+		!slices.ContainsFunc(set, func(a qb.Assignment) bool {
+			return a.Column == updated.Column
+		}) {
+		set = append(
+			set,
+			qb.Assignment{
+				Column: updated.Column,
+				Value:  qb.Param{Value: timeValue(updated, now).Interface()},
+			},
+		)
+	}
+
+	if v := model.Version; v != nil {
+		set = append(
+			set,
+			qb.Assignment{
+				Column: v.Column,
+				Value: qb.Binary{
+					Left:  qb.Column{Name: v.Column},
+					Op:    "+",
+					Right: qb.Param{Value: 1},
+				},
+			},
+		)
+	}
+
+	return set
+}
+
 // delete returns the statement for Delete: an UPDATE for a soft-deleted model.
 func (q *Query[T]) delete(force bool) (qb.Statement, error) {
 	if err := q.writable(); err != nil {
@@ -950,7 +956,11 @@ func (q *Query[T]) delete(force bool) (qb.Statement, error) {
 		return &qb.Update{
 			Table: model.Table,
 			Where: where,
-			Set:   []qb.Assignment{{Column: soft.Column, Value: qb.Param{Value: deleted}}},
+			Set: stamps(
+				model,
+				[]qb.Assignment{{Column: soft.Column, Value: qb.Param{Value: deleted}}},
+				q.state.settings.timestamp(),
+			),
 		}, nil
 	}
 
@@ -1005,7 +1015,11 @@ func (q *Query[T]) Restore(ctx context.Context) (int64, error) {
 	return n.state.run(ctx, &qb.Update{
 		Table: n.model().Table,
 		Where: where,
-		Set:   []qb.Assignment{{Column: soft.Column, Value: qb.Param{Value: nil}}},
+		Set: stamps(
+			n.model(),
+			[]qb.Assignment{{Column: soft.Column, Value: qb.Param{Value: nil}}},
+			n.state.settings.timestamp(),
+		),
 	})
 }
 

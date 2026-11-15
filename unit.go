@@ -1693,14 +1693,19 @@ func (u *unit) delete(ctx context.Context, to exec.Executor, n *node) error {
 	where = append(where, u.tokenConditions(n)...)
 
 	if soft := n.model.SoftDelete; soft != nil {
-		deleted := meta.DeletedAt{
-			Null: sql.Null[time.Time]{V: u.s.settings.timestamp(), Valid: true},
-		}
+		now := u.s.settings.timestamp()
+		deleted := meta.DeletedAt{Null: sql.Null[time.Time]{V: now, Valid: true}}
 
+		// A soft delete is an update: it moves the version on, so a stale copy
+		// cannot save into the deleted row.
 		return u.writeOne(ctx, to, n, &qb.Update{
 			Table: n.model.Table,
 			Where: where,
-			Set:   []qb.Assignment{{Column: soft.Column, Value: qb.Param{Value: deleted}}},
+			Set: stamps(
+				n.model,
+				[]qb.Assignment{{Column: soft.Column, Value: qb.Param{Value: deleted}}},
+				now,
+			),
 		})
 	}
 
