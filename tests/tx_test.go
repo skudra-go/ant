@@ -218,3 +218,36 @@ func TestTxNestedBegin(t *testing.T) {
 		require.Equal(t, 3, countRows(t, target.DB, "users"))
 	})
 }
+
+// With WithoutAutoTx, the rows a failed save wrote before the failure stay, and
+// the tracker records them, so a retry writes only the rest.
+func TestWithoutAutoTxRetrySavesTheRest(t *testing.T) {
+	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
+		ctx := t.Context()
+
+		app, err := ant.Open[AppDB](ctx, target.Dialect, target.DSN, ant.WithoutAutoTx())
+		require.NoError(t, err)
+		t.Cleanup(func() { app.Close() })
+
+		taken := &User{Name: "taken", Email: "taken@x"}
+		require.NoError(t, app.Users.Insert(ctx, taken))
+
+		first := &User{Name: "first", Email: "first@x"}
+		clash := &User{Name: "clash", Email: "taken@x"}
+		require.NoError(t, ant.Add(ctx, app, first))
+		require.NoError(t, ant.Add(ctx, app, clash))
+
+		require.Error(t, app.SaveChanges(ctx))
+		require.Equal(t, 2, countRows(t, target.DB, "users"), "the first insert stays")
+		require.NotZero(t, first.ID, "and keeps its key")
+
+		entry, err := ant.Entry(ctx, app, first)
+		require.NoError(t, err)
+		require.Equal(t, ant.Unchanged, entry.State(), "the tracker knows it was saved")
+
+		clash.Email = "clash@x"
+
+		require.NoError(t, app.SaveChanges(ctx))
+		require.Equal(t, 3, countRows(t, target.DB, "users"), "the retry inserts only the rest")
+	})
+}
