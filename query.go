@@ -368,6 +368,19 @@ func (q *Query[T]) columns() []*meta.Field {
 	})
 }
 
+// need makes q read fields that Column or Omit may have left out, for a caller
+// that works from their values, as paging does from the key. q is the caller's
+// own copy.
+func (q *Query[T]) need(fields ...*meta.Field) {
+	for _, field := range fields {
+		if len(q.selected) > 0 && !slices.Contains(q.selected, field) {
+			q.selected = append(q.selected, field)
+		}
+
+		q.omitted = slices.DeleteFunc(q.omitted, func(f *meta.Field) bool { return f == field })
+	}
+}
+
 // selection returns the select list. For a query that chose and left out no
 // column, which most are, it is the model's own list, made once: appending to
 // it copies it, and no caller changes it in place.

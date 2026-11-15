@@ -90,7 +90,8 @@ func (q *Query[T]) Chunk(ctx context.Context, size int, f func([]*T) error) erro
 }
 
 // ChunkByKey reads matching rows in key order, in groups of size. It tracks its
-// place by key, so f can change or delete the rows it receives.
+// place by key, so f can change or delete the rows it receives. The key is read
+// even if Column or Omit left it out.
 func (q *Query[T]) ChunkByKey(ctx context.Context, size int, f func([]*T) error) error {
 	if size < 1 {
 		return fmt.Errorf("ant: chunk size %d", size)
@@ -104,6 +105,7 @@ func (q *Query[T]) ChunkByKey(ctx context.Context, size int, f func([]*T) error)
 	column := q.sources[0].col(key)
 	base := q.next()
 	base.order = []qb.Order{{Value: column}}
+	base.need(key)
 
 	var after any
 
@@ -183,7 +185,8 @@ func (q *Query[T]) keyset() ([]sortColumn, error) {
 // After returns the page following cursor, which is empty for the first page.
 // Each page costs the same however deep it is, and rows added meanwhile do not
 // shift it. The ordering must use columns of this table that are never NULL. Pass
-// Next from the previous page to continue.
+// Next from the previous page to continue. The cursor is made of the ordering
+// and the key, so those columns are read even if Column or Omit left them out.
 func (q *Query[T]) After(ctx context.Context, cursor string, size int) (*CursorPage[T], error) {
 	if size < 1 {
 		return nil, fmt.Errorf("ant: page size %d", size)
@@ -200,6 +203,8 @@ func (q *Query[T]) After(ctx context.Context, cursor string, size int) (*CursorP
 
 	for i, c := range columns {
 		n.order[i] = qb.Order{Value: q.sources[0].col(c.field), Desc: c.desc}
+
+		n.need(c.field)
 	}
 
 	if cursor != "" {

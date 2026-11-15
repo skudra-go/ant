@@ -247,11 +247,7 @@ func fetchRelated[R any](
 
 		q.where = append(q.where, qb.In{Left: q.sources[0].col(field), Values: values})
 
-		if len(q.selected) > 0 && !slices.Contains(q.selected, field) {
-			q.selected = append(q.selected, field)
-		}
-
-		q.omitted = slices.DeleteFunc(q.omitted, func(f *meta.Field) bool { return f == field })
+		q.need(field)
 
 		found, err := q.fetch(ctx, q.relatedStatement(field))
 		if err != nil {
