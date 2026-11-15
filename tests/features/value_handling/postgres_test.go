@@ -67,6 +67,28 @@ func TestArrays(t *testing.T) {
 			require.Empty(t, got.Scores)
 		})
 
+		// Other SQL can put a NULL inside an array. No Go value of the slice
+		// stands for it, so the read fails and nothing wrong is saved back.
+		t.Run("a NULL element is an error", func(t *testing.T) {
+			item := &Item{Title: "n"}
+			require.NoError(t, db.Items.Insert(ctx, item))
+
+			for _, set := range []string{
+				`labels = ARRAY['x', NULL, 'NULL']`,
+				`scores = ARRAY[1, NULL]`,
+				`flags = ARRAY[true, NULL]`,
+			} {
+				_, err := ant.Raw[any](db, `UPDATE items SET labels = NULL, scores = NULL, flags = NULL WHERE id = ?`, item.ID).
+					Exec(ctx)
+				require.NoError(t, err)
+				_, err = ant.Raw[any](db, `UPDATE items SET `+set+` WHERE id = ?`, item.ID).Exec(ctx)
+				require.NoError(t, err)
+
+				_, err = db.Items.NoTracking().Find(ctx, item.ID)
+				require.ErrorContains(t, err, "NULL element", set)
+			}
+		})
+
 		t.Run("an edit in place is tracked", func(t *testing.T) {
 			item := &Item{Title: "d", Scores: []int{1}}
 			require.NoError(t, db.Items.Insert(ctx, item))
