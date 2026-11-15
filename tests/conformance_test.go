@@ -2447,3 +2447,234 @@ func TestConformanceManyToMany(t *testing.T) {
 		require.Equal(t, []int64{2, 3}, linked())
 	})
 }
+
+// Venue reaches Act through the join table conf_venue_acts, and Gig through its
+// stages.
+type Venue struct {
+	ID   int64
+	Name string
+	Acts []Act
+	Gigs []Gig
+}
+
+func (Venue) Configure(b *ant.ModelBuilder[Venue]) {
+	b.Table("conf_venues")
+	b.ManyToMany(&Venues.Acts).Through("conf_venue_acts").PivotColumns("venue_id", "act_id")
+	b.HasManyThrough(&Venues.Gigs, &Stages.VenueID, &Gigs.StageID)
+}
+
+type Act struct {
+	ID   int64
+	Name string
+}
+
+func (Act) Configure(b *ant.ModelBuilder[Act]) { b.Table("conf_acts") }
+
+type Stage struct {
+	ID      int64
+	VenueID int64
+}
+
+func (Stage) Configure(b *ant.ModelBuilder[Stage]) { b.Table("conf_stages") }
+
+type Gig struct {
+	ID      int64
+	StageID int64
+	Title   string
+}
+
+func (Gig) Configure(b *ant.ModelBuilder[Gig]) { b.Table("conf_gigs") }
+
+var (
+	Venues = ant.Fields[Venue]()
+	Acts   = ant.Fields[Act]()
+	Stages = ant.Fields[Stage]()
+	Gigs   = ant.Fields[Gig]()
+)
+
+type VenueDB struct {
+	ant.Context
+	Venues ant.Table[Venue]
+	Acts   ant.Table[Act]
+	Stages ant.Table[Stage]
+	Gigs   ant.Table[Gig]
+}
+
+// Limit and Offset in an Include apply to each parent, also when the relation
+// goes through a join table or a table in between, where one related row can
+// belong to several parents and be inside the limit of some only.
+func TestConformanceIncludeLimitThroughATable(t *testing.T) {
+	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
+		ctx := t.Context()
+
+		for _, ddl := range []string{
+			`CREATE TABLE conf_venues (id BIGINT PRIMARY KEY, name VARCHAR(20) NOT NULL)`,
+			`CREATE TABLE conf_acts (id BIGINT PRIMARY KEY, name VARCHAR(20) NOT NULL)`,
+			`CREATE TABLE conf_venue_acts (venue_id BIGINT NOT NULL, act_id BIGINT NOT NULL,
+				PRIMARY KEY (venue_id, act_id))`,
+			`CREATE TABLE conf_stages (id BIGINT PRIMARY KEY, venue_id BIGINT NOT NULL)`,
+			`CREATE TABLE conf_gigs (id BIGINT PRIMARY KEY, stage_id BIGINT NOT NULL,
+				title VARCHAR(20) NOT NULL)`,
+		} {
+			_, err := target.DB.ExecContext(ctx, ddl)
+			require.NoError(t, err)
+		}
+
+		t.Cleanup(func() {
+			for _, table := range []string{
+				"conf_gigs", "conf_stages", "conf_venue_acts", "conf_acts", "conf_venues",
+			} {
+				_, _ = target.DB.ExecContext(context.Background(), "DROP TABLE "+table)
+			}
+		})
+
+		db, err := ant.Open[VenueDB](ctx, target.Dialect, target.DSN)
+		require.NoError(t, err)
+		t.Cleanup(func() { db.Close() })
+
+		acts := []*Act{{ID: 1, Name: "a1"}, {ID: 2, Name: "a2"}, {ID: 3, Name: "a3"}, {ID: 4, Name: "a4"}}
+		require.NoError(t, db.Acts.Insert(ctx, acts...))
+
+		// Venue 1 has acts 1 to 3, venue 2 has acts 2 to 4, and venue 3 has none.
+		require.NoError(t, db.Venues.Insert(
+			ctx,
+			&Venue{ID: 1, Name: "v1", Acts: []Act{*acts[0], *acts[1], *acts[2]}},
+			&Venue{ID: 2, Name: "v2", Acts: []Act{*acts[1], *acts[2], *acts[3]}},
+			&Venue{ID: 3, Name: "v3"},
+		))
+
+		// Venue 1 has two stages with gigs g1, g3 and g2, venue 2 has one with
+		// g4 to g6.
+		require.NoError(t, db.Stages.Insert(
+			ctx,
+			&Stage{ID: 1, VenueID: 1},
+			&Stage{ID: 2, VenueID: 1},
+			&Stage{ID: 3, VenueID: 2},
+		))
+		require.NoError(t, db.Gigs.Insert(
+			ctx,
+			&Gig{ID: 1, StageID: 1, Title: "g1"},
+			&Gig{ID: 2, StageID: 2, Title: "g2"},
+			&Gig{ID: 3, StageID: 1, Title: "g3"},
+			&Gig{ID: 4, StageID: 3, Title: "g4"},
+			&Gig{ID: 5, StageID: 3, Title: "g5"},
+			&Gig{ID: 6, StageID: 3, Title: "g6"},
+		))
+
+		actNames := func(shape func(*ant.Query[Act]) *ant.Query[Act]) [][]string {
+			venues, err := db.Venues.OrderBy(&Venues.ID).Include(&Venues.Acts, shape).All(ctx)
+			require.NoError(t, err)
+			require.Len(t, venues, 3)
+
+			out := make([][]string, len(venues))
+
+			for i, v := range venues {
+				require.NotNil(t, v.Acts, "loaded, if empty")
+
+				out[i] = []string{}
+
+				for _, a := range v.Acts {
+					out[i] = append(out[i], a.Name)
+				}
+			}
+
+			return out
+		}
+
+		for _, c := range []struct {
+			name  string
+			shape func(*ant.Query[Act]) *ant.Query[Act]
+			want  [][]string
+		}{
+			{
+				"limit",
+				func(q *ant.Query[Act]) *ant.Query[Act] { return q.OrderBy(&Acts.Name).Limit(2) },
+				[][]string{{"a1", "a2"}, {"a2", "a3"}, {}},
+			},
+			{
+				"limit, descending",
+				func(q *ant.Query[Act]) *ant.Query[Act] { return q.OrderByDesc(&Acts.Name).Limit(1) },
+				[][]string{{"a3"}, {"a4"}, {}},
+			},
+			{
+				"offset",
+				func(q *ant.Query[Act]) *ant.Query[Act] { return q.OrderBy(&Acts.Name).Offset(2) },
+				[][]string{{"a3"}, {"a4"}, {}},
+			},
+			{
+				"offset and limit",
+				func(q *ant.Query[Act]) *ant.Query[Act] {
+					return q.OrderBy(&Acts.Name).Offset(1).Limit(1)
+				},
+				[][]string{{"a2"}, {"a3"}, {}},
+			},
+			{
+				"filtered",
+				func(q *ant.Query[Act]) *ant.Query[Act] {
+					return q.Where(ant.Ne(&Acts.Name, "a2")).OrderBy(&Acts.Name).Limit(2)
+				},
+				[][]string{{"a1", "a3"}, {"a3", "a4"}, {}},
+			},
+			{
+				"a limit larger than any parent has",
+				func(q *ant.Query[Act]) *ant.Query[Act] { return q.OrderBy(&Acts.Name).Limit(9) },
+				[][]string{{"a1", "a2", "a3"}, {"a2", "a3", "a4"}, {}},
+			},
+			{
+				"no limit",
+				func(q *ant.Query[Act]) *ant.Query[Act] { return q.OrderBy(&Acts.Name) },
+				[][]string{{"a1", "a2", "a3"}, {"a2", "a3", "a4"}, {}},
+			},
+		} {
+			t.Run("many-to-many, "+c.name, func(t *testing.T) {
+				require.Equal(t, c.want, actNames(c.shape))
+			})
+		}
+
+		gigTitles := func(shape func(*ant.Query[Gig]) *ant.Query[Gig]) [][]string {
+			venues, err := db.Venues.OrderBy(&Venues.ID).Include(&Venues.Gigs, shape).All(ctx)
+			require.NoError(t, err)
+			require.Len(t, venues, 3)
+
+			out := make([][]string, len(venues))
+
+			for i, v := range venues {
+				out[i] = []string{}
+
+				for _, g := range v.Gigs {
+					out[i] = append(out[i], g.Title)
+				}
+			}
+
+			return out
+		}
+
+		for _, c := range []struct {
+			name  string
+			shape func(*ant.Query[Gig]) *ant.Query[Gig]
+			want  [][]string
+		}{
+			{
+				"limit",
+				func(q *ant.Query[Gig]) *ant.Query[Gig] { return q.OrderBy(&Gigs.Title).Limit(2) },
+				[][]string{{"g1", "g2"}, {"g4", "g5"}, {}},
+			},
+			{
+				"offset and limit",
+				func(q *ant.Query[Gig]) *ant.Query[Gig] {
+					return q.OrderByDesc(&Gigs.Title).Offset(1).Limit(1)
+				},
+				[][]string{{"g2"}, {"g5"}, {}},
+			},
+			{
+				"no limit",
+				func(q *ant.Query[Gig]) *ant.Query[Gig] { return q.OrderBy(&Gigs.Title) },
+				[][]string{{"g1", "g2", "g3"}, {"g4", "g5", "g6"}, {}},
+			},
+		} {
+			t.Run("through a table, "+c.name, func(t *testing.T) {
+				require.Equal(t, c.want, gigTitles(c.shape))
+			})
+		}
+	})
+}
