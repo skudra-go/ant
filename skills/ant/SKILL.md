@@ -305,7 +305,8 @@ err := db.Tx(ctx, func(tx *AppDB) error {
   `ant.ReadOnly()`, `ant.Attempts(3)` to rerun after a deadlock or serialization
   failure.
 - `ForUpdate()` on a query locks the rows it reads. SQLite and SQL Server return
-  `ant.ErrUnsupported`.
+  `ant.ErrUnsupported`. `Count`, `Exists` and the aggregates of a locked query
+  run without the lock.
 - A transaction is one connection: use it from one goroutine at a time.
 
 ## Errors
