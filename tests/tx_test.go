@@ -2,7 +2,9 @@ package tests
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -250,5 +252,72 @@ func TestWithoutAutoTxRetrySavesTheRest(t *testing.T) {
 
 		require.NoError(t, app.SaveChanges(ctx))
 		require.Equal(t, 3, countRows(t, target.DB, "users"), "the retry inserts only the rest")
+	})
+}
+
+// endsTx ends the transaction on the server, as a deadlock does on MySQL and SQL
+// Server, just before the INSERT that writes match, and fails that INSERT.
+type endsTx struct {
+	match string
+	tx    atomic.Pointer[sql.Tx]
+}
+
+var errDeadlock = errors.New("deadlock")
+
+func (e *endsTx) Before(ctx context.Context, s *ant.Statement) (context.Context, error) {
+	tx := e.tx.Load()
+	if tx == nil || !strings.HasPrefix(s.SQL, "INSERT") || !slices.Contains(s.Args, any(e.match)) {
+		return ctx, nil
+	}
+
+	e.tx.Store(nil)
+
+	if _, err := tx.ExecContext(ctx, "ROLLBACK"); err != nil {
+		return ctx, err
+	}
+
+	return ctx, errDeadlock
+}
+
+func (*endsTx) After(context.Context, *ant.Statement, ant.Outcome) {}
+
+// When the database ends the whole transaction under a save's savepoint, as a
+// deadlock does on MySQL and SQL Server, the transaction is over: ant refuses
+// to run anything more in it, rather than running it outside any transaction,
+// and the saves made in it before are undone in the tracker.
+func TestSavepointLostEndsTx(t *testing.T) {
+	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
+		ctx := t.Context()
+		ends := &endsTx{match: "Second"}
+
+		app, err := ant.Open[AppDB](ctx, target.Dialect, target.DSN, ant.WithInterceptor(ends))
+		require.NoError(t, err)
+		t.Cleanup(func() { app.Close() })
+
+		first := &User{Name: "First", Email: "first@x"}
+		second := &User{Name: "Second", Email: "second@x"}
+
+		var retried error
+
+		err = app.Tx(ctx, func(tx *AppDB) error {
+			if err := tx.Users.Insert(ctx, first); err != nil {
+				return err
+			}
+
+			ends.tx.Store(ant.CurrentTx(tx))
+
+			require.NoError(t, ant.Add(ctx, tx, second))
+			require.ErrorIs(t, tx.SaveChanges(ctx), errDeadlock)
+
+			// The caller retries, as decision 31 allows, and moves on.
+			retried = tx.SaveChanges(ctx)
+
+			return nil
+		})
+
+		require.ErrorIs(t, retried, ant.ErrTxDone, "the retry ran outside the transaction")
+		require.ErrorIs(t, err, ant.ErrTxDone, "the lost transaction committed")
+		require.Zero(t, countRows(t, target.DB, "users"))
+		require.Zero(t, first.ID, "the lost insert keeps no key")
 	})
 }
