@@ -450,6 +450,9 @@ type Lock struct {
 	Mode       string // "UPDATE" or "SHARE"
 	NoWait     bool
 	SkipLocked bool
+	// Of names the one table whose rows to lock, by its alias or else its name
+	// in the statement. Empty locks the rows of every table.
+	Of string
 }
 
 // CTE is one WITH entry. Key names the columns that tell its rows apart, for a

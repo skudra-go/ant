@@ -48,8 +48,23 @@ func (q *Query[T]) IncludeJoined[R any](rel **R) *Query[T] {
 	return n
 }
 
-// addJoined puts the joined includes into a statement.
+// addJoined puts the joined includes into a statement. A row lock stays on the
+// query's own table: the includes are left joins, and PostgreSQL refuses to
+// lock the side of one that can be NULL.
 func (q *Query[T]) addJoined(stmt *qb.Select) {
+	if stmt.Lock != nil && len(q.inJoin) > 0 {
+		lock := *stmt.Lock
+
+		switch {
+		case stmt.From.Alias != "":
+			lock.Of = stmt.From.Alias
+		case stmt.From.Table != nil:
+			lock.Of = stmt.From.Table.Name
+		}
+
+		stmt.Lock = &lock
+	}
+
 	for _, j := range q.inJoin {
 		on := append(
 			[]qb.Cond{

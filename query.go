@@ -161,7 +161,10 @@ func (q *Query[T]) Hint(hint string) *Query[T] {
 	return n
 }
 
-// ForUpdate locks the selected rows until the transaction ends.
+// ForUpdate locks the selected rows until the transaction ends. The lock is on
+// the rows the query returns: Count, Exists, the aggregates, and the total of
+// Page take none, and with IncludeJoined the related rows are not locked,
+// except on MariaDB, which cannot lock one table of a join.
 func (q *Query[T]) ForUpdate() *Query[T] { return q.locked(qb.Lock{Mode: "UPDATE"}) }
 
 // ForShare locks the selected rows against changes until the transaction ends,

@@ -861,6 +861,11 @@ func (r *renderer) selectStmt(s *qb.Select) {
 
 		r.write(" FOR " + s.Lock.Mode)
 
+		if s.Lock.Of != "" && !r.s.NoLockOf {
+			r.write(" OF ")
+			r.quote(s.Lock.Of)
+		}
+
 		switch {
 		case s.Lock.NoWait:
 			r.write(" NOWAIT")

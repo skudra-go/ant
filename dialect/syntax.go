@@ -83,6 +83,9 @@ type Syntax struct {
 	// database whose MERGE otherwise lets two at once both find no row and
 	// both insert it.
 	MergeHoldLock bool
+	// NoLockOf leaves the OF table off a row lock, for a database that has no
+	// such clause. It then locks the rows of every table the statement reads.
+	NoLockOf bool
 	// TransactSavepoints uses SAVE TRANSACTION, which has no release.
 	TransactSavepoints bool
 	// RetryEndsTx says a deadlock or serialization failure rolls back the whole

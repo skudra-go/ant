@@ -8,7 +8,9 @@ import (
 )
 
 // scalar reads one value of an expression over the query's rows. NULL, as from
-// SUM over no rows, gives the zero value.
+// SUM over no rows, gives the zero value. It reads no row a lock could hold, so
+// a query's ForUpdate or ForShare is left out, here and in the other counts and
+// aggregates: PostgreSQL refuses a lock on an aggregate.
 func scalar[V any](ctx context.Context, b *builder, value Expr[V]) (V, error) {
 	var zero V
 
@@ -20,6 +22,7 @@ func scalar[V any](ctx context.Context, b *builder, value Expr[V]) (V, error) {
 	n.refs = append(n.refs, value.refs...)
 
 	n.order = nil
+	n.lock = nil
 
 	if err := n.ready(); err != nil {
 		return zero, err
@@ -51,6 +54,7 @@ func (q *Query[T]) Count(ctx context.Context) (int64, error) {
 
 	inner := q.statement(q.selection())
 	inner.Order = nil
+	inner.Lock = nil
 
 	const alias = "ant_counted"
 
@@ -81,6 +85,7 @@ func (q *Query[T]) Exists(ctx context.Context) (bool, error) {
 
 	inner := q.statement([]qb.Selected{{Value: qb.Fragment{SQL: "1"}}})
 	inner.Order = nil
+	inner.Lock = nil
 
 	rows, err := q.state.query(
 		ctx,
@@ -145,6 +150,7 @@ func aggregateOf[T, V any](ctx context.Context, q *Query[T], value Expr[V]) (V, 
 	f := value.node.(qb.Func)
 
 	inner := n.statement(append(n.selection(), qb.Selected{Value: f.Args[0], Alias: column}))
+	inner.Lock = nil
 
 	if n.limit == nil && n.offset == nil {
 		inner.Order = nil

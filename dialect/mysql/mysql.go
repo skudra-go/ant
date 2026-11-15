@@ -24,8 +24,15 @@ var (
 
 var (
 	mysqlSyntax = selfReads(shared(dialect.ReturningInsert, dialect.ReturningDelete))
-	mariaSyntax = shared(dialect.ShareLocks, dialect.LateralJoin)
+	mariaSyntax = noLockOf(shared(dialect.ShareLocks, dialect.LateralJoin))
 )
+
+// noLockOf marks MariaDB, which has no FOR UPDATE OF. MySQL has.
+func noLockOf(s dialect.Syntax) dialect.Syntax {
+	s.NoLockOf = true
+
+	return s
+}
 
 // selfReads marks MySQL, which refuses a write whose subquery reads the table
 // being written (error 1093). MariaDB allows it.
