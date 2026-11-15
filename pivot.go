@@ -6,6 +6,7 @@ import (
 	"slices"
 	"unsafe"
 
+	"github.com/skudra-go/ant/dialect"
 	"github.com/skudra-go/ant/internal/exec"
 	"github.com/skudra-go/ant/internal/meta"
 	"github.com/skudra-go/ant/qb"
@@ -74,7 +75,7 @@ func Link[T, R any](ctx context.Context, h Handle, owner *T, rel *[]R, targets .
 		return err
 	}
 
-	_, err = s.run(ctx, pivotInsert(pivot, local, foreign))
+	_, err = s.run(ctx, pivotInsert(s.dialect, pivot, local, foreign))
 
 	return err
 }
@@ -118,7 +119,7 @@ func SyncLinks[T, R any](ctx context.Context, h Handle, owner *T, rel *[]R, targ
 			return nil
 		}
 
-		_, err := s.runOn(ctx, to, pivotInsert(pivot, local, foreign))
+		_, err := s.runOn(ctx, to, pivotInsert(s.dialect, pivot, local, foreign))
 
 		return err
 	})
@@ -133,22 +134,7 @@ func Toggle[T, R any](ctx context.Context, h Handle, owner *T, rel *[]R, targets
 	}
 
 	return s.transact(ctx, true, func(to exec.Executor) error {
-		// A row is removed in the same statement that finds it, so two callers
-		// cannot both see it.
-		removal := pivotDelete(pivot, local, foreign)
-		removal.Returning = []qb.Selected{{Value: qb.Column{Name: pivot.Foreign}}}
-
-		text, args, err := s.dialect.Render(removal)
-		if err != nil {
-			return err
-		}
-
-		rows, err := to.QueryContext(ctx, text, args...)
-		if err != nil {
-			return err
-		}
-
-		removed, err := collect[any](rows)
+		removed, err := removeLinked(ctx, s, to, pivot, local, foreign)
 		if err != nil {
 			return err
 		}
@@ -171,8 +157,62 @@ func Toggle[T, R any](ctx context.Context, h Handle, owner *T, rel *[]R, targets
 			return nil
 		}
 
-		_, err = s.runOn(ctx, to, pivotInsert(pivot, local, added))
+		_, err = s.runOn(ctx, to, pivotInsert(s.dialect, pivot, local, added))
 
 		return err
 	})
+}
+
+// removeLinked deletes the join rows of local to foreign that exist, and returns
+// the foreign keys they held. A row is removed in the same statement that finds
+// it, so two callers cannot both see it. With no DELETE ... RETURNING, as on
+// MySQL, the rows are read with a lock first, which a second caller waits on,
+// and then deleted.
+func removeLinked(
+	ctx context.Context,
+	s *state,
+	to exec.Executor,
+	pivot *meta.Pivot,
+	local any,
+	foreign []any,
+) ([]any, error) {
+	removal := pivotDelete(pivot, local, foreign)
+	column := []qb.Selected{{Value: qb.Column{Name: pivot.Foreign}}}
+
+	if dialect.Supports(s.dialect, dialect.ReturningDelete) {
+		removal.Returning = column
+
+		rows, err := s.queryOn(ctx, to, removal)
+		if err != nil {
+			return nil, err
+		}
+
+		return collect[any](rows)
+	}
+
+	read := &qb.Select{
+		Columns: column,
+		From:    qb.Source{Table: pivot.Table},
+		Where:   removal.Where,
+	}
+
+	if !dialect.SyntaxOf(s.dialect).Lacks(dialect.RowLocks) {
+		read.Lock = &qb.Lock{Mode: "UPDATE"}
+	}
+
+	rows, err := s.queryOn(ctx, to, read)
+	if err != nil {
+		return nil, err
+	}
+
+	found, err := collect[any](rows)
+	if err != nil || len(found) == 0 {
+		return found, err
+	}
+
+	if _, err := s.runOn(ctx, to, pivotDelete(pivot, local, found)); err != nil {
+		return nil, err
+	}
+
+	return found, nil
 }

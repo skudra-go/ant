@@ -220,6 +220,8 @@ The root package stays neutral. PostgreSQL-only conditions and types live in `di
 
 A relation with `b.ManyToMany` goes through a join table with no model. `Include` reads the join table, then the targets. In a loaded relation, removing an element deletes the join row, never the target, unlike a one-to-many relation. For extra columns on the join table, model it, with two one-to-many relations.
 
+Join rows are added with `ON CONFLICT DO NOTHING`, so a pair already there is skipped. SQL Server has no such clause, so there they go in through a `MERGE ... WITH (HOLDLOCK)` that inserts the pairs it does not find, as SQL Server's upsert does (#89). `Toggle` deletes with `RETURNING` to learn which pairs were there; MySQL has no `DELETE ... RETURNING`, so there it reads them with `FOR UPDATE` first, which a second `Toggle` waits on, and deletes what it read. Removing an element from a loaded relation slice writes nothing to the target: when the slice moved another target into its memory, the join row's removal had also sent an `UPDATE` of the removed target with its own values, which MySQL and MariaDB count as no row changed and ant took for a conflict.
+
 ## 45. Errors are classified, not wrapped
 
 Roadmap v0.4 planned sentinels such as `ErrUniqueViolation`, which would need every error path to wrap driver errors, including those that only appear while reading rows. Instead `ant.IsUniqueViolation(err)` and its siblings read the SQLSTATE from the error chain, so nothing can be missed, and the driver's own error stays intact.

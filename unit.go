@@ -147,23 +147,54 @@ func (c pivotChange) run(ctx context.Context, u *unit, to exec.Executor) error {
 		return ErrNoKey
 	}
 
-	_, err := u.s.runOn(ctx, to, pivotInsert(p, local, []any{foreign}))
+	_, err := u.s.runOn(ctx, to, pivotInsert(u.s.dialect, p, local, []any{foreign}))
 
 	return err
 }
 
-func pivotInsert(p *meta.Pivot, local any, foreign []any) *qb.Insert {
-	stmt := &qb.Insert{
-		Table:    p.Table,
-		Columns:  []string{p.Local, p.Foreign},
-		Conflict: &qb.Conflict{},
-	}
+// pivotInsert adds join rows, skipping those already there: with ON CONFLICT DO
+// NOTHING, or, on a database with no such clause, a MERGE that inserts only
+// the pairs it does not find. A key given twice is added once.
+func pivotInsert(d dialect.Dialect, p *meta.Pivot, local any, foreign []any) qb.Statement {
+	seen := make(map[any]struct{}, len(foreign))
+	rows := make([][]qb.Expr, 0, len(foreign))
 
 	for _, key := range foreign {
-		stmt.Rows = append(stmt.Rows, []qb.Expr{qb.Param{Value: local}, qb.Param{Value: key}})
+		if _, twice := seen[key]; twice {
+			continue
+		}
+
+		seen[key] = struct{}{}
+		rows = append(rows, []qb.Expr{qb.Param{Value: local}, qb.Param{Value: key}})
 	}
 
-	return stmt
+	columns := []string{p.Local, p.Foreign}
+
+	if dialect.Supports(d, dialect.OnConflict) {
+		return &qb.Insert{
+			Table:    p.Table,
+			Columns:  columns,
+			Rows:     rows,
+			Conflict: &qb.Conflict{},
+		}
+	}
+
+	const source = "ant_pairs"
+
+	on := make([]qb.Cond, len(columns))
+	values := make([]qb.Expr, len(columns))
+
+	for i, c := range columns {
+		values[i] = qb.Column{Alias: source, Name: c}
+		on[i] = qb.Compare{Left: qb.Column{Table: p.Table, Name: c}, Op: qb.OpEq, Right: values[i]}
+	}
+
+	return &qb.Merge{
+		Table:   p.Table,
+		Using:   qb.Source{Values: &qb.Values{Columns: columns, Rows: rows}, Alias: source},
+		On:      on,
+		Actions: []qb.MergeAction{{Columns: columns, Values: values}},
+	}
 }
 
 func pivotDelete(p *meta.Pivot, local any, foreign []any) *qb.Delete {
@@ -491,6 +522,9 @@ func (u *unit) vacate(entry *track.Entry) {
 		entity:  copied,
 		entry:   entry,
 		scratch: true,
+		// Nothing to write: the entry's memory holds another row, which its
+		// diff would take for this row's edits.
+		changed: []*meta.Field{},
 	}
 	u.nodes[copied] = n
 	u.order = append(u.order, n)

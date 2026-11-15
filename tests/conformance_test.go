@@ -2374,10 +2374,12 @@ func TestConformanceManyToMany(t *testing.T) {
 		require.NoError(t, err)
 
 		loaded.Genres = append(loaded.Genres, *g[1])
+
 		require.NoError(t, db.SaveChanges(ctx), "a save adds a join row")
 		require.Equal(t, []int64{1, 2, 3}, linked())
 
 		loaded.Genres = slices.DeleteFunc(loaded.Genres, func(x Genre) bool { return x.ID == 1 })
+
 		require.NoError(t, db.SaveChanges(ctx), "a save removes one")
 		require.Equal(t, []int64{2, 3}, linked())
 	})

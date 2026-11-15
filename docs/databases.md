@@ -18,7 +18,7 @@ ant runs on five databases. PostgreSQL has everything. The others run queries, w
 | `FULL JOIN` | Yes | No | No | Yes | Yes |
 | Lateral joins | Yes | Yes | No | No | No |
 | `UpdateReturning` | Yes | No | No | Yes | Yes |
-| `DeleteReturning`, `Toggle` | Yes | No | Yes | Yes | Yes |
+| `DeleteReturning` | Yes | No | Yes | Yes | Yes |
 | `Today` | Yes | Yes | Yes | No | No |
 | `DatePart` | Yes | No | No | No | No |
 | `WITH` in a subquery, as in `Update` or `Delete` after `FromCTE` or `Recursive` | Yes | Yes | Yes | Yes | No |
