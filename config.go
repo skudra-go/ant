@@ -288,8 +288,9 @@ func (b *ModelBuilder[E]) Discriminator[V comparable](field *V, value V) {
 }
 
 // Validate adds a rule for a field, checked before Insert, Upsert, and
-// SaveChanges write it, as a Validate hook is. A failure is a *ValidationError. Rules do not run for
-// bulk writes, which load no entities. Package validate has common ones.
+// SaveChanges write it, as a Validate hook is. A failure is a *ValidationError.
+// Rules do not run for bulk writes, which load no entities. Package validate has
+// common ones.
 func (b *ModelBuilder[E]) Validate[V any](field *V, rule func(V) error) {
 	f := b.keyField(F(field))
 	if f == nil {
