@@ -464,18 +464,14 @@ func (b *schemaBuilder) index(t *schema.Table, index *meta.Index) (*schema.Index
 // column declares one field. Whether it can hold NULL follows the Go type, so a
 // model says it in one place.
 func (b *schemaBuilder) column(m *meta.Model, f *meta.Field) (*schema.Column, error) {
-	valueType, nullable := columnValue(f.Type)
-
-	if f.Storage.Nullable != nil {
-		nullable = *f.Storage.Nullable
-	}
+	valueType, _ := columnValue(f.Type)
 
 	storage := f.Storage
 
 	c := &schema.Column{
 		Name:      f.Column,
 		Type:      storage.Type,
-		Nullable:  nullable && !f.Primary,
+		Nullable:  canBeNull(f),
 		Default:   storage.Default,
 		Identity:  f.Generated,
 		Generated: storage.Generated,
@@ -547,6 +543,18 @@ var nullWrappers = map[reflect.Type]reflect.Type{
 	reflect.TypeFor[sql.NullBool]():    reflect.TypeFor[bool](),
 	reflect.TypeFor[sql.NullTime]():    reflect.TypeFor[time.Time](),
 	reflect.TypeFor[DeletedAt]():       reflect.TypeFor[time.Time](),
+}
+
+// canBeNull reports whether a field's column can hold NULL: its Go type can,
+// unless Nullable or NotNull says otherwise, and a primary key never does.
+func canBeNull(f *meta.Field) bool {
+	_, nullable := columnValue(f.Type)
+
+	if f.Storage.Nullable != nil {
+		nullable = *f.Storage.Nullable
+	}
+
+	return nullable && !f.Primary
 }
 
 // columnValue returns the type a field stores, and whether it can hold NULL.

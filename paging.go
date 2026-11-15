@@ -229,7 +229,18 @@ func (q *Query[T]) keyset() ([]sortColumn, error) {
 			return nil, fmt.Errorf("%w: order by columns of the queried table", ErrCursor)
 		}
 
-		out = append(out, sortColumn{model.Column(column.Name), o.Desc})
+		// No comparison matches NULL, so the pages would end where the NULL
+		// rows begin, wherever NullsFirst or NullsLast puts them.
+		f := model.Column(column.Name)
+		if canBeNull(f) {
+			return nil, fmt.Errorf(
+				"%w: %s can be NULL; order by columns that cannot",
+				ErrCursor,
+				f.Short,
+			)
+		}
+
+		out = append(out, sortColumn{f, o.Desc})
 	}
 
 	if len(model.Keys) == 0 {
@@ -247,11 +258,12 @@ func (q *Query[T]) keyset() ([]sortColumn, error) {
 
 // After returns the page following cursor, which is empty for the first page.
 // Each page costs the same however deep it is, and rows added meanwhile do not
-// shift it. The ordering must use columns of this table that are never NULL. Pass
-// Next from the previous page to continue. The cursor is made of the ordering
-// and the key, so those columns are read even if Column or Omit left them out.
-// A cursor holds a place and no count of the rows before it, so a query with a
-// Limit or Offset is refused.
+// shift it. The ordering must use columns of this table that cannot hold NULL:
+// a pointer or sql.Null field can, unless its column is configured NotNull, and
+// ordering by one returns ErrCursor. Pass Next from the previous page to
+// continue. The cursor is made of the ordering and the key, so those columns
+// are read even if Column or Omit left them out. A cursor holds a place and no
+// count of the rows before it, so a query with a Limit or Offset is refused.
 func (q *Query[T]) After(ctx context.Context, cursor string, size int) (*CursorPage[T], error) {
 	if size < 1 {
 		return nil, fmt.Errorf("ant: page size %d", size)

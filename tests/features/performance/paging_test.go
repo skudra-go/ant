@@ -271,11 +271,11 @@ func TestAfterRefusesNullableOrdering(t *testing.T) {
 		}
 
 		for name, q := range map[string]*ant.Query[Task]{
-			"a pointer column":           db.Tasks.Order(ant.Col(&Tasks.DueAt).Asc()),
+			"a pointer column":             db.Tasks.Order(ant.Col(&Tasks.DueAt).Asc()),
 			"a pointer column, NULLs last": db.Tasks.Order(ant.Col(&Tasks.DueAt).Asc().NullsLast()),
-			"descending":                 db.Tasks.Order(ant.Col(&Tasks.DueAt).Desc()),
-			"a sql.Null column":          db.Tasks.Order(ant.Col(&Tasks.DoneAt).Asc()),
-			"after a column that is not": db.Tasks.Order(ant.Col(&Tasks.Title).Asc(), ant.Col(&Tasks.DueAt).Asc()),
+			"descending":                   db.Tasks.Order(ant.Col(&Tasks.DueAt).Desc()),
+			"a sql.Null column":            db.Tasks.Order(ant.Col(&Tasks.DoneAt).Asc()),
+			"after a column that is not":   db.Tasks.Order(ant.Col(&Tasks.Title).Asc(), ant.Col(&Tasks.DueAt).Asc()),
 		} {
 			t.Run(name, func(t *testing.T) {
 				// The third row has a value, so only the column says it may not.
