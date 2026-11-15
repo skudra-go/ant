@@ -37,9 +37,29 @@ func (p *Page[T]) Pages() int {
 // HasNext reports whether another page follows this one.
 func (p *Page[T]) HasNext() bool { return p.Number < p.Pages() }
 
+// window returns q cut down to at most size of its rows, starting skip rows
+// in. The query's own Limit and Offset say which rows are its rows, so the
+// window lies inside them. It reports false when no row is left there.
+func (q *Query[T]) window(skip, size int) (*Query[T], bool) {
+	if q.limit != nil {
+		size = min(size, *q.limit-skip)
+	}
+
+	if size <= 0 {
+		return nil, false
+	}
+
+	if q.offset != nil {
+		skip += *q.offset
+	}
+
+	return q.Limit(size).Offset(skip), true
+}
+
 // Page returns one page, counted from 1, with the total row count. Order the
 // query, or pages may overlap. Use After for large tables, where counting and
-// skipping rows gets slow.
+// skipping rows gets slow. A Limit or Offset on the query says which rows
+// there are to page through.
 func (q *Query[T]) Page(ctx context.Context, number, size int) (*Page[T], error) {
 	if number < 1 || size < 1 {
 		return nil, fmt.Errorf("ant: page %d of size %d", number, size)
@@ -50,9 +70,12 @@ func (q *Query[T]) Page(ctx context.Context, number, size int) (*Page[T], error)
 		return nil, err
 	}
 
-	items, err := q.Limit(size).Offset((number - 1) * size).All(ctx)
-	if err != nil {
-		return nil, err
+	items := []*T{}
+
+	if page, ok := q.window((number-1)*size, size); ok {
+		if items, err = page.All(ctx); err != nil {
+			return nil, err
+		}
 	}
 
 	return &Page[T]{
@@ -65,14 +88,20 @@ func (q *Query[T]) Page(ctx context.Context, number, size int) (*Page[T], error)
 
 // Chunk reads matching rows in groups of size, calling f with each until f
 // returns an error or the rows run out. Paging uses Offset, so order the query
-// and do not change matching rows in f. Use ChunkByKey when f changes them.
+// and do not change matching rows in f. Use ChunkByKey when f changes them. A
+// Limit or Offset on the query says which rows there are to read.
 func (q *Query[T]) Chunk(ctx context.Context, size int, f func([]*T) error) error {
 	if size < 1 {
 		return fmt.Errorf("ant: chunk size %d", size)
 	}
 
 	for offset := 0; ; offset += size {
-		items, err := q.Limit(size).Offset(offset).All(ctx)
+		page, ok := q.window(offset, size)
+		if !ok {
+			return nil
+		}
+
+		items, err := page.All(ctx)
 		if err != nil {
 			return err
 		}
@@ -91,7 +120,8 @@ func (q *Query[T]) Chunk(ctx context.Context, size int, f func([]*T) error) erro
 
 // ChunkByKey reads matching rows in key order, in groups of size. It tracks its
 // place by key, so f can change or delete the rows it receives. The key is read
-// even if Column or Omit left it out.
+// even if Column or Omit left it out. A Limit or Offset on the query counts
+// rows in key order: the offset is skipped once, and the limit ends the read.
 func (q *Query[T]) ChunkByKey(ctx context.Context, size int, f func([]*T) error) error {
 	if size < 1 {
 		return fmt.Errorf("ant: chunk size %d", size)
@@ -107,6 +137,11 @@ func (q *Query[T]) ChunkByKey(ctx context.Context, size int, f func([]*T) error)
 	base.order = []qb.Order{{Value: column}}
 	base.need(key)
 
+	// The place is kept by key from the second group on, so the offset applies
+	// to the first only, and the limit is counted down.
+	base.limit, base.offset = nil, nil
+	left, skip := q.limit, q.offset
+
 	var after any
 
 	for {
@@ -117,9 +152,21 @@ func (q *Query[T]) ChunkByKey(ctx context.Context, size int, f func([]*T) error)
 				page.where,
 				qb.Compare{Left: column, Op: qb.OpGt, Right: fieldParam(key, after)},
 			)
+		} else {
+			page.offset = skip
 		}
 
-		items, err := page.Limit(size).All(ctx)
+		take := size
+
+		if left != nil {
+			take = min(size, *left)
+		}
+
+		if take <= 0 {
+			return nil
+		}
+
+		items, err := page.Limit(take).All(ctx)
 		if err != nil {
 			return err
 		}
@@ -129,6 +176,11 @@ func (q *Query[T]) ChunkByKey(ctx context.Context, size int, f func([]*T) error)
 		}
 
 		after = key.Value(unsafe.Pointer(items[len(items)-1])).Interface()
+
+		if left != nil {
+			rest := *left - len(items)
+			left = &rest
+		}
 
 		if err := f(items); err != nil {
 			return err
@@ -187,9 +239,18 @@ func (q *Query[T]) keyset() ([]sortColumn, error) {
 // shift it. The ordering must use columns of this table that are never NULL. Pass
 // Next from the previous page to continue. The cursor is made of the ordering
 // and the key, so those columns are read even if Column or Omit left them out.
+// A cursor holds a place and no count of the rows before it, so a query with a
+// Limit or Offset is refused.
 func (q *Query[T]) After(ctx context.Context, cursor string, size int) (*CursorPage[T], error) {
 	if size < 1 {
 		return nil, fmt.Errorf("ant: page size %d", size)
+	}
+
+	if q.limit != nil || q.offset != nil {
+		return nil, fmt.Errorf(
+			"%w: After pages the whole query, without Limit or Offset",
+			ErrCursor,
+		)
 	}
 
 	columns, err := q.keyset()
