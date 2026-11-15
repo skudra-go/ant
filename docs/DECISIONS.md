@@ -360,7 +360,7 @@ A `.Sensitive()` field's value is wrapped in `qb.Secret` as it enters the statem
 
 ## 71. Dependencies stay out of the root package
 
-The root package uses the standard library. Code that needs more goes elsewhere: `pgxext` for pgx, and separate modules for OpenTelemetry (`contrib/otel`), the analyzer (`tools/antvet`), and the benchmarks (`tools/compare`). `Batch` left the root package for this reason, as the roadmap's `ant.Batch` needed pgx. `dialect/mysql` imports its driver, as the error numbers are not reachable any other way, and only a program using MySQL compiles it.
+The root package uses the standard library. Code that needs more goes elsewhere: `pgxext` for pgx, and separate modules for OpenTelemetry (`contrib/otel`), the analyzer (`tools/antvet`), and the benchmarks (`tools/compare`). `Batch` left the root package for this reason, as the roadmap's `ant.Batch` needed pgx. `pgxext` reaches pgx through a pool connection of its own, as `database/sql` gives no access to a transaction's connection, so `Copy` and `Batch.Send` refuse a context bound to a transaction with `ErrInTx`: they wrote on another connection, committed on their own, and survived the caller's rollback, and `anttest.Isolate`'s with them (#104). `dialect/mysql` imports its driver, as the error numbers are not reachable any other way, and only a program using MySQL compiles it.
 
 ## 72. Partitions are not migrations
 

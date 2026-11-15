@@ -31,6 +31,10 @@ var (
 )
 
 func withConn(ctx context.Context, h Database, use func(*pgx.Conn) error) error {
+	if ant.CurrentTx(h) != nil {
+		return ErrInTx
+	}
+
 	conn, err := h.DB().Conn(ctx)
 	if err != nil {
 		return err
@@ -49,8 +53,9 @@ func withConn(ctx context.Context, h Database, use func(*pgx.Conn) error) error 
 
 // Copy loads entities with COPY, which is by far the fastest way to insert many
 // rows. Timestamps and keys made in Go are filled in, as Insert does. Unlike
-// Insert, it runs outside any transaction of yours on a connection of its own, keys
-// from the database do not come back, relations are ignored, and hooks do not run.
+// Insert, it runs on a connection of its own, so it refuses a transaction's
+// context with ErrInTx rather than escape the transaction, keys from the
+// database do not come back, relations are ignored, and hooks do not run.
 func Copy[T any](ctx context.Context, h Database, entities []*T) (int64, error) {
 	bulk, err := ant.PrepareBulk(h, entities)
 	if err != nil {
@@ -78,7 +83,9 @@ func Copy[T any](ctx context.Context, h Database, entities []*T) (int64, error) 
 
 // Batch queues statements to send in one round trip, which pays off when a network
 // sits between the application and the database. They run in order in one implicit
-// transaction: if one fails, none take effect.
+// transaction: if one fails, none take effect. Send runs on a connection of its
+// own, so it refuses a transaction's context with ErrInTx rather than escape the
+// transaction.
 type Batch struct {
 	batch pgx.Batch
 	err   error

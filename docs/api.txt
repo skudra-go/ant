@@ -695,6 +695,7 @@ dialect/postgres/pgxext: func (b *Batch) Send(ctx context.Context, h Database) (
 dialect/postgres/pgxext: func Copy[T any](ctx context.Context, h Database, entities []*T) (int64, error)
 dialect/postgres/pgxext: type Batch
 dialect/postgres/pgxext: type Database
+dialect/postgres/pgxext: var ErrInTx
 dialect/postgres/pgxext: var ErrNotPgx
 ids: func (s *Snowflake) Next() int64
 ids: func NewSnowflake(node int64) (*Snowflake, error)
