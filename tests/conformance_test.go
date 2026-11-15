@@ -667,6 +667,83 @@ func TestConformanceLocks(t *testing.T) {
 	})
 }
 
+// A count or an aggregate reads no row to lock, and PostgreSQL refuses a lock
+// on one, so a query that locks its rows counts without the lock.
+func TestConformanceLockedQueryCounts(t *testing.T) {
+	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
+		app := openAndSeed(t, target)
+		ctx := t.Context()
+
+		require.NoError(t, app.Tx(ctx, func(tx *AppDB) error {
+			q := tx.Users.Where(ant.Gte(&Users.Age, 30)).ForUpdate()
+
+			if has(target, dialect.RowLocks) {
+				q = q.SkipLocked()
+			}
+
+			n, err := q.Count(ctx)
+			require.NoError(t, err)
+			require.EqualValues(t, 2, n)
+
+			n, err = q.OrderBy(&Users.Name).Limit(1).Count(ctx)
+			require.NoError(t, err, "over a subquery")
+			require.EqualValues(t, 1, n)
+
+			found, err := q.Exists(ctx)
+			require.NoError(t, err)
+			require.True(t, found)
+
+			sum, err := ant.SumOf(ctx, q, &Users.Age)
+			require.NoError(t, err)
+			require.Equal(t, 65, sum)
+
+			oldest, err := ant.MaxOf(ctx, q.OrderBy(&Users.Age).Limit(1), &Users.Age)
+			require.NoError(t, err, "over a subquery")
+			require.Equal(t, 30, oldest)
+
+			if !has(target, dialect.RowLocks) {
+				return nil
+			}
+
+			page, err := q.OrderBy(&Users.Name).Page(ctx, 1, 1)
+			require.NoError(t, err)
+			require.EqualValues(t, 2, page.Total)
+			require.Equal(t, []string{"alice"}, names(page.Items))
+
+			return nil
+		}))
+	})
+}
+
+// A joined include is a left join, whose far side PostgreSQL refuses to lock.
+// The lock is for the query's own rows.
+func TestConformanceLockWithJoinedInclude(t *testing.T) {
+	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
+		if !has(target, dialect.RowLocks) {
+			t.Skip("no row locks")
+		}
+
+		app := openAndSeed(t, target)
+		ctx := t.Context()
+
+		alice, err := app.Users.Where(ant.Eq(&Users.Name, "alice")).First(ctx)
+		require.NoError(t, err)
+		require.NoError(t, app.Posts.Insert(ctx, &Post{UserID: alice.ID, Title: "locked"}))
+
+		require.NoError(t, app.Tx(ctx, func(tx *AppDB) error {
+			posts, err := tx.Posts.IncludeJoined(&Posts.User).ForUpdate().All(ctx)
+			require.NoError(t, err)
+			require.Len(t, posts, 1)
+			require.Equal(t, "alice", posts[0].User.Name)
+
+			_, err = app.Posts.Where().ForUpdate().NoWait().All(ctx)
+			require.Error(t, err, "the post is locked")
+
+			return nil
+		}))
+	})
+}
+
 func TestConformanceMissingFeatures(t *testing.T) {
 	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
 		app := openAndSeed(t, target)

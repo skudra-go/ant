@@ -59,6 +59,49 @@ func TestLocks(t *testing.T) {
 			require.Error(t, err, "but not writers")
 		})
 
+		// A queue shows how many jobs wait with the query it claims them with.
+		t.Run("counts and aggregates leave the lock out", func(t *testing.T) {
+			require.NoError(t, db.Tx(ctx, func(tx *fixture.AppDB) error {
+				waiting := tx.Users.OrderBy(&Users.Name).ForUpdate().SkipLocked()
+
+				n, err := waiting.Count(ctx)
+				require.NoError(t, err)
+				require.EqualValues(t, 3, n)
+
+				found, err := waiting.Exists(ctx)
+				require.NoError(t, err)
+				require.True(t, found)
+
+				page, err := waiting.Page(ctx, 1, 2)
+				require.NoError(t, err)
+				require.EqualValues(t, 3, page.Total)
+				require.Len(t, page.Items, 2, "which are locked")
+
+				_, err = q.Where(ant.Eq(&Users.ID, page.Items[0].ID)).ForUpdate().NoWait().All(ctx)
+				require.ErrorContains(t, err, "could not obtain lock")
+
+				return nil
+			}))
+		})
+
+		t.Run("with IncludeJoined, the lock is on the query's own rows", func(t *testing.T) {
+			require.NoError(t, db.Posts.Insert(ctx, &fixture.Post{UserID: alice.ID, Title: "p"}))
+
+			require.NoError(t, db.Tx(ctx, func(tx *fixture.AppDB) error {
+				posts, err := tx.Posts.IncludeJoined(&Posts.User).ForUpdate().All(ctx)
+				require.NoError(t, err)
+				require.Equal(t, "Alice", posts[0].User.Name)
+
+				_, err = db.Posts.Where().ForUpdate().NoWait().All(ctx)
+				require.ErrorContains(t, err, "could not obtain lock")
+
+				_, err = q.Where(ant.Eq(&Users.ID, alice.ID)).ForUpdate().NoWait().All(ctx)
+				require.NoError(t, err, "the user is not locked")
+
+				return nil
+			}))
+		})
+
 		// Each worker claims a row nobody else holds, so no job runs twice.
 		t.Run("a job queue", func(t *testing.T) {
 			const workers = 3
