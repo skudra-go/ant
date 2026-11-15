@@ -292,7 +292,8 @@ func (q *Query[T]) NoTrackingResolved() *Query[T] {
 }
 
 // Column limits the query to the named columns, and can be repeated. Other
-// fields keep their zero value, so the results are never tracked.
+// fields keep their zero value, so the results are never tracked. The columns
+// that an Include matches rows by are read as well.
 func (q *Query[T]) Column[V any](field *V) *Query[T] {
 	n := q.next()
 
@@ -310,7 +311,8 @@ func (q *Query[T]) Column[V any](field *V) *Query[T] {
 }
 
 // Omit leaves a column out of the query. Its field keeps its zero value, so the
-// results are never tracked.
+// results are never tracked. A column that an Include matches rows by is read
+// all the same.
 func (q *Query[T]) Omit[V any](field *V) *Query[T] {
 	n := q.next()
 
@@ -355,21 +357,36 @@ func (q *Query[T]) tracked() bool {
 		len(q.selected) == 0 && len(q.omitted) == 0 && len(q.computed) == 0
 }
 
-// columns returns the fields the query reads. The list may be the model's own,
-// so a caller must not change it.
+// columns returns the fields the query reads: those Column chose, or all of
+// them, less those Omit left out, and always the ones its includes match rows
+// by. The list may be the model's own, so a caller must not change it.
 func (q *Query[T]) columns() []*meta.Field {
 	fields := q.selected
 	if len(fields) == 0 {
 		fields = q.model().Stored()
 	}
 
-	if len(q.omitted) == 0 {
+	if len(q.omitted) == 0 && (len(q.selected) == 0 || len(q.includes) == 0) {
 		return fields
 	}
 
-	return slices.DeleteFunc(slices.Clone(fields), func(f *meta.Field) bool {
-		return slices.Contains(q.omitted, f)
+	var linked []*meta.Field
+
+	for _, inc := range q.includes {
+		linked = append(linked, inc.reads...)
+	}
+
+	fields = slices.DeleteFunc(slices.Clone(fields), func(f *meta.Field) bool {
+		return slices.Contains(q.omitted, f) && !slices.Contains(linked, f)
 	})
+
+	for _, f := range linked {
+		if !slices.Contains(fields, f) {
+			fields = append(fields, f)
+		}
+	}
+
+	return fields
 }
 
 // need makes q read fields that Column or Omit may have left out, for a caller

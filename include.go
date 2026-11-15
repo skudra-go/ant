@@ -31,6 +31,24 @@ const partitionColumn = "ant_row"
 type include struct {
 	load     func(ctx context.Context, parents []unsafe.Pointer, tracked bool) error
 	relation *meta.Relation
+	// reads are the parent's fields the load works from, which the parent query
+	// reads whatever Column and Omit say.
+	reads []*meta.Field
+}
+
+// newInclude returns the include of r, which matches rows through link.
+func newInclude(
+	r *meta.Relation,
+	link meta.Link,
+	load func(ctx context.Context, parents []unsafe.Pointer, tracked bool) error,
+) include {
+	reads := []*meta.Field{link.Local}
+
+	if f := r.MorphField; f != nil && r.Owner.Has(f) {
+		reads = append(reads, f)
+	}
+
+	return include{load: load, relation: r, reads: reads}
 }
 
 // Include loads a one-to-many relation in one extra query per relation, however
@@ -110,7 +128,7 @@ func manyInclude[R any](
 		return loadMany(ctx, r, link, untrackedUnless(sub, tracked), parents)
 	}
 
-	return ownedInclude{include{load, r}, r.Owner}, nil
+	return ownedInclude{newInclude(r, link, load), r.Owner}, nil
 }
 
 func oneInclude[R any](
@@ -136,7 +154,7 @@ func oneInclude[R any](
 		return loadOne(ctx, r, link, untrackedUnless(sub, tracked), parents)
 	}
 
-	return ownedInclude{include{load, r}, r.Owner}, nil
+	return ownedInclude{newInclude(r, link, load), r.Owner}, nil
 }
 
 // scoped applies a relation's scope to a query of its target. A morph condition
