@@ -212,7 +212,16 @@ func wrap[DB any](
 		)
 	}
 
-	return bindState[DB](s)
+	db, err := bindState[DB](s)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := sameTable(tableModels(db)); err != nil {
+		return nil, err
+	}
+
+	return db, nil
 }
 
 // bindState makes a new DB around s.

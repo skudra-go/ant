@@ -123,7 +123,11 @@ func TestSameTypeNameInTwoPackages(t *testing.T) {
 		require.ErrorContains(t, err, refused)
 
 		_, err = ant.SchemaOf[LedgersDB](postgres.Dialect)
-		require.ErrorContains(t, err, `auth.Account and billing.Account both map to table "accounts"`)
+		require.ErrorContains(
+			t,
+			err,
+			`auth.Account and billing.Account both map to table "accounts"`,
+		)
 	})
 
 	t.Run("a table named with b.Table can be shared", func(t *testing.T) {

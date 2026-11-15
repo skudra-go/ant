@@ -165,7 +165,7 @@ func (b *ModelBuilder[E]) Table(name string) {
 		return
 	}
 
-	b.model.Table.Name = name
+	b.model.Table.Name, b.model.Named = name, true
 }
 
 // Schema sets the database schema.

@@ -67,7 +67,9 @@ func (m *ModelConvention) Name() string { return m.model.Type.Name() }
 func (m *ModelConvention) Table() string { return m.model.Table.Name }
 
 // SetTable changes the model's table name.
-func (m *ModelConvention) SetTable(name string) { m.model.Table.Name = name }
+func (m *ModelConvention) SetTable(name string) {
+	m.model.Table.Name, m.model.Named = name, true
+}
 
 // Fields returns the model's columns.
 func (m *ModelConvention) Fields() []*FieldConvention {

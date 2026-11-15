@@ -84,7 +84,63 @@ func models(db any) ([]*meta.Model, error) {
 		}
 	}
 
-	return out, nil
+	return out, sameTable(out)
+}
+
+// tableModels returns the configured models of a context struct's Table fields.
+func tableModels(db any) []*meta.Model {
+	var out []*meta.Model
+
+	v := reflect.ValueOf(db).Elem()
+	for i := range v.NumField() {
+		f := v.Field(i)
+		if !f.CanAddr() || !f.Addr().CanInterface() {
+			continue
+		}
+
+		if t, ok := f.Addr().Interface().(modelTable); ok {
+			out = append(out, t.tableModel())
+		}
+	}
+
+	return out
+}
+
+// sameTable refuses two models that reach one table by convention alone, as two
+// types of the same name in different packages do: each would read the other's
+// rows. A table shared on purpose is named with b.Table, or split by
+// b.Discriminator.
+func sameTable(list []*meta.Model) error {
+	seen := map[[2]string]*meta.Model{}
+
+	for _, m := range list {
+		if m.Named {
+			continue
+		}
+
+		at := [2]string{m.Table.Schema, m.Table.Name}
+
+		other, ok := seen[at]
+		if !ok {
+			seen[at] = m
+
+			continue
+		}
+
+		if other == m || other.Discriminator != nil && m.Discriminator != nil {
+			continue
+		}
+
+		return fmt.Errorf(
+			"ant: models %s and %s both map to table %q by convention: "+
+				"name one of the tables with b.Table, or share the table with b.Discriminator",
+			other.Type,
+			m.Type,
+			m.Table.Name,
+		)
+	}
+
+	return nil
 }
 
 // schemaBuilder turns configured models into a schema.

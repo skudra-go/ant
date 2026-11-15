@@ -342,6 +342,8 @@ This revises [decision 22](#22-inserts-run-one-statement-per-row). New rows of o
 
 `b.Discriminator` and table splitting are the same fact to migrations: models on one table merge into one definition, and a column not every model has allows NULL. Query results stay one type per model. There is no `[]any` of mixed subtypes.
 
+Sharing is always said: with `b.Table` (or a convention's `SetTable`) on at least one of the models, or with `b.Discriminator` on each. Two models that reach one table by the naming convention alone, as `billing.Account` and `auth.Account` both reach `accounts`, are refused when the context opens and when the schema is built, with both types named, since each would read the other's rows. Opening checks the context's `Table` fields, and building the schema also checks the models their relations reach.
+
 ## 67. Naming and conventions are global
 
 `WithNaming` and `WithConvention` apply once per model, in the first `Open`, because a model is reflected once per process. Per-connection naming would need a second model registry, for a need nobody has.

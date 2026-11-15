@@ -622,8 +622,10 @@ func (r *Relation) Empty(entity unsafe.Pointer) bool {
 
 // Model is the metadata for one struct type.
 type Model struct {
-	Type      reflect.Type
-	Table     *qb.TableRef // shared by AST nodes, so a rename reaches them
+	Type  reflect.Type
+	Table *qb.TableRef // shared by AST nodes, so a rename reaches them
+	// Named means the table name was set explicitly, rather than by convention.
+	Named     bool
 	Fields    []*Field
 	Relations []*Relation
 
