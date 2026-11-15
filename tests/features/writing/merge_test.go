@@ -127,6 +127,22 @@ func TestCopy(t *testing.T) {
 			_, err := pgxext.Copy[fixture.User](ctx, db, nil)
 			require.ErrorIs(t, err, ant.ErrNoRows)
 		})
+
+		t.Run("a transaction's context is refused, since COPY would escape it", func(t *testing.T) {
+			before, err := db.Users.Count(ctx)
+			require.NoError(t, err)
+
+			tx, err := ant.Begin(ctx, db)
+			require.NoError(t, err)
+
+			_, err = pgxext.Copy(ctx, tx, []*fixture.User{{Name: "escaped", Email: "e@x"}})
+			require.ErrorIs(t, err, pgxext.ErrInTx)
+			require.NoError(t, tx.Rollback())
+
+			after, err := db.Users.Count(ctx)
+			require.NoError(t, err)
+			require.Equal(t, before, after)
+		})
 	})
 }
 
@@ -161,5 +177,24 @@ func TestBatch(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, 42, stored.Age)
 		})
+
+		t.Run(
+			"a transaction's context is refused, since the batch would escape it",
+			func(t *testing.T) {
+				tx, err := ant.Begin(ctx, db)
+				require.NoError(t, err)
+
+				var batch pgxext.Batch
+				batch.Exec("UPDATE users SET age = 1 WHERE id = $1", alice.ID)
+
+				_, err = batch.Send(ctx, tx)
+				require.ErrorIs(t, err, pgxext.ErrInTx)
+				require.NoError(t, tx.Rollback())
+
+				stored, err := db.Users.Find(ctx, alice.ID)
+				require.NoError(t, err)
+				require.Equal(t, 42, stored.Age)
+			},
+		)
 	})
 }

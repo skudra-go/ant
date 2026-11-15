@@ -21,8 +21,14 @@ type Database interface {
 	DB() *sql.DB
 }
 
-// ErrNotPgx reports a connection from some other driver.
-var ErrNotPgx = errors.New("ant: pgxext needs the pgx stdlib driver")
+var (
+	// ErrNotPgx reports a connection from some other driver.
+	ErrNotPgx = errors.New("ant: pgxext needs the pgx stdlib driver")
+	// ErrInTx reports a context bound to a transaction. pgxext runs on a pool
+	// connection of its own, since database/sql gives no access to a
+	// transaction's, so its writes would escape the transaction.
+	ErrInTx = errors.New("ant: pgxext cannot run inside a transaction")
+)
 
 func withConn(ctx context.Context, h Database, use func(*pgx.Conn) error) error {
 	conn, err := h.DB().Conn(ctx)
