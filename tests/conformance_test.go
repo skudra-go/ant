@@ -604,6 +604,52 @@ func TestConformanceDerivedWrites(t *testing.T) {
 	})
 }
 
+// Chunk, ChunkByKey and Page read within the query's own Limit and Offset.
+func TestConformancePagingWithinALimit(t *testing.T) {
+	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
+		app := openAndSeed(t, target)
+		ctx := t.Context()
+
+		var got []string
+
+		collect := func(users []*User) error {
+			got = append(got, names(users)...)
+
+			return nil
+		}
+
+		require.NoError(t, app.Users.OrderBy(&Users.Name).Limit(2).Chunk(ctx, 1, collect))
+		require.Equal(t, []string{"alice", "bob"}, got)
+
+		got = nil
+
+		require.NoError(t, app.Users.OrderBy(&Users.Name).Limit(5).Offset(1).Chunk(ctx, 5, collect))
+		require.Equal(t, []string{"bob", "carol"}, got)
+
+		got = nil
+
+		require.NoError(t, app.Users.Limit(1).Offset(1).ChunkByKey(ctx, 2, collect))
+		require.Equal(t, []string{"bob"}, got)
+
+		got = nil
+
+		require.NoError(t, app.Users.Limit(2).ChunkByKey(ctx, 1, collect))
+		require.Equal(t, []string{"alice", "bob"}, got)
+
+		page, err := app.Users.OrderBy(&Users.Name).Limit(2).Offset(1).Page(ctx, 2, 1)
+		require.NoError(t, err)
+		require.EqualValues(t, 2, page.Total)
+		require.Equal(t, []string{"carol"}, names(page.Items))
+
+		page, err = app.Users.OrderBy(&Users.Name).Limit(2).Page(ctx, 2, 2)
+		require.NoError(t, err)
+		require.Empty(t, page.Items)
+
+		_, err = app.Users.OrderBy(&Users.Name).Limit(2).After(ctx, "", 1)
+		require.ErrorIs(t, err, ant.ErrCursor)
+	})
+}
+
 func TestConformanceLocks(t *testing.T) {
 	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
 		app := openAndSeed(t, target)
