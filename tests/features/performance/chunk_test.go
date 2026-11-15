@@ -108,6 +108,34 @@ func TestChunkByKey(t *testing.T) {
 			require.Len(t, seen, 25)
 		})
 
+		// The key keeps the place, so it is read even when Column or Omit left it
+		// out.
+		for name, narrowed := range map[string]*ant.Query[User]{
+			"Column without the key": db.Users.Column(&Users.Name),
+			"the key omitted":        db.Users.Omit(&Users.ID),
+			"Column, key omitted":    db.Users.Column(&Users.Name).Omit(&Users.ID),
+		} {
+			t.Run(name, func(t *testing.T) {
+				seen, calls := map[string]int{}, 0
+
+				require.NoError(t, narrowed.ChunkByKey(ctx, 7, func(users []*User) error {
+					if calls++; calls > 4 {
+						return errors.New("the same chunk again")
+					}
+
+					for _, u := range users {
+						seen[u.Name]++
+
+						require.NotZero(t, u.ID)
+					}
+
+					return nil
+				}))
+
+				require.Len(t, seen, 25)
+			})
+		}
+
 		t.Run("the callback can delete its rows", func(t *testing.T) {
 			require.NoError(
 				t,

@@ -2,6 +2,7 @@ package performance
 
 import (
 	"encoding/base64"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -80,6 +81,7 @@ func TestAfter(t *testing.T) {
 				require.NoError(t, err)
 
 				names = append(names, fixture.Names(page.Items)...)
+				require.LessOrEqual(t, len(names), 100, "the pages never end")
 
 				if page.Next == "" {
 					return names
@@ -95,6 +97,23 @@ func TestAfter(t *testing.T) {
 			require.Equal(t, "u000", names[0])
 			require.Equal(t, "u024", names[24])
 		})
+
+		// The cursor is made of the ordering and the key, so both are read even
+		// when Column or Omit left them out.
+		for name, narrowed := range map[string]*ant.Query[User]{
+			"Column without the key":      db.Users.Column(&Users.Name).OrderBy(&Users.Name),
+			"Column without the ordering": db.Users.Column(&Users.Name).OrderBy(&Users.Email),
+			"the key omitted":             db.Users.Omit(&Users.ID).OrderBy(&Users.Age),
+			"the ordering omitted":        db.Users.OrderBy(&Users.Age).Omit(&Users.Age),
+		} {
+			t.Run(name, func(t *testing.T) {
+				names := walk(t, narrowed, 4)
+				require.Len(t, names, 25)
+
+				slices.Sort(names)
+				require.Len(t, slices.Compact(names), 25, "no row twice")
+			})
+		}
 
 		t.Run("descending", func(t *testing.T) {
 			names := walk(t, db.Users.OrderByDesc(&Users.Name), 7)
