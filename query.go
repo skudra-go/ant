@@ -116,10 +116,11 @@ func then[T any](q *Query[T], term Sort) *Query[T] {
 	return n
 }
 
-// Limit caps the number of rows returned.
+// Limit caps the number of rows returned. Zero returns none, and a negative
+// n is an error at the terminal call, as it is for Offset.
 func (q *Query[T]) Limit(n int) *Query[T] {
 	c := q.next()
-	c.limit = &n
+	c.limit = c.paging("Limit", n)
 
 	return c
 }
@@ -128,7 +129,7 @@ func (q *Query[T]) Limit(n int) *Query[T] {
 // is up to the database.
 func (q *Query[T]) Offset(n int) *Query[T] {
 	c := q.next()
-	c.offset = &n
+	c.offset = c.paging("Offset", n)
 
 	return c
 }

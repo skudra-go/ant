@@ -158,7 +158,7 @@ func (g *Grouped) Order(terms ...Sort) *Grouped {
 // Limit caps the number of groups returned.
 func (g *Grouped) Limit(limit int) *Grouped {
 	n := g.next()
-	n.limit = &limit
+	n.limit = n.paging("Limit", limit)
 
 	return n
 }
@@ -166,7 +166,7 @@ func (g *Grouped) Limit(limit int) *Grouped {
 // Offset skips the first groups.
 func (g *Grouped) Offset(offset int) *Grouped {
 	n := g.next()
-	n.offset = &offset
+	n.offset = n.paging("Offset", offset)
 
 	return n
 }

@@ -57,7 +57,7 @@ func (j *Join2[A, B]) Order(terms ...Sort) *Join2[A, B] {
 // Limit caps the number of rows returned.
 func (j *Join2[A, B]) Limit(limit int) *Join2[A, B] {
 	n := j.next()
-	n.limit = &limit
+	n.limit = n.paging("Limit", limit)
 
 	return n
 }
@@ -65,7 +65,7 @@ func (j *Join2[A, B]) Limit(limit int) *Join2[A, B] {
 // Offset skips the first rows.
 func (j *Join2[A, B]) Offset(offset int) *Join2[A, B] {
 	n := j.next()
-	n.offset = &offset
+	n.offset = n.paging("Offset", offset)
 
 	return n
 }
@@ -189,7 +189,7 @@ func (j *Join3[A, B, C]) Order(terms ...Sort) *Join3[A, B, C] {
 // Limit caps the number of rows returned.
 func (j *Join3[A, B, C]) Limit(limit int) *Join3[A, B, C] {
 	n := j.next()
-	n.limit = &limit
+	n.limit = n.paging("Limit", limit)
 
 	return n
 }
@@ -197,7 +197,7 @@ func (j *Join3[A, B, C]) Limit(limit int) *Join3[A, B, C] {
 // Offset skips the first rows.
 func (j *Join3[A, B, C]) Offset(offset int) *Join3[A, B, C] {
 	n := j.next()
-	n.offset = &offset
+	n.offset = n.paging("Offset", offset)
 
 	return n
 }
@@ -321,7 +321,7 @@ func (j *Join4[A, B, C, D]) Order(terms ...Sort) *Join4[A, B, C, D] {
 // Limit caps the number of rows returned.
 func (j *Join4[A, B, C, D]) Limit(limit int) *Join4[A, B, C, D] {
 	n := j.next()
-	n.limit = &limit
+	n.limit = n.paging("Limit", limit)
 
 	return n
 }
@@ -329,7 +329,7 @@ func (j *Join4[A, B, C, D]) Limit(limit int) *Join4[A, B, C, D] {
 // Offset skips the first rows.
 func (j *Join4[A, B, C, D]) Offset(offset int) *Join4[A, B, C, D] {
 	n := j.next()
-	n.offset = &offset
+	n.offset = n.paging("Offset", offset)
 
 	return n
 }

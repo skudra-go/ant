@@ -3,6 +3,7 @@ package ant
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strconv"
 	"unsafe"
@@ -65,6 +66,17 @@ type builder struct {
 }
 
 func (b *builder) fail(err error) { b.err = errors.Join(b.err, err) }
+
+// paging returns n for a Limit or an Offset, and fails the query when it is
+// negative. The databases disagree on a negative limit: most refuse it, and
+// SQLite reads it as no limit at all.
+func (b *builder) paging(name string, n int) *int {
+	if n < 0 {
+		b.fail(fmt.Errorf("ant: %s cannot be negative, got %d", name, n))
+	}
+
+	return &n
+}
 
 func (b *builder) narrowed() bool { return b.filtered || b.fromFiltered }
 
