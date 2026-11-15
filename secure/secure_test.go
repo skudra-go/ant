@@ -169,3 +169,40 @@ func TestRotationUnderConcurrency(t *testing.T) {
 	close(stop)
 	rotator.Wait()
 }
+
+// A model with a secure field decodes from JSON: a plain value sets it, and the
+// "[encrypted]" its own output holds leaves it as it was, so a model sent back
+// as it was received keeps its value.
+func TestValueDecodesFromJSON(t *testing.T) {
+	type Doc struct {
+		ID  int64
+		SSN Value[string]
+		PIN Value[int]
+	}
+
+	var doc Doc
+	if err := json.Unmarshal([]byte(`{"ID":1,"SSN":"123-45-6789","PIN":42}`), &doc); err != nil {
+		t.Fatal(err)
+	}
+
+	if doc.SSN.V != "123-45-6789" || doc.PIN.V != 42 {
+		t.Fatalf("decoded %+v", doc)
+	}
+
+	out, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := json.Unmarshal(out, &doc); err != nil {
+		t.Fatalf("decoding its own output: %v", err)
+	}
+
+	if doc.SSN.V != "123-45-6789" || doc.PIN.V != 42 {
+		t.Fatalf("the placeholder replaced the value: %+v", doc)
+	}
+
+	if err := json.Unmarshal([]byte(`{"PIN":"x"}`), &doc); err == nil {
+		t.Fatal("a value of the wrong type decoded")
+	}
+}
