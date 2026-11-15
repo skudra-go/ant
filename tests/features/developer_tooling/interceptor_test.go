@@ -174,3 +174,39 @@ func TestSaveInterceptor(t *testing.T) {
 		require.Equal(t, 5, got.Age)
 	})
 }
+
+// A session adds its own interceptor, such as a request's logger, to those of
+// the context it came from. Sessions of one context do not see each other's.
+func TestSessionInterceptors(t *testing.T) {
+	fixture.Each(t, func(t *testing.T, target fixture.Target) {
+		ctx := t.Context()
+
+		// However many interceptors the context has: a list with room to grow
+		// must not be grown in place by two sessions.
+		for shared := range 6 {
+			options := make([]ant.Option, shared)
+			for i := range options {
+				options[i] = ant.WithInterceptor(&recorder{})
+			}
+
+			db := fixture.Open[fixture.AppDB](t, target, options...)
+			first, second := &recorder{}, &recorder{}
+			a := ant.Session(db, ant.WithInterceptor(first))
+			b := ant.Session(db, ant.WithInterceptor(second))
+
+			count := func(tx *fixture.AppDB) error {
+				_, err := tx.Users.Count(ctx)
+
+				return err
+			}
+
+			require.NoError(t, a.Tx(ctx, count))
+			require.Len(t, first.statements(), 1, "%d shared", shared)
+			require.Empty(t, second.statements(), "%d shared", shared)
+
+			require.NoError(t, b.Tx(ctx, count))
+			require.Len(t, first.statements(), 1)
+			require.Len(t, second.statements(), 1)
+		}
+	})
+}
