@@ -143,6 +143,69 @@ func TestConformanceAggregates(t *testing.T) {
 	})
 }
 
+// An average has a fraction, also over whole numbers. SQL Server's AVG of an
+// integer column is an integer unless its argument is cast.
+func TestConformanceAverageOfIntegers(t *testing.T) {
+	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
+		app := openAndSeed(t, target) // 30, 25, 35
+		seedUsers(t, app, "dave", 31)
+		ctx := t.Context()
+
+		avg, err := ant.AvgOf(ctx, app.Users.Query(), &Users.Age)
+		require.NoError(t, err)
+		require.InDelta(t, 30.25, avg, 0.001, "AvgOf")
+
+		byAge := app.Users.OrderBy(&Users.Age)
+
+		avg, err = ant.AvgOf(ctx, byAge.Limit(2), &Users.Age)
+		require.NoError(t, err)
+		require.InDelta(t, 27.5, avg, 0.001, "AvgOf over a subquery")
+
+		type row struct {
+			Average float64
+			Posts   sql.Null[float64]
+		}
+
+		R := ant.Fields[row]()
+
+		grouped, err := ant.Project[row](
+			app.Users.Where(ant.Gte(&Users.Age, 31)).GroupBy(&Users.Email),
+			ant.IntoExpr(&R.Average, ant.Avg(&Users.Age)),
+		).All(ctx)
+		require.NoError(t, err)
+		require.Len(t, grouped, 2)
+
+		whole, err := ant.Project[row](
+			app.Users.Where(ant.Gte(&Users.Age, 31)),
+			ant.IntoExpr(&R.Average, ant.Avg(&Users.Age)),
+		).All(ctx)
+		require.NoError(t, err)
+		require.InDelta(t, 33, whole[0].Average, 0.001, "a whole average stays whole")
+
+		alice, err := app.Users.Where(ant.Eq(&Users.Name, "alice")).First(ctx)
+		require.NoError(t, err)
+
+		first, second := &Post{UserID: alice.ID, Title: "a"}, &Post{UserID: alice.ID, Title: "b"}
+		require.NoError(t, app.Posts.Insert(ctx, first))
+		require.NoError(t, app.Posts.Insert(ctx, second))
+		require.EqualValues(t, 1, second.ID-first.ID)
+
+		related, err := ant.Project[row](
+			app.Users.Where(ant.Eq(&Users.Name, "alice")),
+			ant.IntoExpr(&R.Posts, ant.AvgRelated(&Users.Posts, &Posts.ID)),
+		).All(ctx)
+		require.NoError(t, err)
+		require.InDelta(t, float64(first.ID)+0.5, related[0].Posts.V, 0.001, "AvgRelated")
+
+		filtered, err := ant.Project[row](
+			app.Users.Query(),
+			ant.IntoExpr(&R.Average, ant.Avg(&Users.Age).Filter(ant.Lte(&Users.Age, 30))),
+		).All(ctx)
+		require.NoError(t, err)
+		require.InDelta(t, 27.5, filtered[0].Average, 0.001, "with a FILTER")
+	})
+}
+
 // SumOf, AvgOf, MinOf and MaxOf aggregate the rows a Limit, Offset or
 // Distinct picks, not the one row the aggregate returns.
 func TestConformanceAggregatesOverPage(t *testing.T) {
