@@ -370,9 +370,11 @@ const uniqueMembersDDL = `CREATE TABLE members (id BIGSERIAL PRIMARY KEY, name T
 func TestUpsertHooks(t *testing.T) {
 	fixture.RunTrackedWith(t, uniqueMembersDDL, func(t *testing.T, db *MembersDB) {
 		ctx := t.Context()
+
 		byEmail := func() *ant.Conflict {
 			return ant.OnConflict(&Members.Email).DoUpdate(ant.F(&Members.Name))
 		}
+
 		count := func() int64 {
 			n, err := db.Members.Count(ctx)
 			require.NoError(t, err)
@@ -418,7 +420,13 @@ func TestUpsertHooks(t *testing.T) {
 			require.ErrorContains(t, err, "rejected")
 			require.Equal(t, before, count())
 			require.Zero(t, m.ID)
-			require.Equal(t, ant.Detached, fixture.Entry(t, db, m).State(), "a failed upsert is not tracked")
+
+			require.Equal(
+				t,
+				ant.Detached,
+				fixture.Entry(t, db, m).State(),
+				"a failed upsert is not tracked",
+			)
 		})
 
 		t.Run("WithoutHooks skips them", func(t *testing.T) {

@@ -16,10 +16,11 @@ import (
 
 // A model implements these on its pointer type to run code around writes through
 // Insert, Upsert, and SaveChanges. They run inside the write's transaction, so an
-// error cancels the whole write. Bulk Update and Delete, InsertMany, and Raw do
-// not run them.
+// error cancels the whole write. Upsert runs the insert hooks whichever way the
+// database goes. Bulk Update and Delete, InsertMany, UpdateMany, Merge, and Raw
+// load no entities and do not run them.
 type (
-	// Validator checks an entity before Insert or SaveChanges writes it.
+	// Validator checks an entity before Insert, Upsert, or SaveChanges writes it.
 	Validator interface {
 		Validate(ctx context.Context) error
 	}

@@ -252,7 +252,9 @@ func storedColumns(model *meta.Model) []qb.Selected {
 
 // Upsert inserts e, or follows conflict if a unique constraint already holds the
 // row. With an update, e receives the stored row, including its key. With
-// DoNothing, it stays as it was and Upsert reports false.
+// DoNothing, it stays as it was and Upsert reports false. It offers e as a new
+// row, so it checks the Validate rules and runs Validate, BeforeInsert, and
+// AfterInsert whichever way the database goes, as GORM runs its create hooks.
 func (t *Table[T]) Upsert(ctx context.Context, e *T, conflict *Conflict) (bool, error) {
 	model, err := t.model()
 
@@ -283,22 +285,42 @@ func (t *Table[T]) Upsert(ctx context.Context, e *T, conflict *Conflict) (bool, 
 
 	defer release()
 
+	n := &node{model: model, entity: unsafe.Pointer(e)}
+	if err := n.beforeInsert(ctx); err != nil {
+		return false, err
+	}
+
 	// A copy that carries a version updates only the row it was loaded from.
 	checked := t.versionCheck(model, unsafe.Pointer(e), clause)
 
-	n := &node{model: model, entity: unsafe.Pointer(e)}
-	newUnit(t.state).stamp(n)
+	// The keys the database fills in, taken back if the write is.
+	for _, f := range model.Keys {
+		if f.FromDatabase() && f.Value(n.entity).IsZero() {
+			n.generated = append(n.generated, f)
+		}
+	}
+
+	u := newUnit(t.state)
+	u.stamp(n)
 
 	stmt := insertStatement(model, unsafe.Pointer(e))
 	stmt.Conflict = clause
 
-	rows, err := t.upsertRows(ctx, model, stmt, unsafe.Pointer(e), checked)
-	if err == nil {
-		err = readInto(rows, e)
-	}
+	// An AfterInsert error has to undo the write, which a transaction covers.
+	err = t.state.transact(ctx, hooksOf(model).afterInsert, func(to exec.Executor) error {
+		rows, err := t.upsertRows(ctx, to, model, stmt, unsafe.Pointer(e), checked)
+		if err == nil {
+			err = readInto(rows, e)
+		}
 
+		if err != nil {
+			return err
+		}
+
+		return n.afterInsert(ctx)
+	})
 	if err != nil {
-		for _, f := range n.stamped {
+		for _, f := range slices.Concat(n.generated, n.stamped) {
 			f.Value(n.entity).SetZero()
 		}
 
@@ -315,10 +337,16 @@ func (t *Table[T]) Upsert(ctx context.Context, e *T, conflict *Conflict) (bool, 
 	}
 
 	if t.state.settings.tracking && model.Key() != nil {
-		entry := t.state.tracker.Track(model, unsafe.Pointer(e), track.Unchanged)
-		saved := t.state.tracker.Saved(entry, track.Unchanged, nil)
-		t.state.tracker.Rekey(entry)
-		t.state.record(saved)
+		// As a unit's commit does: a rollback takes back the key and the stamps
+		// and, for an entity tracked here, stops tracking it.
+		tracker := t.state.tracker
+
+		if entry := tracker.Get(unsafe.Pointer(e)); entry != nil {
+			t.state.record(tracker.Saved(entry, track.Unchanged, u.undoing(n)))
+			tracker.Rekey(entry)
+		} else {
+			t.state.record(tracker.Added(model, unsafe.Pointer(e), u.undoing(n)))
+		}
 	}
 
 	return true, nil
@@ -368,6 +396,7 @@ func (t *Table[T]) versionCheck(model *meta.Model, e unsafe.Pointer, c *qb.Confl
 // which moves on whenever it goes ahead, so no change means it was turned down.
 func (t *Table[T]) upsertRows(
 	ctx context.Context,
+	to exec.Executor,
 	model *meta.Model,
 	stmt *qb.Insert,
 	e unsafe.Pointer,
@@ -376,7 +405,7 @@ func (t *Table[T]) upsertRows(
 	if t.state.dialect.SupportsReturning() && !dialect.SyntaxOf(t.state.dialect).DuplicateKey {
 		stmt.Returning = storedColumns(model)
 
-		return t.state.query(ctx, stmt)
+		return t.state.queryOn(ctx, to, stmt)
 	}
 
 	if len(stmt.Conflict.Columns) == 0 {
@@ -387,7 +416,7 @@ func (t *Table[T]) upsertRows(
 		)
 	}
 
-	changed, err := t.state.run(ctx, stmt)
+	changed, err := t.state.runOn(ctx, to, stmt)
 
 	switch {
 	case err != nil:
@@ -412,7 +441,7 @@ func (t *Table[T]) upsertRows(
 		)
 	}
 
-	return t.state.query(ctx, read)
+	return t.state.queryOn(ctx, to, read)
 }
 
 // insertOptions configures InsertMany.

@@ -66,6 +66,22 @@ func (s *state) query(ctx context.Context, stmt qb.Statement) (*sql.Rows, error)
 	return s.reader(ctx, stmt).QueryContext(ctx, text, args...)
 }
 
+// queryOn is query on a chosen executor, as a write's own read must be.
+func (s *state) queryOn(
+	ctx context.Context,
+	to exec.Executor,
+	stmt qb.Statement,
+) (*sql.Rows, error) {
+	text, args, err := s.dialect.Render(qb.Contextual{Context: ctx, Statement: stmt})
+	if err != nil {
+		return nil, err
+	}
+
+	s.wrote()
+
+	return to.QueryContext(ctx, text, args...)
+}
+
 // querySQL runs a SELECT with no row locks, already rendered.
 func (s *state) querySQL(ctx context.Context, text string, args []any) (*sql.Rows, error) {
 	return s.selectReader(ctx, false).QueryContext(ctx, text, args...)
