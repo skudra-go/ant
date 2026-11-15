@@ -2,6 +2,7 @@ package ant
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"unsafe"
 
@@ -266,21 +267,35 @@ func (q *Query[T]) relatedStatement(field *meta.Field) *qb.Select {
 		return q.statement(q.selection())
 	}
 
-	rowNumber := qb.Func{
-		Name: "ROW_NUMBER",
-		Over: &qb.Window{
-			PartitionBy: []qb.Expr{q.sources[0].col(field)},
-			OrderBy:     q.order,
+	inner := q.statement(append(q.selection(), q.numbered(q.sources[0].col(field))))
+
+	return q.window(inner, []qb.Selected{{Value: qb.Star{}}})
+}
+
+// partitionAlias names the numbered rows of a limited include.
+const partitionAlias = "ant_partition"
+
+// numbered returns a column that numbers q's rows in q's order, starting again
+// for each value of parent.
+func (q *Query[T]) numbered(parent qb.Expr) qb.Selected {
+	return qb.Selected{
+		Value: qb.Func{
+			Name: "ROW_NUMBER",
+			Over: &qb.Window{
+				PartitionBy: []qb.Expr{parent},
+				OrderBy:     q.order,
+			},
 		},
+		Alias: partitionColumn,
 	}
-	inner := q.statement(
-		append(q.selection(), qb.Selected{Value: rowNumber, Alias: partitionColumn}),
-	)
+}
+
+// window reads columns of the rows of inner that q's Limit and Offset keep for
+// each parent, by the numbers numbered gave them, in that order.
+func (q *Query[T]) window(inner *qb.Select, columns []qb.Selected) *qb.Select {
 	inner.Order, inner.Limit, inner.Offset = nil, nil, nil
 
-	const alias = "ant_partition"
-
-	number := qb.Column{Alias: alias, Name: partitionColumn}
+	number := qb.Column{Alias: partitionAlias, Name: partitionColumn}
 	skipped := 0
 
 	if q.offset != nil {
@@ -288,8 +303,8 @@ func (q *Query[T]) relatedStatement(field *meta.Field) *qb.Select {
 	}
 
 	outer := &qb.Select{
-		Columns: []qb.Selected{{Value: qb.Star{}}},
-		From:    qb.Source{Sub: inner, Alias: alias},
+		Columns: columns,
+		From:    qb.Source{Sub: inner, Alias: partitionAlias},
 		Where:   []qb.Cond{qb.Compare{Left: number, Op: qb.OpGt, Right: qb.Param{Value: skipped}}},
 		Order:   []qb.Order{{Value: number}},
 	}
@@ -308,19 +323,49 @@ func slot[V any](parent unsafe.Pointer, r *meta.Relation) *V {
 	return (*V)(unsafe.Add(parent, r.Offset))
 }
 
-// loadPivot maps each target key to its parents, through the join table.
+// loadPivot maps each related row to its parents, through the join table. It
+// returns the parents by a key of the related rows, those keys, and the field
+// of the related model that holds them.
+//
+// With no Limit or Offset the key is the one the join table refers to, read
+// from the join table alone. With one, which rows a parent keeps depends on the
+// related query's conditions and order, and a row can be kept for one parent
+// and not for another. So the join table is joined to the related query, the
+// rows are numbered for each parent there, and the key is the related row's
+// own, which says which rows were kept: through a table in between, many
+// related rows share the key that refers to it.
 func loadPivot[R any](
 	ctx context.Context,
 	sub *Query[R],
 	r *meta.Relation,
+	link meta.Link,
 	groups map[any][]unsafe.Pointer,
 	keys []any,
-) (map[any][]unsafe.Pointer, []any, error) {
+) (map[any][]unsafe.Pointer, []any, *meta.Field, error) {
 	if sub.state == nil {
-		return nil, nil, ErrNotOpen
+		return nil, nil, nil, ErrNotOpen
 	}
 
 	p := r.Pivot
+	field := link.Foreign
+	limited := sub.limit != nil || sub.offset != nil
+
+	if limited {
+		if err := sub.readyToRead(); err != nil {
+			return nil, nil, nil, err
+		}
+
+		if field = link.Target.Key(); field == nil {
+			return nil, nil, nil, fmt.Errorf(
+				"%w: Limit and Offset on %s.%s need a single-column key on %s",
+				ErrNoKey,
+				r.Owner.Type.Name(),
+				r.Name,
+				link.Target.Type.Name(),
+			)
+		}
+	}
+
 	targets := map[any][]unsafe.Pointer{}
 
 	var foreign []any
@@ -332,21 +377,27 @@ func loadPivot[R any](
 			values[i] = qb.Param{Value: k}
 		}
 
-		rows, err := sub.state.query(ctx, &qb.Select{
+		stmt := &qb.Select{
 			Columns: []qb.Selected{
 				{Value: qb.Column{Name: p.Local}},
 				{Value: qb.Column{Name: p.Foreign}},
 			},
 			From:  qb.Source{Table: p.Table},
 			Where: []qb.Cond{qb.In{Left: qb.Column{Name: p.Local}, Values: values}},
-		})
+		}
+
+		if limited {
+			stmt = sub.pivotWindow(p, link, field, values)
+		}
+
+		rows, err := sub.state.query(ctx, stmt)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 
 		pairs, err := collectPairs(rows)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 
 		for _, pair := range pairs {
@@ -361,7 +412,50 @@ func loadPivot[R any](
 		}
 	}
 
-	return targets, foreign, nil
+	return targets, foreign, field, nil
+}
+
+// pivotWindow returns the statement that pairs each parent in values with the
+// key of the related rows that q's Limit and Offset keep for it.
+func (q *Query[T]) pivotWindow(
+	p *meta.Pivot,
+	link meta.Link,
+	key *meta.Field,
+	values []qb.Expr,
+) *qb.Select {
+	const (
+		pivot  = "ant_pivot"
+		parent = "ant_parent"
+		row    = "ant_key"
+	)
+
+	owner := qb.Column{Alias: pivot, Name: p.Local}
+	root := q.sources[0]
+
+	inner := q.statement([]qb.Selected{
+		{Value: owner, Alias: parent},
+		{Value: root.col(key), Alias: row},
+		q.numbered(owner),
+	})
+
+	inner.Joins = append(slices.Clip(inner.Joins), qb.Join{
+		Kind:   qb.InnerJoin,
+		Source: qb.Source{Table: p.Table, Alias: pivot},
+		On: []qb.Cond{
+			qb.Compare{
+				Left:  qb.Column{Alias: pivot, Name: p.Foreign},
+				Op:    qb.OpEq,
+				Right: root.col(link.Foreign),
+			},
+		},
+	})
+
+	inner.Where = append(slices.Clip(inner.Where), qb.In{Left: owner, Values: values})
+
+	return q.window(inner, []qb.Selected{
+		{Value: qb.Column{Alias: partitionAlias, Name: parent}},
+		{Value: qb.Column{Alias: partitionAlias, Name: row}},
+	})
 }
 
 // distinct drops repeated parents, as from Load given one entity twice, so that
@@ -393,17 +487,23 @@ func loadMany[R any](
 	parents = distinct(parents)
 	groups, keys := groupByKey(link.Local, parents)
 
-	if r.Pivot != nil {
-		var err error
-		if groups, keys, err = loadPivot(ctx, sub, r, groups, keys); err != nil {
-			return err
-		}
-	}
-
 	q := sub.next()
 	q.inSlice = true
 
-	children, err := fetchRelated(ctx, q, link.Foreign, keys)
+	// The field of a row that says whose it is.
+	field := link.Foreign
+
+	if r.Pivot != nil {
+		var err error
+		if groups, keys, field, err = loadPivot(ctx, sub, r, link, groups, keys); err != nil {
+			return err
+		}
+
+		// The join table's query applied them, for each parent.
+		q.limit, q.offset = nil, nil
+	}
+
+	children, err := fetchRelated(ctx, q, field, keys)
 	if err != nil {
 		return err
 	}
@@ -420,7 +520,7 @@ func loadMany[R any](
 	total := 0
 
 	for i, child := range children {
-		if key, ok := link.Foreign.Key(unsafe.Pointer(child)); ok {
+		if key, ok := field.Key(unsafe.Pointer(child)); ok {
 			owners[i] = groups[key]
 
 			for _, p := range owners[i] {
@@ -576,14 +676,21 @@ func loadOne[R any](
 ) error {
 	groups, keys := groupByKey(link.Local, morphParents(r, parents))
 
+	// The field of a row that says whose it is.
+	field := link.Foreign
+
 	if r.Pivot != nil {
 		var err error
-		if groups, keys, err = loadPivot(ctx, sub, r, groups, keys); err != nil {
+		if groups, keys, field, err = loadPivot(ctx, sub, r, link, groups, keys); err != nil {
 			return err
 		}
+
+		// The join table's query applied them, for each parent.
+		sub = sub.next()
+		sub.limit, sub.offset = nil, nil
 	}
 
-	children, err := fetchRelated(ctx, sub, link.Foreign, keys)
+	children, err := fetchRelated(ctx, sub, field, keys)
 	if err != nil {
 		return err
 	}
@@ -591,7 +698,7 @@ func loadOne[R any](
 	loaded := make(map[unsafe.Pointer]*R, len(parents))
 
 	for _, child := range children {
-		key, ok := link.Foreign.Key(unsafe.Pointer(child))
+		key, ok := field.Key(unsafe.Pointer(child))
 		if !ok {
 			continue
 		}

@@ -2455,12 +2455,15 @@ type Venue struct {
 	Name string
 	Acts []Act
 	Gigs []Gig
+	// Encores have no key of their own.
+	Encores []Encore
 }
 
 func (Venue) Configure(b *ant.ModelBuilder[Venue]) {
 	b.Table("conf_venues")
 	b.ManyToMany(&Venues.Acts).Through("conf_venue_acts").PivotColumns("venue_id", "act_id")
 	b.HasManyThrough(&Venues.Gigs, &Stages.VenueID, &Gigs.StageID)
+	b.HasManyThrough(&Venues.Encores, &Stages.VenueID, &Encores.StageID)
 }
 
 type Act struct {
@@ -2485,19 +2488,31 @@ type Gig struct {
 
 func (Gig) Configure(b *ant.ModelBuilder[Gig]) { b.Table("conf_gigs") }
 
+type Encore struct {
+	StageID int64
+	Title   string
+}
+
+func (Encore) Configure(b *ant.ModelBuilder[Encore]) {
+	b.Table("conf_encores")
+	b.NoKey()
+}
+
 var (
-	Venues = ant.Fields[Venue]()
-	Acts   = ant.Fields[Act]()
-	Stages = ant.Fields[Stage]()
-	Gigs   = ant.Fields[Gig]()
+	Venues  = ant.Fields[Venue]()
+	Acts    = ant.Fields[Act]()
+	Stages  = ant.Fields[Stage]()
+	Gigs    = ant.Fields[Gig]()
+	Encores = ant.Fields[Encore]()
 )
 
 type VenueDB struct {
 	ant.Context
-	Venues ant.Table[Venue]
-	Acts   ant.Table[Act]
-	Stages ant.Table[Stage]
-	Gigs   ant.Table[Gig]
+	Venues  ant.Table[Venue]
+	Acts    ant.Table[Act]
+	Stages  ant.Table[Stage]
+	Gigs    ant.Table[Gig]
+	Encores ant.Table[Encore]
 }
 
 // Limit and Offset in an Include apply to each parent, also when the relation
@@ -2515,6 +2530,7 @@ func TestConformanceIncludeLimitThroughATable(t *testing.T) {
 			`CREATE TABLE conf_stages (id BIGINT PRIMARY KEY, venue_id BIGINT NOT NULL)`,
 			`CREATE TABLE conf_gigs (id BIGINT PRIMARY KEY, stage_id BIGINT NOT NULL,
 				title VARCHAR(20) NOT NULL)`,
+			`CREATE TABLE conf_encores (stage_id BIGINT NOT NULL, title VARCHAR(20) NOT NULL)`,
 		} {
 			_, err := target.DB.ExecContext(ctx, ddl)
 			require.NoError(t, err)
@@ -2522,7 +2538,12 @@ func TestConformanceIncludeLimitThroughATable(t *testing.T) {
 
 		t.Cleanup(func() {
 			for _, table := range []string{
-				"conf_gigs", "conf_stages", "conf_venue_acts", "conf_acts", "conf_venues",
+				"conf_encores",
+				"conf_gigs",
+				"conf_stages",
+				"conf_venue_acts",
+				"conf_acts",
+				"conf_venues",
 			} {
 				_, _ = target.DB.ExecContext(context.Background(), "DROP TABLE "+table)
 			}
@@ -2532,7 +2553,12 @@ func TestConformanceIncludeLimitThroughATable(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { db.Close() })
 
-		acts := []*Act{{ID: 1, Name: "a1"}, {ID: 2, Name: "a2"}, {ID: 3, Name: "a3"}, {ID: 4, Name: "a4"}}
+		acts := []*Act{
+			{ID: 1, Name: "a1"},
+			{ID: 2, Name: "a2"},
+			{ID: 3, Name: "a3"},
+			{ID: 4, Name: "a4"},
+		}
 		require.NoError(t, db.Acts.Insert(ctx, acts...))
 
 		// Venue 1 has acts 1 to 3, venue 2 has acts 2 to 4, and venue 3 has none.
@@ -2551,6 +2577,7 @@ func TestConformanceIncludeLimitThroughATable(t *testing.T) {
 			&Stage{ID: 2, VenueID: 1},
 			&Stage{ID: 3, VenueID: 2},
 		))
+
 		require.NoError(t, db.Gigs.Insert(
 			ctx,
 			&Gig{ID: 1, StageID: 1, Title: "g1"},
@@ -2593,7 +2620,9 @@ func TestConformanceIncludeLimitThroughATable(t *testing.T) {
 			},
 			{
 				"limit, descending",
-				func(q *ant.Query[Act]) *ant.Query[Act] { return q.OrderByDesc(&Acts.Name).Limit(1) },
+				func(q *ant.Query[Act]) *ant.Query[Act] {
+					return q.OrderByDesc(&Acts.Name).Limit(1)
+				},
 				[][]string{{"a3"}, {"a4"}, {}},
 			},
 			{
@@ -2676,5 +2705,31 @@ func TestConformanceIncludeLimitThroughATable(t *testing.T) {
 				require.Equal(t, c.want, gigTitles(c.shape))
 			})
 		}
+
+		// Which rows a parent keeps is told by their key, so a related model
+		// with none can be loaded whole, and not limited.
+		t.Run("through a table, with no key", func(t *testing.T) {
+			require.NoError(t, db.Encores.Insert(
+				ctx,
+				&Encore{StageID: 1, Title: "e1"},
+				&Encore{StageID: 2, Title: "e2"},
+			))
+
+			venues, err := db.Venues.OrderBy(&Venues.ID).
+				Include(&Venues.Encores, func(q *ant.Query[Encore]) *ant.Query[Encore] {
+					return q.OrderBy(&Encores.Title)
+				}).
+				All(ctx)
+			require.NoError(t, err)
+			require.Len(t, venues[0].Encores, 2)
+
+			_, err = db.Venues.
+				Include(&Venues.Encores, func(q *ant.Query[Encore]) *ant.Query[Encore] {
+					return q.OrderBy(&Encores.Title).Limit(1)
+				}).
+				All(ctx)
+			require.ErrorIs(t, err, ant.ErrNoKey)
+			require.ErrorContains(t, err, "Venue.Encores")
+		})
 	})
 }
