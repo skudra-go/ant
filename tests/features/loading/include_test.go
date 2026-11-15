@@ -97,3 +97,103 @@ func TestIncludeOne(t *testing.T) {
 		})
 	})
 }
+
+// Column and Omit choose what the query reads. An include works from the
+// column that links the two models, so the query reads that one as well.
+func TestIncludeWithChosenColumns(t *testing.T) {
+	fixture.Run(t, func(t *testing.T, db *fixture.AppDB) {
+		seed(t, db)
+		ctx := t.Context()
+
+		counts := func(t *testing.T, users []*User) []int {
+			t.Helper()
+
+			out := make([]int, len(users))
+
+			for i, u := range users {
+				require.NotEmpty(t, u.Name)
+				out[i] = len(u.Posts)
+			}
+
+			return out
+		}
+
+		t.Run("Column without the key", func(t *testing.T) {
+			users, err := db.Users.Column(&Users.Name).
+				Include(&Users.Posts).
+				OrderBy(&Users.Name).
+				All(ctx)
+			require.NoError(t, err)
+			require.Equal(t, []int{3, 1, 0}, counts(t, users))
+			require.Empty(t, users[0].Email, "only the link column is added")
+		})
+
+		t.Run("Column after Include", func(t *testing.T) {
+			users, err := db.Users.Include(&Users.Posts).
+				OrderBy(&Users.Name).
+				Column(&Users.Name).
+				All(ctx)
+			require.NoError(t, err)
+			require.Equal(t, []int{3, 1, 0}, counts(t, users))
+		})
+
+		t.Run("Omit the key", func(t *testing.T) {
+			users, err := db.Users.Omit(&Users.ID).
+				Include(&Users.Posts).
+				OrderBy(&Users.Name).
+				All(ctx)
+			require.NoError(t, err)
+			require.Equal(t, []int{3, 1, 0}, counts(t, users))
+		})
+
+		t.Run("First, Page and Chunk", func(t *testing.T) {
+			q := db.Users.Column(&Users.Name).Include(&Users.Posts).OrderBy(&Users.Name)
+
+			first, err := q.First(ctx)
+			require.NoError(t, err)
+			require.Len(t, first.Posts, 3)
+
+			page, err := q.Page(ctx, 1, 2)
+			require.NoError(t, err)
+			require.Equal(t, []int{3, 1}, counts(t, page.Items))
+
+			require.NoError(t, q.Chunk(ctx, 1, func(users []*User) error {
+				require.NotNil(t, users[0].Posts)
+
+				if users[0].Name == "Alice" {
+					require.Len(t, users[0].Posts, 3)
+				}
+
+				return nil
+			}))
+		})
+
+		t.Run("IncludeOne without the foreign key", func(t *testing.T) {
+			posts, err := db.Posts.Omit(&Posts.UserID).
+				IncludeOne(&Posts.User).
+				OrderBy(&Posts.Title).
+				All(ctx)
+			require.NoError(t, err)
+			require.Equal(t, "Alice", posts[0].User.Name)
+			require.Equal(t, "Bob", posts[3].User.Name)
+
+			posts, err = db.Posts.Column(&Posts.Title).
+				IncludeOne(&Posts.User).
+				OrderBy(&Posts.Title).
+				All(ctx)
+			require.NoError(t, err)
+			require.Equal(t, "Bob", posts[3].User.Name)
+		})
+
+		t.Run("in a nested include", func(t *testing.T) {
+			users, err := db.Users.Include(&Users.Posts, func(q *ant.Query[Post]) *ant.Query[Post] {
+				return q.Column(&Posts.Title).IncludeOne(&Posts.User)
+			}).
+				Where(ant.Eq(&Users.Name, "Bob")).
+				All(ctx)
+			require.NoError(t, err)
+			require.Len(t, users[0].Posts, 1)
+			require.Equal(t, "Bob", users[0].Posts[0].User.Name)
+		})
+	})
+}

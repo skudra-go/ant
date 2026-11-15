@@ -228,6 +228,20 @@ func TestPolymorphicRelations(t *testing.T) {
 			require.NotNil(t, comments[1].Video)
 		})
 
+		t.Run("the type column is read even when Column leaves it out", func(t *testing.T) {
+			comments, err := db.Remarks.Column(&Remarks.Text).
+				IncludeOne(&Remarks.Post).
+				IncludeOne(&Remarks.Video).
+				OrderBy(&Remarks.ID).
+				NoTracking().
+				All(ctx)
+			require.NoError(t, err)
+			require.NotNil(t, comments[0].Post)
+			require.Nil(t, comments[0].Video)
+			require.Nil(t, comments[1].Post)
+			require.NotNil(t, comments[1].Video)
+		})
+
 		t.Run("Has and joins are scoped", func(t *testing.T) {
 			blogs, err := db.Essays.Where(ant.Has(&Essays.Remarks, ant.Eq(&Remarks.Text, "on the video"))).
 				NoTracking().

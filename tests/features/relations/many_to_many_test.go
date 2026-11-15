@@ -142,6 +142,20 @@ func TestManyToMany(t *testing.T) {
 			require.Len(t, got[1].Courses, 1)
 		})
 
+		t.Run("Include reads the key that Column left out", func(t *testing.T) {
+			got, err := db.Students.NoTracking().
+				Column(&Students.Name).
+				OrderBy(&Students.Name).
+				Include(&Students.Courses, func(q *ant.Query[Course]) *ant.Query[Course] {
+					return q.Column(&Courses.Title)
+				}).
+				All(ctx)
+			require.NoError(t, err)
+			require.Len(t, got[0].Courses, 2)
+			require.Len(t, got[1].Courses, 1)
+			require.NotEmpty(t, got[0].Courses[0].Title)
+		})
+
 		t.Run("the other side works too", func(t *testing.T) {
 			got, err := db.Courses.NoTracking().
 				Where(ant.Eq(&Courses.Title, "Math")).
