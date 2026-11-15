@@ -16,8 +16,13 @@ import (
 
 // txState is an open transaction, shared by nested Tx calls.
 type txState struct {
-	tx      *sql.Tx
-	done    bool
+	tx   *sql.Tx
+	done bool
+	// lost is set when the database ended the transaction on its own, as a
+	// deadlock does on MySQL and SQL Server, which ant learns when returning to
+	// a savepoint fails. Statements on it are refused, since database/sql would
+	// run them outside any transaction, and it can only be rolled back.
+	lost    error
 	depth   int                     // nested savepoints so far, for naming
 	undo    []undoStep              // tracker changes to settle when it ends
 	pending []func(context.Context) // observers to run after commit
@@ -143,7 +148,13 @@ func ReadOnly() TxOption { return func(o *txOptions) { o.sql.ReadOnly = true } }
 // child returns a context state bound to a transaction.
 func (s *state) child(t *txState) *state {
 	c := *s
-	c.exec = exec.Wrap(t.tx, s.settings.interceptors, false, s.settings.detailed)
+	c.exec = exec.Wrap(
+		txExec{t, dialect.SyntaxOf(s.dialect).RetryEndsTx},
+		s.settings.interceptors,
+		false,
+		s.settings.detailed,
+	)
+
 	c.tx = t
 
 	return &c
@@ -339,7 +350,64 @@ func (s *state) rollbackSavepoint(ctx context.Context, sp *savepointState) error
 	_, err := s.exec.ExecContext(context.WithoutCancel(ctx), back+sp.name)
 	sp.done = true
 
+	// The savepoint is gone only if the transaction is: a deadlock on MySQL or
+	// SQL Server rolls the whole of it back.
+	if err != nil {
+		root.lose(ctx, err)
+
+		return root.lost
+	}
+
+	return nil
+}
+
+// txExec runs statements in a transaction, and refuses them once the database
+// has ended it. With ends set, a deadlock or serialization failure ends it, as
+// on MySQL and SQL Server.
+type txExec struct {
+	t    *txState
+	ends bool
+}
+
+func (e txExec) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	if e.t.lost != nil {
+		return nil, e.t.lost
+	}
+
+	result, err := e.t.tx.ExecContext(ctx, query, args...)
+
+	return result, e.check(ctx, err)
+}
+
+func (e txExec) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	if e.t.lost != nil {
+		return nil, e.t.lost
+	}
+
+	rows, err := e.t.tx.QueryContext(ctx, query, args...)
+
+	return rows, e.check(ctx, err)
+}
+
+// check records a failure that ended the transaction, and returns err.
+func (e txExec) check(ctx context.Context, err error) error {
+	if err != nil && e.ends && IsRetryable(err) {
+		e.t.lose(ctx, err)
+	}
+
 	return err
+}
+
+// lose records that the database ended the transaction, and forgets what it
+// did: its tracker changes are undone and its observers never run.
+func (t *txState) lose(ctx context.Context, cause error) {
+	if t.lost != nil {
+		return
+	}
+
+	t.lost = fmt.Errorf("%w: the database ended it: %w", ErrTxDone, cause)
+	t.rollbackTo(ctx, 0)
+	t.pending = nil
 }
 
 // releaseSavepoint ends sp, keeping its changes in the transaction.
@@ -520,6 +588,12 @@ func runTx[DB any](ctx context.Context, s *state, o txOptions, f func(tx *DB) er
 		return errors.Join(err, t.rollback())
 	}
 
+	if t.lost != nil {
+		t.abort(ctx)
+
+		return errors.Join(t.lost, t.rollback())
+	}
+
 	t.done = true
 
 	if err := t.commit(); err != nil {
@@ -667,6 +741,12 @@ func (c *Context) Commit() error {
 
 	if sp := c.state.begun; sp != nil {
 		return c.state.releaseSavepoint(context.Background(), sp)
+	}
+
+	if t.lost != nil {
+		t.abort(context.Background())
+
+		return errors.Join(t.lost, t.rollback())
 	}
 
 	t.done = true

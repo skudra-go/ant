@@ -45,6 +45,7 @@ func shared(missing ...dialect.Feature) dialect.Syntax {
 			dialect.DatePart,
 		),
 		Unlimited:     "18446744073709551615",
+		RetryEndsTx:   true,
 		DuplicateKey:  true,
 		EmptyValues:   true,
 		NoILike:       true,

@@ -79,6 +79,9 @@ type Syntax struct {
 	MergeHoldLock bool
 	// TransactSavepoints uses SAVE TRANSACTION, which has no release.
 	TransactSavepoints bool
+	// RetryEndsTx says a deadlock or serialization failure rolls back the whole
+	// transaction, not only the statement, so a savepoint cannot recover from it.
+	RetryEndsTx bool
 	// RecursiveUnionAll writes a recursive WITH without RECURSIVE and joins its
 	// members with UNION ALL, for a database that demands both. A CTE with a Key
 	// then carries the path of keys that reached each row, which stops a cycle,
