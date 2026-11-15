@@ -1566,7 +1566,7 @@ func (u *unit) update(ctx context.Context, to exec.Executor, n *node) error {
 	}
 
 	if updated := n.model.Updated; updated != nil && !slices.Contains(n.changed, updated) {
-		if entity := n.entity; n.owns() {
+		if entity := n.entity; n.writesInto() {
 			n.restore = append(n.restore, prior{updated, copyOf(updated, entity)})
 			setTime(updated, entity, u.s.settings.timestamp())
 
@@ -1586,6 +1586,15 @@ func (u *unit) update(ctx context.Context, to exec.Executor, n *node) error {
 		)
 	}
 
+	// An untracked copy with no version does not know the stored one, so the
+	// database moves it on, and holders of a loaded copy still see a conflict.
+	if v := n.model.Version; v != nil && n.entry == nil && !slices.Contains(n.changed, v) {
+		stmt.Set = append(stmt.Set, qb.Assignment{
+			Column: v.Column,
+			Value:  qb.Binary{Left: qb.Column{Name: v.Column}, Op: "+", Right: qb.Param{Value: 1}},
+		})
+	}
+
 	if err := u.writeOne(ctx, to, n, stmt); err != nil {
 		return err
 	}
@@ -1599,10 +1608,44 @@ func (u *unit) update(ctx context.Context, to exec.Executor, n *node) error {
 // private copy of its row.
 func (n *node) owns() bool { return n.entry != nil && (n.entity == n.entry.Entity || n.scratch) }
 
+// writesInto reports whether an update may stamp n's entity: one it owns, or an
+// untracked one the application put into a loaded relation, which is written as
+// the application gave it.
+func (n *node) writesInto() bool { return n.owns() || n.entry == nil }
+
+// untrackedVersion returns the version an untracked entity carries, if any. A
+// zero version is one built from a key alone, with nothing to check.
+func (n *node) untrackedVersion() (reflect.Value, bool) {
+	v := n.model.Version
+	if v == nil || n.entry != nil || v.Value(n.entity).IsZero() {
+		return reflect.Value{}, false
+	}
+
+	return v.Value(n.entity), true
+}
+
 // tokenConditions requires the row to still hold the values this entity loaded.
 // The version is the one an earlier write of this unit gave the row, if any, as
 // when another instance of the row was saved first.
 func (u *unit) tokenConditions(n *node) []qb.Cond {
+	// An untracked copy is checked against the version it carries, as Upsert
+	// checks one.
+	if version, ok := n.untrackedVersion(); ok {
+		value := version.Interface()
+
+		if written, ok := u.versions[n.row()]; ok {
+			value = written.Interface()
+		}
+
+		return []qb.Cond{
+			qb.Compare{
+				Left:  n.model.ColumnOf(n.model.Version),
+				Op:    qb.OpEq,
+				Right: qb.Param{Value: value},
+			},
+		}
+	}
+
 	if n.entry == nil || !n.entry.HasOriginal() {
 		return nil
 	}
@@ -1636,7 +1679,7 @@ func (u *unit) tokenConditions(n *node) []qb.Cond {
 // as when two instances of one row are both saved.
 func (u *unit) bumpVersion(n *node) {
 	v := n.model.Version
-	if v == nil || !n.owns() {
+	if _, untracked := n.untrackedVersion(); v == nil || !n.owns() && !untracked {
 		return
 	}
 
@@ -1671,7 +1714,8 @@ func (n *node) row() rowID {
 // wroteVersion records the version n's row holds after n's write, for another
 // instance of the row written later in the unit.
 func (u *unit) wroteVersion(n *node) {
-	if v := n.model.Version; v != nil && n.owns() {
+	v := n.model.Version
+	if _, untracked := n.untrackedVersion(); v != nil && (n.owns() || untracked) {
 		if u.versions == nil {
 			u.versions = map[rowID]reflect.Value{}
 		}

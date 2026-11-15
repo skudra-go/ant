@@ -433,6 +433,8 @@ An entity passed to `Upsert` with a version of its own is a loaded copy, so its 
 
 A soft delete and `Restore` are updates too. They left the version and `UpdatedAt` as they were, so a copy loaded before a soft delete saved into the deleted row with no conflict, where a real delete gives `ErrConcurrency` (#87). Both now move the version on and stamp `UpdatedAt`, tracked (`Remove`) or in bulk (`Delete`, `DeleteByID`, `Restore`). Adding `deleted_at IS NULL` to tracked updates was rejected: it would close the soft delete but not `Restore`, and a copy loaded with `WithDeleted` may mean to edit a deleted row.
 
+An untracked row the application puts into a loaded relation, loaded with `NoTracking` or decoded from JSON, was moved with an `UPDATE` of its foreign key alone, checking and moving no version (#88). Its update now checks the version the copy carries and moves it on, as `Upsert` does with a copy, and stamps `UpdatedAt`. A copy with a zero version, built from a key alone, has nothing to check, so the database moves the stored version on (`version = version + 1`) and the copy is left as it was.
+
 ## 81. A set operation's members keep their own paging
 
 `Union` built its statement from the left query and appended the right one, so the left query's `ORDER BY`, `LIMIT`, and `OFFSET` were written after the right member, where SQL applies them to the whole set. The youngest two users united with the oldest came back as the youngest of all three, a `Delete` on such a set removed rows outside it, and an ordering by a table's column failed on PostgreSQL, which orders a set only by its output columns. SQLite writes members without parentheses, so there the right member's paging escaped too, and SQL Server and SQLite refuse an ordered member outright.
