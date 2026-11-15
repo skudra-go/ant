@@ -354,10 +354,21 @@ func (r *renderer) function(f qb.Func) {
 		r.write("DISTINCT ")
 	}
 
+	// The average of whole numbers has a fraction everywhere but where AVG
+	// gives back its argument's type.
+	float := r.s.FloatAvg && f.Name == "AVG"
+	if float {
+		r.write("CAST(")
+	}
+
 	if len(f.Filter) > 0 && r.s.NoFilter {
 		r.filtered(f)
 	} else {
 		list(r, f.Args, r.expr)
+	}
+
+	if float {
+		r.write(" AS FLOAT)")
 	}
 
 	r.write(")")

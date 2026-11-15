@@ -51,6 +51,9 @@ type Syntax struct {
 	NoILike bool
 	// NoFilter turns an aggregate's FILTER into a CASE inside it.
 	NoFilter bool
+	// FloatAvg casts the argument of AVG to a float, for a database whose AVG of
+	// an integer column is an integer, with the fraction cut off.
+	FloatAvg bool
 	// NoNullsOrder turns NULLS FIRST and NULLS LAST into a CASE before the value.
 	NoNullsOrder bool
 	// NoBooleans turns EXISTS used as a value into a CASE.

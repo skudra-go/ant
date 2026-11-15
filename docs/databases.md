@@ -68,6 +68,8 @@ Error helpers mean the same everywhere. `ant.IsUniqueViolation` works on all fiv
 
 **Paging on SQL Server.** `OFFSET ... FETCH` needs an `ORDER BY`, so ant adds a meaningless one if the query has none. SQL Server refuses a `Limit` of zero.
 
+**Averages on SQL Server.** `AVG` there returns its argument's type, so the average of an integer column would lose its fraction. ant writes `AVG(CAST(x AS FLOAT))`, and `Avg`, `AvgOf`, and `AvgRelated` give the same number on every database.
+
 **`Recursive` on SQL Server.** A recursive `WITH` there has no `RECURSIVE` and joins its parts only with `UNION ALL`, which keeps a row each time it is reached and never ends a cycle. So each row carries the path of keys that reached it, a row already on its path is not followed again, and the query reads one row per key, as `UNION` gives elsewhere. The path also lets ant lift SQL Server's limit of 100 levels, with `OPTION (MAXRECURSION 0)`. `Count` and `Exists` put the `WITH` at the start of their statement, the only place SQL Server takes one.
 
 **Long `In` lists.** A list of more values than the database takes parameters in one statement goes on PostgreSQL as one array, `= ANY($1)`, when its values are plain and of one type. Elsewhere, and for a list of secrets or of mixed types, the driver refuses it, at 65535 on MySQL and MariaDB, 32766 on SQLite, and about 2100 on SQL Server: use `InSub`, or split the list.

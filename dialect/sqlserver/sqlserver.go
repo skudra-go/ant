@@ -29,6 +29,7 @@ var syntax = dialect.Syntax{
 	Output:             true,
 	NoILike:            true,
 	NoFilter:           true,
+	FloatAvg:           true,
 	NoNullsOrder:       true,
 	NoBooleans:         true,
 	NoRowIn:            true,
