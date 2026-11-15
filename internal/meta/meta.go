@@ -570,16 +570,62 @@ func (r *Relation) resolve() (Link, error) {
 	}
 
 	if fk := target.field(r.Owner.Type.Name() + "ID"); fk != nil {
+		if err := r.shared(target, fk, false); err != nil {
+			return Link{}, err
+		}
+
 		return child(fk)
 	}
 
 	if r.Kind == Many {
 		if fk := target.backReference(r.Owner); fk != nil {
+			if err := r.shared(target, fk, true); err != nil {
+				return Link{}, err
+			}
+
 			return child(fk)
 		}
 	}
 
 	return Link{}, missing
+}
+
+// shared refuses a foreign key that convention gives to r and to another
+// relation of the same owner: the two would read and write each other's rows.
+// A relation that names its key, or that scopes or picks rows of the target,
+// is not a guess. manyOnly is for a key only a has-many can be given.
+func (r *Relation) shared(target *Model, fk *Field, manyOnly bool) error {
+	if !r.guessed() {
+		return nil
+	}
+
+	for _, other := range r.Owner.Relations {
+		if other == r || other.Target != r.Target || !other.guessed() {
+			continue
+		}
+
+		if other.Kind == One && (manyOnly || r.Owner.field(other.Name+"ID") != nil) {
+			continue // it is found another way, or not at all
+		}
+
+		return fmt.Errorf(
+			"%w: %s.%s and %s.%s would both use %s.%s; set ForeignKey on at least one of them",
+			errs.ErrNoForeignKey,
+			r.Owner.Type.Name(),
+			r.Name,
+			r.Owner.Type.Name(),
+			other.Name,
+			target.Type.Name(),
+			fk.Name,
+		)
+	}
+
+	return nil
+}
+
+// guessed reports whether only conventions say which key the relation uses.
+func (r *Relation) guessed() bool {
+	return r.ForeignKey == nil && r.Pivot == nil && len(r.Scope) == 0 && r.Pick == nil
 }
 
 // backReference returns the foreign key of the only relation from m to owner.
