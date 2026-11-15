@@ -70,11 +70,15 @@ func TestRetryPolicyWithTxOptions(t *testing.T) {
 		runs := func(options ...ant.TxOption) int {
 			n := 0
 
-			err := db.Tx(ctx, func(*AppDB) error {
-				n++
+			err := db.Tx(
+				ctx,
+				func(*AppDB) error {
+					n++
 
-				return conflict{}
-			}, options...)
+					return conflict{}
+				},
+				options...,
+			)
 			require.ErrorAs(t, err, &conflict{})
 
 			return n
@@ -93,11 +97,16 @@ func TestRetryPolicyWithTxOptions(t *testing.T) {
 
 		n := 0
 
-		require.Error(t, plain.Tx(ctx, func(*AppDB) error {
-			n++
+		require.Error(t, plain.Tx(
+			ctx,
+			func(*AppDB) error {
+				n++
 
-			return conflict{}
-		}, ant.ReadOnly()))
+				return conflict{}
+			},
+			ant.ReadOnly(),
+		))
+
 		require.Equal(t, 1, n, "no policy, no retry")
 	})
 }

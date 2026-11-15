@@ -120,7 +120,9 @@ func settle(ctx context.Context, steps []undoStep, run func(track.Change)) {
 
 // txOptions holds what TxOption configures.
 type txOptions struct {
-	sql      sql.TxOptions
+	sql sql.TxOptions
+	// attempts is zero until Attempts sets it, which leaves the context's retry
+	// policy in force.
 	attempts int
 }
 
@@ -128,7 +130,7 @@ type txOptions struct {
 type TxOption func(*txOptions)
 
 func resolveTx(options []TxOption) txOptions {
-	o := txOptions{attempts: 1}
+	var o txOptions
 
 	for _, option := range options {
 		option(&o)
@@ -492,8 +494,10 @@ func (t *txState) abort(ctx context.Context) {
 // to run again, so it should not change anything outside the database. Before a
 // retry, the tracker forgets what the failed attempt loaded or added, so the next
 // attempt reads its rows afresh; what was tracked before the transaction stays,
-// with any change made to it, so f should load what it changes.
-func Attempts(n int) TxOption { return func(o *txOptions) { o.attempts = n } }
+// with any change made to it, so f should load what it changes. For this call
+// it replaces the policy of WithRetry, which the other options leave in force,
+// and f runs once for an n below 2.
+func Attempts(n int) TxOption { return func(o *txOptions) { o.attempts = max(n, 1) } }
 
 // Tx runs f in a transaction, passing a context of the same type bound to it.
 // The transaction commits if f returns nil, and rolls back if it returns an
@@ -522,8 +526,8 @@ func (c *Context) Tx[DB any](ctx context.Context, f func(tx *DB) error, options 
 
 	o := resolveTx(options)
 
-	if len(options) == 0 && s.settings.retry.Attempts > 1 {
-		o.attempts = s.settings.retry.Attempts
+	if o.attempts == 0 {
+		o.attempts = max(s.settings.retry.Attempts, 1)
 	}
 
 	for attempt := 1; ; attempt++ {
