@@ -740,12 +740,28 @@ func (u *unit) orphan(link meta.Link, entry *track.Entry) {
 	n.remove = true
 }
 
-// nullable reports whether a field can hold NULL.
+// nullable reports whether a field's zero value is written as NULL, so that
+// clearing it unlinks a row. A pointer is, and so is a driver.Valuer whose zero
+// value is NULL, such as sql.Null. A Valuer whose zero value is a real value,
+// such as uuid.UUID, is not, and neither is a column configured NotNull.
 func nullable(f *meta.Field) bool {
-	return f.Type.Kind() == reflect.Pointer || f.Type.Implements(valuerType)
-}
+	if declared := f.Storage.Nullable; declared != nil && !*declared {
+		return false
+	}
 
-var valuerType = reflect.TypeFor[driver.Valuer]()
+	if f.Type.Kind() == reflect.Pointer {
+		return true
+	}
+
+	valuer, ok := reflect.Zero(f.Type).Interface().(driver.Valuer)
+	if !ok {
+		return false
+	}
+
+	value, err := valuer.Value()
+
+	return err == nil && value == nil
+}
 
 // sorted returns the nodes with every new parent before its children. Only new
 // parents matter: an existing row can be referred to in any order, and a cycle

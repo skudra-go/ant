@@ -352,6 +352,7 @@ func TestRequiredAndOptionalForeignKeyTypes(t *testing.T) {
 		t.Run("a uuid.UUID key is required: the removed child is deleted", func(t *testing.T) {
 			guild := &Guild{ID: uuid.New(), Name: "Smiths"}
 			require.NoError(t, db.Guilds.Insert(ctx, guild))
+
 			require.NoError(t, db.Seats.Insert(
 				ctx,
 				&Seat{ID: uuid.New(), GuildID: guild.ID, Name: "a"},
@@ -431,6 +432,7 @@ func TestRequiredAndOptionalForeignKeyTypes(t *testing.T) {
 		t.Run("NotNull on a pointer key makes it required", func(t *testing.T) {
 			fleet := &Fleet{Name: "North"}
 			require.NoError(t, db.Fleets.Insert(ctx, fleet))
+
 			require.NoError(t, db.Ships.Insert(
 				ctx,
 				&Ship{FleetID: &fleet.ID, Name: "a"},
@@ -454,7 +456,9 @@ func TestRequiredAndOptionalForeignKeyTypes(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, []string{"a"}, names)
 
-			ship, err := session.Ships.IncludeOne(&Ships.Fleet).Where(ant.Eq(&Ships.Name, "a")).Single(ctx)
+			ship, err := session.Ships.IncludeOne(&Ships.Fleet).
+				Where(ant.Eq(&Ships.Name, "a")).
+				Single(ctx)
 			require.NoError(t, err)
 
 			ship.Fleet = nil
