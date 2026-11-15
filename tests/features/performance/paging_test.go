@@ -1,9 +1,12 @@
 package performance
 
 import (
+	"database/sql"
 	"encoding/base64"
+	"fmt"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -220,6 +223,91 @@ func TestAfter(t *testing.T) {
 		t.Run("a bad size", func(t *testing.T) {
 			_, err := db.Users.OrderBy(&Users.Name).After(ctx, "", 0)
 			require.Error(t, err)
+		})
+	})
+}
+
+// A cursor compares columns, and no comparison matches NULL, so After refuses
+// an ordering by a column that can hold NULL, before it reads anything, rather
+// than end the pages where the NULL rows begin.
+type Task struct {
+	ID     int64
+	Title  string
+	DueAt  *time.Time
+	DoneAt sql.Null[time.Time]
+	Rank   *int
+}
+
+var Tasks = ant.Fields[Task]()
+
+// NotNull says the column holds no NULL, whatever the Go type could hold.
+func (Task) Configure(b *ant.ModelBuilder[Task]) {
+	b.Column(&Tasks.Rank).NotNull()
+}
+
+type TasksDB struct {
+	ant.Context
+	Tasks ant.Table[Task]
+}
+
+const tasksDDL = `CREATE TABLE tasks (
+	id BIGSERIAL PRIMARY KEY, title TEXT NOT NULL, due_at TIMESTAMPTZ, done_at TIMESTAMPTZ, rank INT NOT NULL)`
+
+func TestAfterRefusesNullableOrdering(t *testing.T) {
+	fixture.RunWith(t, tasksDDL, func(t *testing.T, db *TasksDB) {
+		ctx := t.Context()
+		due := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+		// Five tasks with a due date, then five without.
+		for i := range 10 {
+			task := &Task{Title: fmt.Sprintf("t%d", i), Rank: &i}
+
+			if i < 5 {
+				at := due.AddDate(0, 0, i)
+				task.DueAt, task.DoneAt = &at, sql.Null[time.Time]{V: at, Valid: true}
+			}
+
+			require.NoError(t, db.Tasks.Insert(ctx, task))
+		}
+
+		for name, q := range map[string]*ant.Query[Task]{
+			"a pointer column":           db.Tasks.Order(ant.Col(&Tasks.DueAt).Asc()),
+			"a pointer column, NULLs last": db.Tasks.Order(ant.Col(&Tasks.DueAt).Asc().NullsLast()),
+			"descending":                 db.Tasks.Order(ant.Col(&Tasks.DueAt).Desc()),
+			"a sql.Null column":          db.Tasks.Order(ant.Col(&Tasks.DoneAt).Asc()),
+			"after a column that is not": db.Tasks.Order(ant.Col(&Tasks.Title).Asc(), ant.Col(&Tasks.DueAt).Asc()),
+		} {
+			t.Run(name, func(t *testing.T) {
+				// The third row has a value, so only the column says it may not.
+				_, err := q.After(ctx, "", 3)
+				require.ErrorIs(t, err, ant.ErrCursor)
+				require.ErrorContains(t, err, "can be NULL")
+			})
+		}
+
+		t.Run("a pointer column configured NotNull pages", func(t *testing.T) {
+			var titles []string
+
+			cursor := ""
+
+			for range 5 {
+				page, err := db.Tasks.Order(ant.Col(&Tasks.Rank).Desc()).After(ctx, cursor, 3)
+				require.NoError(t, err)
+
+				for _, task := range page.Items {
+					titles = append(titles, task.Title)
+				}
+
+				if cursor = page.Next; cursor == "" {
+					break
+				}
+			}
+
+			require.Equal(
+				t,
+				[]string{"t9", "t8", "t7", "t6", "t5", "t4", "t3", "t2", "t1", "t0"},
+				titles,
+			)
 		})
 	})
 }
