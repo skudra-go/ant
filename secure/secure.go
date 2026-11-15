@@ -18,6 +18,7 @@
 package secure
 
 import (
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -96,9 +97,23 @@ func (Value[V]) ColumnType(string) string { return "text" }
 // String hides the value, so that a log line or a %v cannot leak it.
 func (Value[V]) String() string { return "[encrypted]" }
 
+// hiddenJSON is what MarshalJSON writes in place of the value.
+const hiddenJSON = `"[encrypted]"`
+
 // MarshalJSON hides the value, so that returning a model from an API cannot leak
 // it. Read V to use it.
-func (Value[V]) MarshalJSON() ([]byte, error) { return []byte(`"[encrypted]"`), nil }
+func (Value[V]) MarshalJSON() ([]byte, error) { return []byte(hiddenJSON), nil }
+
+// UnmarshalJSON sets V from JSON, as a request body gives it. The "[encrypted]"
+// that MarshalJSON writes leaves V as it is, so a model sent back as it was
+// received keeps its value rather than storing the placeholder.
+func (s *Value[V]) UnmarshalJSON(data []byte) error {
+	if string(bytes.TrimSpace(data)) == hiddenJSON {
+		return nil
+	}
+
+	return json.Unmarshal(data, &s.V)
+}
 
 // Value implements driver.Valuer. The output is key:base64(nonce+ciphertext).
 // Text that is not valid UTF-8 is refused, since the JSON that is sealed would

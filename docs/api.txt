@@ -966,6 +966,7 @@ secure: func (Value[V]) ColumnType(string) string
 secure: func (Value[V]) MarshalJSON() ([]byte, error)
 secure: func (Value[V]) String() string
 secure: func (s *Value[V]) Scan(src any) error
+secure: func (s *Value[V]) UnmarshalJSON(data []byte) error
 secure: func (s Value[V]) Value() (driver.Value, error)
 secure: func NeedsRotation(stored string) bool
 secure: func New[V any](v V) Value[V]

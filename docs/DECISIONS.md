@@ -350,6 +350,8 @@ This revises [decision 22](#22-inserts-run-one-statement-per-row). New rows of o
 
 A `.Sensitive()` field's value is wrapped in `qb.Secret` as it enters the statement, so it prints as `[redacted]` wherever it travels. Looking the column up at logging time would miss conditions and raw paths.
 
+Only the plain condition helpers wrapped them, so a value compared with an expression over the column (`ant.Col(&f).Eq(v)`, `ant.Lower(&f).Eq(v)`), given with it to `Func` or `SQL`, picked by a `Case` that reads it, or bound by `InTuples`, a keyset seek, `UpdateMany`, or `Values`, was logged in clear (#77). Now each binds through the field, or asks whether the expression reads a sensitive column of the models it refers to (`readsSensitive`), matching a column by table and name, or by name alone when it is unqualified, which can hide a value that needed no hiding but never the reverse. A subquery hides its own values. Carrying a flag on every `Expr` was rejected: each of the many builders that compose expressions would have to pass it on.
+
 ## 69. Errors carry their SQL
 
 `exec.Error` holds the statement, with placeholders and no values, so `ant.FailedSQL` can log it. It stays out of the message unless `WithDetailedErrors` is set, because messages are what reach users.
@@ -547,6 +549,8 @@ The plan's order now follows what PostgreSQL needs while a column changes:
 A list longer than the parameters one statement takes goes on PostgreSQL as one array, `= ANY($1)` or `<> ALL($1)`, when its values are plain and of one type, which is what PostgreSQL makes of `IN` anyway. A list that fits stays a list, and other databases, which take no arrays, leave it to the driver to refuse.
 
 `ant.JSON` and `secure.Value` refuse text that is not valid UTF-8, as a text column does: `encoding/json` would store U+FFFD in its place. Changing `secure.Value`'s encoding to keep the bytes was rejected, as it would not read the values stored before.
+
+`secure.Value` writes `"[encrypted]"` to JSON and could not be read back from it, so a model with a secure field could not be a request body or round-trip through a cache (#107). It now decodes a plain value into `V`, and the placeholder leaves `V` as it was, so a model sent back as it was received keeps its value rather than storing the placeholder. Binding the table and column into the ciphertext, so that a value copied to another row fails to decrypt, changes the stored format and is left for a decision of its own.
 
 `ant.UnixTime` stores the zero time as 0, as schemas that keep times as integers use 0 for no time, so 0, and the Unix epoch with it, reads back as the zero time. Storing the zero time as its true count of seconds was rejected, as it would read rows written before as 1970.
 
