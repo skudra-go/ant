@@ -28,6 +28,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -257,6 +258,11 @@ func Session[DB any](db *DB, options ...Option) *DB {
 	s := *parent
 	s.tracker, s.saving = track.New(), new(sync.Mutex)
 	s.lastWrite = new(atomic.Int64)
+
+	// The options append to these lists, which the copy shares with db and with
+	// its other sessions: clipped, an append makes a list of the session's own.
+	s.settings.interceptors = slices.Clip(s.settings.interceptors)
+	s.settings.replicas = slices.Clip(s.settings.replicas)
 
 	for _, option := range options {
 		option(&s.settings)
