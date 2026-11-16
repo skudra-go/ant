@@ -742,7 +742,9 @@ func (q *Query[T]) Each(ctx context.Context) iter.Seq2[T, error] {
 	return func(yield func(T, error) bool) {
 		var zero T
 
-		if len(q.includes) > 0 {
+		// A joined include could stream, but Each reads rows one model at a
+		// time, so it is refused as Include is rather than left nil.
+		if len(q.includes) > 0 || len(q.inJoin) > 0 {
 			yield(zero, ErrIncludeInEach)
 
 			return
@@ -1148,7 +1150,9 @@ func (q *Query[T]) problems() error {
 		return q.err
 	}
 
-	if len(q.includes) > 0 {
+	// A sub-statement reads q's own columns only, so a joined include would be
+	// silently left nil, which means not loaded.
+	if len(q.includes) > 0 || len(q.inJoin) > 0 {
 		return ErrIncludeInSubquery
 	}
 

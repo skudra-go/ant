@@ -64,6 +64,30 @@ func TestIncludeJoined(t *testing.T) {
 			require.Contains(t, text, `LEFT JOIN "users" AS "ant_joined0"`)
 		})
 
+		// A nil relation means not loaded, so where the join cannot be read
+		// the query is refused, as it is with Include.
+		t.Run("where a joined include cannot load, it is refused", func(t *testing.T) {
+			joined := db.Posts.IncludeJoined(&Posts.User)
+
+			for _, err := range joined.Each(ctx) {
+				require.ErrorIs(t, err, ant.ErrIncludeInEach)
+			}
+
+			_, err := db.Posts.Where().Union(joined).All(ctx)
+			require.ErrorIs(t, err, ant.ErrIncludeInSubquery, "a member of a set operation")
+			_, err = joined.Union(db.Posts.Where()).All(ctx)
+			require.ErrorIs(t, err, ant.ErrIncludeInSubquery, "the first member")
+			_, err = db.Posts.Query().From(joined).All(ctx)
+			require.ErrorIs(t, err, ant.ErrIncludeInSubquery, "From")
+			_, err = db.Posts.Query().FromCTE("recent", joined).All(ctx)
+			require.ErrorIs(t, err, ant.ErrIncludeInSubquery, "FromCTE")
+
+			_, err = ant.JoinSub(db.Users.Query(), joined, ant.EqCol(&Users.ID, &Posts.UserID)).
+				Select(func(u *User, p *Post) string { return p.Title }).
+				All(ctx)
+			require.ErrorIs(t, err, ant.ErrIncludeInSubquery, "JoinSub")
+		})
+
 		t.Run("it works with First and conditions", func(t *testing.T) {
 			post, err := db.Posts.IncludeJoined(&Posts.User).
 				Where(ant.Eq(&Posts.Title, "two")).
