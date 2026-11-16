@@ -427,6 +427,23 @@ func (r *renderer) fragment(f qb.Fragment) {
 		r.maybe = true
 	}
 
+	// With arguments, each ? outside a quoted region takes one, and the counts
+	// must match: a ? left over would reach the database as a syntax error far
+	// from its cause, or take a value meant for a later one. With none, as for
+	// PostgreSQL's jsonb ? operator, every ? is written as it is.
+	if marks := fragmentMarks(f.SQL); len(f.Args) > 0 && marks != len(f.Args) {
+		if r.err == nil {
+			r.err = fmt.Errorf(
+				"ant: SQL fragment %q has %d ? marks and %d arguments",
+				f.SQL,
+				marks,
+				len(f.Args),
+			)
+		}
+
+		return
+	}
+
 	args := f.Args
 
 	for i := 0; i < len(f.SQL); {
@@ -446,10 +463,27 @@ func (r *renderer) fragment(f qb.Fragment) {
 
 		i++
 	}
+}
 
-	if len(args) > 0 && r.err == nil {
-		r.err = fmt.Errorf("ant: SQL fragment %q has %d unused arguments", f.SQL, len(args))
+// fragmentMarks counts the ? marks of raw SQL outside quoted regions.
+func fragmentMarks(text string) int {
+	n := 0
+
+	for i := 0; i < len(text); {
+		if end := skipQuoted(text, i); end > i {
+			i = end
+
+			continue
+		}
+
+		if text[i] == '?' {
+			n++
+		}
+
+		i++
 	}
+
+	return n
 }
 
 // namesTable reports whether raw SQL names table, in any case, as MySQL reads

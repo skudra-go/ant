@@ -92,7 +92,28 @@ func TestExpressions(t *testing.T) {
 
 		t.Run("too many arguments for the fragment", func(t *testing.T) {
 			_, err := db.Users.Where(ant.SQLCond("age > 1", 5)).All(ctx)
-			require.ErrorContains(t, err, "unused")
+			require.ErrorContains(t, err, "has 0 ? marks and 1 arguments")
+		})
+
+		// A ? left over reached the database as a syntax error far from its
+		// cause, and with jsonb's ? operator took the value meant for a later
+		// mark.
+		t.Run("too few arguments for the fragment", func(t *testing.T) {
+			_, err := db.Users.Where(ant.SQLCond("name = ? AND email = ?", "Alice")).All(ctx)
+			require.ErrorContains(t, err, "has 2 ? marks and 1 arguments")
+
+			_, _, err = db.Users.Where(ant.SQL[bool]("? = ?", ant.Col(&Users.Age)).Eq(true)).ToSQL()
+			require.ErrorContains(t, err, "has 2 ? marks and 1 arguments", "SQL too")
+		})
+
+		t.Run("a ? in a string, or with no arguments, is written as it is", func(t *testing.T) {
+			got, err := db.Users.Where(ant.SQLCond("name <> '?' AND age > ?", 0)).All(ctx)
+			require.NoError(t, err)
+			require.Len(t, got, 3)
+
+			text, _, err := db.Users.Where(ant.SQLCond(`bio IS NULL OR bio ? 'x'`)).ToSQL()
+			require.NoError(t, err)
+			require.Contains(t, text, `bio ? 'x'`)
 		})
 
 		t.Run("ILike ignores case", func(t *testing.T) {

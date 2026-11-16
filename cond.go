@@ -242,9 +242,10 @@ func Today(field *time.Time) Cond {
 	return c
 }
 
-// SQLCond returns a condition from raw SQL. Each ? takes the next argument. An
-// argument that is an Expr renders inline, and any other is a bound value. Never
-// build the text from untrusted values.
+// SQLCond returns a condition from raw SQL. Each ? takes the next argument, and
+// a different number of arguments than marks is an error. With no arguments, a
+// ? is written as it is. An argument that is an Expr renders inline, and any
+// other is a bound value. Never build the text from untrusted values.
 func SQLCond(text string, args ...any) Cond {
 	e := SQL[bool](text, args...)
 	if e.err != nil {
