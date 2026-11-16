@@ -63,6 +63,30 @@ func TestRaw(t *testing.T) {
 			require.Zero(t, got.Age)
 		})
 
+		// Both tables have an id, so the last column would give the user the
+		// post's id, and an update by it would reach the wrong row.
+		t.Run("two columns for one field are an error", func(t *testing.T) {
+			alice, err := db.Users.Where(ant.Eq(&Users.Name, "Alice")).First(ctx)
+			require.NoError(t, err)
+			require.NoError(t, db.Posts.Insert(ctx, &fixture.Post{UserID: alice.ID, Title: "t"}))
+
+			const joined = `SELECT * FROM users u JOIN posts p ON p.user_id = u.id`
+
+			_, err = ant.Raw[fixture.User](db, joined).All(ctx)
+			require.ErrorContains(t, err, `result columns 1 and 8 are both "id", for User.Base.ID`)
+
+			_, err = ant.Raw[fixture.User](db, joined).First(ctx)
+			require.ErrorContains(t, err, "alias one of them")
+
+			got, err := ant.Raw[fixture.User](
+				db,
+				`SELECT u.*, p.title FROM users u JOIN posts p ON p.user_id = u.id`,
+			).
+				All(ctx)
+			require.NoError(t, err, "each column once is fine")
+			require.Equal(t, alice.ID, got[0].ID)
+		})
+
 		t.Run("First with no rows", func(t *testing.T) {
 			_, err := ant.Raw[fixture.User](db, `SELECT * FROM users WHERE age > 100`).First(ctx)
 			require.ErrorIs(t, err, ant.ErrNotFound)

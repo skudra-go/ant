@@ -3,6 +3,7 @@ package scan
 
 import (
 	"database/sql"
+	"fmt"
 	"reflect"
 	"unsafe"
 
@@ -12,6 +13,8 @@ import (
 // For returns a function that scans the current row into a *T. A value type
 // such as int takes the single result column. A struct takes columns by name:
 // columns with no field are ignored, and fields with no column are left alone.
+// Two columns for one field are an error: SELECT * over a join returns an id
+// from each table, and taking the last would give the row the other's id.
 // A time is held in UTC, whatever zone the driver decoded it in.
 func For[T any](rows *sql.Rows) (func(*T) error, error) {
 	if meta.IsValue(reflect.TypeFor[T]()) {
@@ -47,7 +50,24 @@ func For[T any](rows *sql.Rows) (func(*T) error, error) {
 	for i, c := range columns {
 		fields[i] = model.Column(c)
 
-		if fields[i] != nil && fields[i].HoldsTime() {
+		if fields[i] == nil {
+			continue
+		}
+
+		for j := range i {
+			if fields[j] == fields[i] {
+				return nil, fmt.Errorf(
+					"ant: result columns %d and %d are both %q, for %s.%s; alias one of them",
+					j+1,
+					i+1,
+					c,
+					model.Type.Name(),
+					fields[i].Name,
+				)
+			}
+		}
+
+		if fields[i].HoldsTime() {
 			times = append(times, fields[i])
 		}
 	}
