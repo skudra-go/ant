@@ -115,6 +115,7 @@ func configureMixins(model *meta.Model) {
 type builderSetup interface {
 	start(*meta.Model)
 	result() error
+	entity() reflect.Type
 }
 
 // configureModel runs a model's Configure method once. It finds the method by
@@ -125,22 +126,81 @@ func configureModel(model *meta.Model) {
 		configureMixins(model)
 
 		method, ok := reflect.PointerTo(model.Type).MethodByName("Configure")
-		if !ok || method.Type.NumIn() != 2 || method.Type.In(1).Kind() != reflect.Pointer {
-			return nil
-		}
-
-		builder := reflect.New(method.Type.In(1).Elem())
-
-		setup, ok := builder.Interface().(builderSetup)
 		if !ok {
 			return nil
 		}
+
+		setup, ok := configurer(model.Type, method.Type, true)
+
+		// One the model gets from a struct it embeds is run as it always was.
+		if !ok && promoted(model.Type, method.Type) {
+			if setup, ok = configurer(model.Type, method.Type, false); !ok {
+				return nil
+			}
+		}
+
+		if !ok {
+			return fmt.Errorf(
+				"ant: %s.Configure is never called: declare it as func (%s) Configure(b *ant.ModelBuilder[%s])",
+				model.Type.Name(),
+				model.Type.Name(),
+				model.Type.Name(),
+			)
+		}
+
+		builder := reflect.ValueOf(setup)
 
 		setup.start(model)
 		method.Func.Call([]reflect.Value{reflect.New(model.Type), builder})
 
 		return setup.result()
 	})
+}
+
+// configurer returns a new builder for a Configure method of type method, on a
+// pointer to model, if it is one ant calls: it takes one *ModelBuilder of the
+// model and, if strict, returns nothing. Not strict, the builder may be for
+// another model, as a Configure promoted from an embedded struct's is.
+func configurer(model, method reflect.Type, strict bool) (builderSetup, bool) {
+	if method.NumIn() != 2 || method.In(1).Kind() != reflect.Pointer {
+		return nil, false
+	}
+
+	setup, ok := reflect.New(method.In(1).Elem()).Interface().(builderSetup)
+	if !ok || strict && (method.NumOut() != 0 || setup.entity() != model) {
+		return nil, false
+	}
+
+	return setup, true
+}
+
+// promoted reports whether a Configure of type method can come from a struct
+// model embeds, which configures that struct as a model of its own.
+func promoted(model, method reflect.Type) bool {
+	for sf := range model.Fields() {
+		if !sf.Anonymous {
+			continue
+		}
+
+		for _, t := range []reflect.Type{sf.Type, reflect.PointerTo(sf.Type)} {
+			m, ok := t.MethodByName("Configure")
+			if !ok || m.Type.NumIn() != method.NumIn() || m.Type.NumOut() != method.NumOut() {
+				continue
+			}
+
+			same := true
+
+			for i := 1; i < method.NumIn(); i++ {
+				same = same && m.Type.In(i) == method.In(i)
+			}
+
+			if same {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // ModelBuilder collects configuration for model E. Errors surface from Open.
@@ -152,6 +212,8 @@ type ModelBuilder[E any] struct {
 func (b *ModelBuilder[E]) start(model *meta.Model) { b.model = model }
 
 func (b *ModelBuilder[E]) result() error { return b.err }
+
+func (b *ModelBuilder[E]) entity() reflect.Type { return reflect.TypeFor[E]() }
 
 func (b *ModelBuilder[E]) fail(err error) {
 	b.err = errors.Join(b.err, fmt.Errorf("ant: configure %s: %w", b.model.Type.Name(), err))

@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/skudra-go/ant"
+	"github.com/skudra-go/ant/dialect/postgres"
 	"github.com/skudra-go/ant/internal/testdb"
 	"github.com/skudra-go/ant/tests/features/fixture"
 )
@@ -104,4 +105,49 @@ func TestConfigureErrors(t *testing.T) {
 			require.ErrorIs(t, err, ant.ErrNotProbe)
 		})
 	})
+}
+
+// A Configure that ant would not call is an error, rather than configuration
+// that silently never applies, such as a tenant filter.
+type ByValue struct{ ID int64 }
+
+func (ByValue) Configure(b ant.ModelBuilder[ByValue]) { b.Table("documents") }
+
+type OtherModel struct{ ID int64 }
+
+func (OtherModel) Configure(b *ant.ModelBuilder[ByValue]) {}
+
+type ReturnsError struct{ ID int64 }
+
+func (ReturnsError) Configure(b *ant.ModelBuilder[ReturnsError]) error { return nil }
+
+type ExtraArgument struct{ ID int64 }
+
+func (ExtraArgument) Configure(b *ant.ModelBuilder[ExtraArgument], strict bool) {}
+
+func TestConfigureSignature(t *testing.T) {
+	check := func(t *testing.T, err error, model string) {
+		t.Helper()
+		require.ErrorContains(t, err, model+".Configure is never called")
+	}
+
+	_, _, err := ant.TableOf[ByValue]()
+	check(t, err, "ByValue")
+
+	_, _, err = ant.TableOf[OtherModel]()
+	check(t, err, "OtherModel")
+
+	_, _, err = ant.TableOf[ReturnsError]()
+	check(t, err, "ReturnsError")
+
+	_, _, err = ant.TableOf[ExtraArgument]()
+	check(t, err, "ExtraArgument")
+
+	type DB struct {
+		ant.Context
+		Docs ant.Table[ByValue]
+	}
+
+	_, err = ant.Wrap[DB](postgres.Dialect, nil)
+	check(t, err, "ByValue")
 }
