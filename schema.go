@@ -62,18 +62,11 @@ func models(db any) ([]*meta.Model, error) {
 		return m.Err()
 	}
 
-	v := reflect.ValueOf(db).Elem()
-	for i := range v.NumField() {
-		f := v.Field(i)
-		if !f.CanAddr() || !f.Addr().CanInterface() {
-			continue
-		}
-
-		if t, ok := f.Addr().Interface().(modelTable); ok {
-			if err := add(t.tableModel()); err != nil {
-				return nil, err
-			}
-		}
+	err := eachTable(db, func(table any) error {
+		return add(table.(modelTable).tableModel())
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	for i := 0; i < len(out); i++ {
@@ -87,23 +80,60 @@ func models(db any) ([]*meta.Model, error) {
 	return out, sameTable(out)
 }
 
-// tableModels returns the configured models of a context struct's Table fields.
+// tableModels returns the configured models of a context struct's Table
+// fields. eachTable has already accepted the struct.
 func tableModels(db any) []*meta.Model {
 	var out []*meta.Model
 
-	v := reflect.ValueOf(db).Elem()
-	for i := range v.NumField() {
-		f := v.Field(i)
-		if !f.CanAddr() || !f.Addr().CanInterface() {
-			continue
-		}
+	_ = eachTable(db, func(table any) error {
+		out = append(out, table.(modelTable).tableModel())
 
-		if t, ok := f.Addr().Interface().(modelTable); ok {
-			out = append(out, t.tableModel())
+		return nil
+	})
+
+	return out
+}
+
+var (
+	tableType   = reflect.TypeFor[tableBinder]()
+	contextType = reflect.TypeFor[Context]()
+)
+
+// eachTable calls visit with a pointer to each Table field of the context struct
+// db points at, including those in its embedded and nested structs, which
+// group a domain's tables. A Table that ant cannot reach, in an unexported
+// field, is an error: it would be left unbound, and fail on first use.
+func eachTable(db any, visit func(table any) error) error {
+	return walkTables(reflect.ValueOf(db).Elem(), "", true, visit)
+}
+
+func walkTables(v reflect.Value, path string, reachable bool, visit func(any) error) error {
+	for i := range v.NumField() {
+		field, f := v.Type().Field(i), v.Field(i)
+		name := path + field.Name
+
+		switch {
+		case reflect.PointerTo(field.Type).Implements(tableType):
+			if !reachable || !field.IsExported() {
+				return fmt.Errorf(
+					"%w: table %s is unexported, so ant cannot bind it",
+					ErrBadSchema,
+					name,
+				)
+			}
+
+			if err := visit(f.Addr().Interface()); err != nil {
+				return err
+			}
+		case field.Type.Kind() == reflect.Struct && field.Type != contextType:
+			err := walkTables(f, name+".", reachable && field.IsExported(), visit)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
-	return out
+	return nil
 }
 
 // sameTable refuses two models that reach one table by convention alone, as two

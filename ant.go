@@ -27,7 +27,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"reflect"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -285,21 +284,7 @@ func Session[DB any](db *DB, options ...Option) *DB {
 }
 
 func bindTables(db any, s *state) error {
-	v := reflect.ValueOf(db).Elem()
-	for i := range v.NumField() {
-		f := v.Field(i)
-		if !f.CanAddr() || !f.Addr().CanInterface() {
-			continue
-		}
-
-		if t, ok := f.Addr().Interface().(tableBinder); ok {
-			if err := t.bind(s); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
+	return eachTable(db, func(table any) error { return table.(tableBinder).bind(s) })
 }
 
 // Close closes the underlying connection pool, for every context that shares

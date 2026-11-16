@@ -346,6 +346,8 @@ Two relations of one model to the same target cannot both be found by convention
 
 Sharing is always said: with `b.Table` (or a convention's `SetTable`) on at least one of the models, or with `b.Discriminator` on each. Two models that reach one table by the naming convention alone, as `billing.Account` and `auth.Account` both reach `accounts`, are refused when the context opens and when the schema is built, with both types named, since each would read the other's rows. Opening checks the context's `Table` fields, and building the schema also checks the models their relations reach.
 
+`Open`, `Wrap`, and `SchemaOf` find the context's tables in its embedded and named struct fields too, which is how a large application groups each domain's tables (#202). A `Table` in an unexported field, or under one, cannot be bound, and is `ErrBadSchema` at `Open` rather than "context is not open" at first use. Likewise a `Configure` method declared on a model that ant would not call, because it takes the builder by value, a builder of another model, more arguments, or returns something, is an error at `Open` rather than configuration that silently never applies (#205). One that the model gets from a struct it embeds is run as it always was.
+
 ## 67. Naming and conventions are global
 
 `WithNaming` and `WithConvention` apply once per model, in the first `Open`, because a model is reflected once per process. Per-connection naming would need a second model registry, for a need nobody has.

@@ -42,7 +42,9 @@ type Post struct {
 	User      *User // a relation: many-to-one through Post.UserID
 }
 
-// The database: embeds ant.Context and holds one ant.Table per model.
+// The database: embeds ant.Context and holds one ant.Table per model. Tables
+// can also sit in an embedded or named struct field that groups a domain's
+// tables; a Table field must be exported.
 type AppDB struct {
 	ant.Context
 	Users ant.Table[User]
