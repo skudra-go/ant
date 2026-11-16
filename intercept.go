@@ -2,7 +2,9 @@ package ant
 
 import (
 	"context"
+	"database/sql/driver"
 	"log/slog"
+	"reflect"
 	"time"
 
 	"github.com/skudra-go/ant/internal/exec"
@@ -51,7 +53,7 @@ func (l *logging) After(ctx context.Context, s *Statement, o Outcome) {
 	}
 
 	if l.sensitive {
-		attrs = append(attrs, slog.Any("values", s.Args))
+		attrs = append(attrs, slog.Any("values", loggedArgs(s.Args)))
 	}
 
 	switch {
@@ -89,4 +91,49 @@ func WithLogger(logger *slog.Logger, options ...LogOption) Option {
 	}
 
 	return WithInterceptor(l)
+}
+
+// loggedArgs returns args as a log shows them: a pointer as what it points at,
+// or nil, and a driver.Valuer as the value it gives the database. A value that
+// says how it logs, as a sensitive one does, logs that way.
+func loggedArgs(args []any) []any {
+	out := make([]any, len(args))
+
+	for i, arg := range args {
+		out[i] = loggedArg(arg)
+	}
+
+	return out
+}
+
+func loggedArg(arg any) any {
+	for range 8 { // a pointer to a Valuer that gives a pointer, and so on
+		if _, ok := arg.(slog.LogValuer); ok {
+			return arg
+		}
+
+		v := reflect.ValueOf(arg)
+		if v.Kind() == reflect.Pointer && v.IsNil() {
+			return nil
+		}
+
+		if valuer, ok := arg.(driver.Valuer); ok {
+			value, err := valuer.Value()
+			if err != nil {
+				return arg
+			}
+
+			arg = value
+
+			continue
+		}
+
+		if v.Kind() != reflect.Pointer {
+			return arg
+		}
+
+		arg = v.Elem().Interface()
+	}
+
+	return arg
 }

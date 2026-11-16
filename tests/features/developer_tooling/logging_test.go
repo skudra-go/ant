@@ -46,6 +46,26 @@ func TestLogging(t *testing.T) {
 			require.Contains(t, out.String(), "visible-value")
 		})
 
+		// A nullable column is a pointer field, and a pointer's address says
+		// nothing, so LogValues shows what it points at.
+		t.Run("LogValues shows what a pointer holds", func(t *testing.T) {
+			out.Reset()
+
+			db := fixture.Open[fixture.AppDB](t, target, ant.WithLogger(logger, ant.LogValues()))
+			bio := "pointed-at-bio"
+			require.NoError(
+				t,
+				db.Users.Insert(ctx, &fixture.User{Name: "p", Email: "p@x", Bio: &bio}),
+			)
+
+			require.NoError(t, db.Users.Insert(ctx, &fixture.User{Name: "n", Email: "n@x"}))
+
+			_, err := db.Users.Where(ant.Eq(&Users.Bio, &bio)).All(ctx)
+			require.NoError(t, err)
+			require.Contains(t, out.String(), "pointed-at-bio")
+			require.NotContains(t, out.String(), "0x", "no address is logged")
+		})
+
 		t.Run("failures log at error", func(t *testing.T) {
 			out.Reset()
 
