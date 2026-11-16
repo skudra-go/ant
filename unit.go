@@ -2027,8 +2027,10 @@ func (c *Context) SaveChanges(ctx context.Context) error {
 			return err
 		}
 
-		if err := backoff(ctx, attempt); err != nil {
-			return err
+		// The failure is what the caller needs to see, with the reason the
+		// retries stopped, as Tx reports it.
+		if waited := backoff(ctx, attempt); waited != nil {
+			return errors.Join(err, waited)
 		}
 	}
 }

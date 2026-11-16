@@ -110,3 +110,56 @@ func TestRetryPolicyWithTxOptions(t *testing.T) {
 		require.Equal(t, 1, n, "no policy, no retry")
 	})
 }
+
+// conflicting fails every statement as a serialization failure would, and then
+// calls cancel, so the wait before the next attempt is cut short.
+type conflicting struct{ cancel func() }
+
+func (c conflicting) Before(ctx context.Context, _ *ant.Statement) (context.Context, error) {
+	c.cancel()
+
+	return ctx, conflict{}
+}
+
+func (conflicting) After(context.Context, *ant.Statement, ant.Outcome) {}
+
+// A retry that the context cuts short reports what it was retrying as well as
+// the context's error, so the conflict is not lost in a timeout.
+func TestRetryCutShortKeepsTheFailure(t *testing.T) {
+	fixture.Each(t, func(t *testing.T, target fixture.Target) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		db := fixture.Open[AppDB](
+			t,
+			target,
+			ant.WithRetry(ant.Retry{Attempts: 5}),
+			ant.WithInterceptor(conflicting{cancel}),
+		)
+
+		require.NoError(t, ant.Add(ctx, db, user("Cut short")))
+
+		err := db.SaveChanges(ctx)
+		require.ErrorIs(t, err, context.Canceled)
+		require.ErrorAs(t, err, &conflict{}, "SaveChanges")
+		require.True(t, ant.IsRetryable(err))
+	})
+}
+
+// Tx did so already, and goes on doing it.
+func TestTxRetryCutShortKeepsTheFailure(t *testing.T) {
+	fixture.Each(t, func(t *testing.T, target fixture.Target) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		plain := fixture.Open[AppDB](t, target, ant.WithRetry(ant.Retry{Attempts: 5}))
+
+		err := plain.Tx(ctx, func(*AppDB) error {
+			cancel()
+
+			return conflict{}
+		})
+		require.ErrorIs(t, err, context.Canceled)
+		require.ErrorAs(t, err, &conflict{}, "Tx")
+	})
+}

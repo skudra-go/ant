@@ -34,9 +34,13 @@ type txState struct {
 	// ctx is the context the transaction began with, and stop stops the
 	// rollback that waits for it to end. taken is the connection ant took for
 	// the transaction, given back when it ends.
-	ctx   context.Context
-	stop  func() bool
-	taken *sql.Conn
+	ctx  context.Context
+	stop func() bool
+	// stopped closes once the rollback for an ended context has given the
+	// connection back. waited means ended has dealt with that rollback.
+	stopped chan struct{}
+	waited  bool
+	taken   *sql.Conn
 }
 
 // sees reports whether ant will learn how the changes made in t now end: in a
@@ -209,8 +213,11 @@ func (s *state) begin(ctx context.Context, o txOptions) (*txState, error) {
 	}
 
 	t.tx = tx
+	t.stopped = make(chan struct{})
 
 	t.stop = context.AfterFunc(ctx, func() {
+		defer close(t.stopped)
+
 		_ = tx.Rollback()
 
 		t.giveBack()
@@ -233,13 +240,20 @@ func (t *txState) commit() error {
 }
 
 // ended stops the rollback that waits for the context the transaction began
-// with, and reports whether that context has ended.
+// with, and reports whether that context has ended. If that rollback has begun,
+// it waits for it, so the connection is back in the pool when Tx returns.
 func (t *txState) ended() bool {
 	if t.stop == nil {
 		return false
 	}
 
-	t.stop()
+	if !t.waited {
+		t.waited = true
+
+		if !t.stop() {
+			<-t.stopped
+		}
+	}
 
 	return t.ctx.Err() != nil
 }
