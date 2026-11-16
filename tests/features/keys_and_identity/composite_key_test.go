@@ -1,6 +1,7 @@
 package keys_and_identity
 
 import (
+	"fmt"
 	"sync/atomic"
 	"testing"
 
@@ -48,6 +49,67 @@ func TestCompositeKey(t *testing.T) {
 			got, err := ant.Session(db).Grants.FindKey(ctx, int64(1), "write")
 			require.NoError(t, err)
 			require.Equal(t, 2, got.Level)
+		})
+
+		// ChunkByKey keeps its place by the whole key, so rows that share a
+		// UserID are neither skipped nor read twice at a group's edge.
+		t.Run("ChunkByKey", func(t *testing.T) {
+			require.NoError(t, db.Grants.Insert(ctx,
+				&Grant{UserID: 1, Scope: "admin", Level: 3},
+				&Grant{UserID: 2, Scope: "read", Level: 1},
+				&Grant{UserID: 2, Scope: "admin", Level: 3}))
+
+			defer func() {
+				_, err := db.Grants.Where(ant.Eq(&Grants.Level, 3)).Delete(ctx)
+				require.NoError(t, err)
+				_, err = db.Grants.Where(ant.Eq(&Grants.UserID, 2)).Delete(ctx)
+				require.NoError(t, err)
+			}()
+
+			for _, size := range []int{1, 2, 4} {
+				var seen []string
+
+				require.NoError(
+					t,
+					db.Grants.Query().ChunkByKey(ctx, size, func(grants []*Grant) error {
+						for _, g := range grants {
+							seen = append(seen, fmt.Sprint(g.UserID, g.Scope))
+						}
+
+						return nil
+					}),
+				)
+
+				require.Equal(
+					t,
+					[]string{"1admin", "1read", "1write", "2admin", "2read"},
+					seen,
+					"size %d",
+					size,
+				)
+			}
+
+			var deleted int
+
+			require.NoError(
+				t,
+				db.Grants.Query().ChunkByKey(ctx, 2, func(grants []*Grant) error {
+					for _, g := range grants {
+						if g.Level == 3 {
+							_, err := db.Grants.Where(ant.Eq(&Grants.UserID, g.UserID), ant.Eq(&Grants.Scope, g.Scope)).
+								Delete(ctx)
+							require.NoError(t, err)
+
+							deleted++
+						}
+					}
+
+					return nil
+				}),
+				"the callback can delete what it reads",
+			)
+
+			require.Equal(t, 2, deleted)
 		})
 
 		t.Run("not found", func(t *testing.T) {

@@ -118,7 +118,8 @@ func (q *Query[T]) Chunk(ctx context.Context, size int, f func([]*T) error) erro
 	}
 }
 
-// ChunkByKey reads matching rows in key order, in groups of size. It tracks its
+// ChunkByKey reads matching rows in key order, in groups of size, for a single
+// or a composite key. It tracks its
 // place by key, so f can change or delete the rows it receives. The key is read
 // even if Column or Omit left it out. A Limit or Offset on the query counts
 // rows in key order: the offset is skipped once, and the limit ends the read.
@@ -127,31 +128,36 @@ func (q *Query[T]) ChunkByKey(ctx context.Context, size int, f func([]*T) error)
 		return fmt.Errorf("ant: chunk size %d", size)
 	}
 
-	key := q.model().Key()
-	if key == nil {
+	model := q.model()
+	if len(model.Keys) == 0 {
 		return ErrNoKey
 	}
 
-	column := q.sources[0].col(key)
+	// A composite key is one place too: the rows after (a, b) are those with a
+	// greater a, or the same a and a greater b.
+	keys := make([]sortColumn, len(model.Keys))
 	base := q.next()
-	base.order = []qb.Order{{Value: column}}
-	base.need(key)
+	base.order = make([]qb.Order, len(model.Keys))
+
+	for i, key := range model.Keys {
+		keys[i] = sortColumn{field: key}
+		base.order[i] = qb.Order{Value: q.sources[0].col(key)}
+
+		base.need(key)
+	}
 
 	// The place is kept by key from the second group on, so the offset applies
 	// to the first only, and the limit is counted down.
 	base.limit, base.offset = nil, nil
 	left, skip := q.limit, q.offset
 
-	var after any
+	var after []any
 
 	for {
 		page := base.next()
 
 		if after != nil {
-			page.where = append(
-				page.where,
-				qb.Compare{Left: column, Op: qb.OpGt, Right: fieldParam(key, after)},
-			)
+			page.where = append(page.where, seek(q.sources[0], keys, after))
 		} else {
 			page.offset = skip
 		}
@@ -175,7 +181,12 @@ func (q *Query[T]) ChunkByKey(ctx context.Context, size int, f func([]*T) error)
 			return nil
 		}
 
-		after = key.Value(unsafe.Pointer(items[len(items)-1])).Interface()
+		last := unsafe.Pointer(items[len(items)-1])
+		after = make([]any, len(keys))
+
+		for i, k := range keys {
+			after[i] = k.field.Value(last).Interface()
+		}
 
 		if left != nil {
 			rest := *left - len(items)
