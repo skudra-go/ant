@@ -224,7 +224,11 @@ func TestSessionInterceptors(t *testing.T) {
 			mine := &recorder{}
 			s := ant.Session(
 				db,
-				ant.WithLogger(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))),
+				ant.WithLogger(
+					slog.New(
+						slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}),
+					),
+				),
 				ant.WithInterceptor(mine),
 			)
 
@@ -287,7 +291,12 @@ func TestSessionInterceptors(t *testing.T) {
 			var afterRelease error
 
 			require.NoError(t, db.Tx(ctx, func(tx *fixture.AppDB) error {
-				if _, err := ant.Session(tx, ant.WithInterceptor(mine)).Users.Count(ctx); err != nil {
+				if _, err := ant.Session(
+					tx,
+					ant.WithInterceptor(mine),
+				).Users.Count(
+					ctx,
+				); err != nil {
 					return err
 				}
 
@@ -312,7 +321,12 @@ func TestSessionInterceptors(t *testing.T) {
 
 			require.Len(t, mine.statements(), 1)
 			require.Len(t, nested.statements(), 1)
-			require.Error(t, afterRelease, "a released savepoint still refuses the session's statements")
+
+			require.Error(
+				t,
+				afterRelease,
+				"a released savepoint still refuses the session's statements",
+			)
 		})
 	})
 }
