@@ -4,6 +4,7 @@
 package probekit
 
 import (
+	"bytes"
 	"cmp"
 	"database/sql/driver"
 	"encoding/json"
@@ -1137,4 +1138,23 @@ func KnownHere(t *testing.T) {
 			t.Skipf("known failure, %s; ANT_RUN_KNOWN=1 runs it", k.reason)
 		}
 	}
+}
+
+// JSONNumbers is v as JSON reads it back into ant.JSON or secure.Value: a number
+// inside an interface is a json.Number (decision 109).
+func JSONNumbers[V any](v V) V {
+	text, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+
+	decoder := json.NewDecoder(bytes.NewReader(text))
+	decoder.UseNumber()
+
+	var out V
+	if err := decoder.Decode(&out); err != nil {
+		panic(err)
+	}
+
+	return out
 }

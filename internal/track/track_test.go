@@ -2,6 +2,7 @@ package track
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"math"
@@ -1258,7 +1259,13 @@ func TestChangedValues(t *testing.T) {
 			Arr:   []float64{1, nan},
 			When:  sql.Null[time.Time]{V: at, Valid: true},
 			Stamp: stamp{at: at},
-			Doc:   map[string]any{"m": map[string]any{"z": true}, "k": []any{1.0}},
+			Doc: map[string]any{
+				"m":   map[string]any{"z": true},
+				"k":   []any{1.0},
+				"n":   json.Number("2"),
+				"big": json.Number("9007199254740993"),
+				"f":   json.Number("2.5"),
+			},
 		}
 	}
 
@@ -1291,6 +1298,33 @@ func TestChangedValues(t *testing.T) {
 		},
 		{"a slice inside an any", func(v *values) { v.Doc["k"].([]any)[0] = 2.0 }, "Doc"},
 		{"a nil any", func(v *values) { v.Doc["k"] = nil }, "Doc"},
+		{"a json.Number to an equal float64", func(v *values) { v.Doc["n"] = 2.0 }, ""},
+		{"a json.Number to an equal int", func(v *values) { v.Doc["n"] = 2 }, ""},
+		{"a json.Number to an equal uint8", func(v *values) { v.Doc["n"] = uint8(2) }, ""},
+		{"a json.Number to an equal float32", func(v *values) { v.Doc["f"] = float32(2.5) }, ""},
+		{"a json.Number to another number", func(v *values) { v.Doc["n"] = 3.0 }, "Doc"},
+		{"a json.Number to its string", func(v *values) { v.Doc["n"] = "2" }, "Doc"},
+		{
+			"a large json.Number to the float64 nearest it",
+			func(v *values) {
+				v.Doc["big"] = float64(9007199254740993)
+			},
+			"Doc",
+		},
+		{
+			"a large json.Number to its int64",
+			func(v *values) {
+				v.Doc["big"] = int64(9007199254740993)
+			},
+			"",
+		},
+		{
+			"a float64 to an equal json.Number",
+			func(v *values) {
+				v.Doc["k"] = []any{json.Number("1")}
+			},
+			"",
+		},
 	}
 
 	for _, c := range cases {

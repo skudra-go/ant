@@ -2,7 +2,9 @@ package track
 
 import (
 	"bytes"
+	"encoding/json"
 	"reflect"
+	"strconv"
 	"sync"
 	"time"
 	"unsafe"
@@ -252,12 +254,16 @@ func sameFloat(a, b float64) bool { return a == b || a != a && b != b }
 // as a NaN, and a time is the same as another at that instant, in any zone, as
 // in a time.Time field. Nil and empty differ, as NULL and empty do.
 func sameValue(a, b reflect.Value) bool {
-	if a.IsValid() != b.IsValid() || a.IsValid() && a.Type() != b.Type() {
+	if a.IsValid() != b.IsValid() {
 		return false
 	}
 
 	if !a.IsValid() {
 		return true
+	}
+
+	if a.Type() != b.Type() {
+		return sameNumber(a, b)
 	}
 
 	if x, y, ok := times(a, b); ok {
@@ -339,6 +345,49 @@ func sameValue(a, b reflect.Value) bool {
 	}
 
 	return false
+}
+
+// numberType is what JSON reads a number into an interface as (decision 109).
+var numberType = reflect.TypeFor[json.Number]()
+
+// sameNumber reports whether a and b, of different types, are a json.Number and
+// a number of a predeclared type that JSON writes as the same text, so that they
+// are the same as stored: as when the application puts 2.0 in a map that a JSON
+// column read as json.Number("2"). A named number type may write itself in its
+// own way, so it is a change.
+func sameNumber(a, b reflect.Value) bool {
+	if b.Type() == numberType {
+		a, b = b, a
+	}
+
+	if a.Type() != numberType || b.Type().PkgPath() != "" {
+		return false
+	}
+
+	var (
+		text []byte
+		err  error
+	)
+
+	switch b.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		text = strconv.AppendInt(nil, b.Int(), 10)
+	case reflect.Uint,
+		reflect.Uint8,
+		reflect.Uint16,
+		reflect.Uint32,
+		reflect.Uint64,
+		reflect.Uintptr:
+		text = strconv.AppendUint(nil, b.Uint(), 10)
+	case reflect.Float32:
+		text, err = json.Marshal(float32(b.Float()))
+	case reflect.Float64:
+		text, err = json.Marshal(b.Float())
+	default:
+		return false
+	}
+
+	return err == nil && string(text) == a.String()
 }
 
 // times returns a and b as times if they are. A time in an unexported field is

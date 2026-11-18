@@ -795,6 +795,9 @@ func TestProbeSecure(t *testing.T) {
 		NoEq: true,
 		Name: "secure.Value[map[string]any]",
 		SQL:  "TEXT",
+		Norm: func(v secure.Value[map[string]any]) secure.Value[map[string]any] {
+			return secure.New(probekit.JSONNumbers(v.V))
+		},
 		Vals: []secure.Value[map[string]any]{
 			secure.New(map[string]any(nil)),
 			secure.New(map[string]any{}),

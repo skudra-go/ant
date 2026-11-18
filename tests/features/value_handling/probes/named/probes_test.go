@@ -319,6 +319,9 @@ func TestProbeJSON(t *testing.T) {
 	probekit.Probe(t, probekit.Spec[ant.JSON[map[string]any]]{
 		Name: "ant.JSON[map[string]any]",
 		SQL:  "JSONB",
+		Norm: func(j ant.JSON[map[string]any]) ant.JSON[map[string]any] {
+			return ant.JSON[map[string]any]{V: probekit.JSONNumbers(j.V)}
+		},
 		Vals: []ant.JSON[map[string]any]{
 			{},
 			{V: map[string]any{}},
@@ -353,6 +356,9 @@ func TestProbeJSON(t *testing.T) {
 	probekit.Probe(t, probekit.Spec[ant.JSON[any]]{
 		Name: "ant.JSON[any]",
 		SQL:  "JSONB",
+		Norm: func(j ant.JSON[any]) ant.JSON[any] {
+			return ant.JSON[any]{V: probekit.JSONNumbers(j.V)}
+		},
 		Vals: []ant.JSON[any]{
 			{}, {V: 1.0}, {V: "s"}, {V: true}, {V: []any{}}, {V: map[string]any{"k": []any{1.0}}},
 		},
