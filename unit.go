@@ -1714,7 +1714,8 @@ func (n *node) untrackedVersion() (reflect.Value, bool) {
 }
 
 // tokenConditions requires the row to still hold the values this entity loaded.
-// The version is the one an earlier write of this unit gave the row, if any, as
+// The version is the one the application set in the entity, if it changed it,
+// and otherwise the one an earlier write of this unit gave the row, if any, as
 // when another instance of the row was saved first.
 func (u *unit) tokenConditions(n *node) []qb.Cond {
 	// An untracked copy is checked against the version it carries, as Upsert
@@ -1742,10 +1743,16 @@ func (u *unit) tokenConditions(n *node) []qb.Cond {
 	var out []qb.Cond
 
 	for _, f := range n.model.Tokens() {
-		value := n.entry.OriginalValue(f).Interface()
+		original := n.entry.OriginalValue(f)
+		value := original.Interface()
 
 		if f == n.model.Version {
-			if written, ok := u.versions[n.row()]; ok {
+			// The version is ant's to move on, so one the application changed is
+			// the version it says it saw, as when a handler copies the one its
+			// client sent into a loaded entity, and is checked as given (#143).
+			if current := f.Value(n.entity); current.Int() != original.Int() {
+				value = current.Interface()
+			} else if written, ok := u.versions[n.row()]; ok {
 				value = written.Interface()
 			}
 		}

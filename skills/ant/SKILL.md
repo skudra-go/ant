@@ -283,7 +283,8 @@ err = session.SaveChanges(ctx)
 - A context holds one instance per row: a second query for the same row returns the
   same pointer, unsaved changes included. `Reload(ctx, e)` rereads it.
 - `SaveChanges` returns `ant.ErrConcurrency` when the row was deleted, or its
-  version changed, since it was loaded.
+  version changed, since it was loaded. A version set on a loaded entity, such
+  as the one a client sent back, is the one checked.
 - Hooks are methods on the model: `BeforeInsert(ctx context.Context) error`,
   `AfterLoad`, `BeforeUpdate`, `BeforeDelete` and the rest. A query made in a hook
   must use the hook's `ctx`, or it fails with `ErrConcurrentUse`.

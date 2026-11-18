@@ -1346,6 +1346,106 @@ type LedgerDB struct {
 	Ledgers ant.Table[Ledger]
 }
 
+// A version the application copies into a loaded entity, as a PUT handler does
+// with the one its client sent, is the version it says it saw, so the save
+// checks that one: a stale copy is refused, on update and delete alike, and the
+// version moves on from it, never back (#143).
+func TestConformanceEditedVersion(t *testing.T) {
+	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
+		ctx := t.Context()
+		_, err := target.DB.ExecContext(ctx, `CREATE TABLE ledgers (
+			id BIGINT PRIMARY KEY,
+			code VARCHAR(20) NOT NULL UNIQUE,
+			total INT NOT NULL,
+			version BIGINT NOT NULL)`)
+		require.NoError(t, err)
+
+		t.Cleanup(func() {
+			_, _ = target.DB.ExecContext(context.Background(), "DROP TABLE ledgers")
+		})
+
+		db, err := ant.Open[LedgerDB](ctx, target.Dialect, target.DSN)
+		require.NoError(t, err)
+		t.Cleanup(func() { db.Close() })
+
+		stored := func(id int64) *Ledger {
+			row, err := db.Ledgers.NoTracking().Find(ctx, id)
+			require.NoError(t, err)
+
+			return row
+		}
+
+		// Each row is at version 2, so a client that holds 1 is stale.
+		for id := int64(1); id <= 4; id++ {
+			row := &Ledger{ID: id, Code: fmt.Sprint("c", id), Total: 1}
+			require.NoError(t, db.Ledgers.Insert(ctx, row))
+
+			_, err := db.Ledgers.Where(ant.Eq(&Ledgers.ID, id)).Update(ctx, ant.Inc(&Ledgers.Total, 1))
+			require.NoError(t, err)
+		}
+
+		t.Run("a stale version is refused", func(t *testing.T) {
+			s := ant.Session(db, ant.WithTracking(true))
+			row, err := s.Ledgers.Find(ctx, int64(1))
+			require.NoError(t, err)
+
+			row.Total, row.Version = 9, 1
+
+			require.ErrorIs(t, s.SaveChanges(ctx), ant.ErrConcurrency)
+			require.EqualValues(t, 1, row.Version, "a failed save leaves it as the client sent it")
+			require.Equal(t, 2, stored(1).Total)
+			require.EqualValues(t, 2, stored(1).Version)
+		})
+
+		t.Run("a version edited alone is refused", func(t *testing.T) {
+			s := ant.Session(db, ant.WithTracking(true))
+			row, err := s.Ledgers.Find(ctx, int64(2))
+			require.NoError(t, err)
+
+			row.Version = 1
+
+			require.ErrorIs(t, s.SaveChanges(ctx), ant.ErrConcurrency)
+			require.EqualValues(t, 2, stored(2).Version, "it never moves back")
+		})
+
+		t.Run("the current version saves", func(t *testing.T) {
+			s := ant.Session(db, ant.WithTracking(true))
+			row, err := s.Ledgers.Find(ctx, int64(3))
+			require.NoError(t, err)
+
+			row.Total, row.Version = 9, 2
+
+			require.NoError(t, s.SaveChanges(ctx))
+			require.EqualValues(t, 3, row.Version)
+			require.Equal(t, 9, stored(3).Total)
+			require.EqualValues(t, 3, stored(3).Version)
+		})
+
+		t.Run("a version ahead of the row is refused", func(t *testing.T) {
+			s := ant.Session(db, ant.WithTracking(true))
+			row, err := s.Ledgers.Find(ctx, int64(3))
+			require.NoError(t, err)
+
+			row.Total, row.Version = 10, 7
+
+			require.ErrorIs(t, s.SaveChanges(ctx), ant.ErrConcurrency)
+			require.EqualValues(t, 3, stored(3).Version)
+		})
+
+		t.Run("a delete checks it too", func(t *testing.T) {
+			s := ant.Session(db, ant.WithTracking(true))
+			row, err := s.Ledgers.Find(ctx, int64(4))
+			require.NoError(t, err)
+
+			row.Version = 1
+			require.NoError(t, ant.Remove(ctx, s, row))
+
+			require.ErrorIs(t, s.SaveChanges(ctx), ant.ErrConcurrency)
+			require.Equal(t, 2, stored(4).Total, "the row is still there")
+		})
+	})
+}
+
 // An upsert that updates moves the version on, as every write does, and a copy
 // that carries a version updates only that version, on every database: ON
 // DUPLICATE KEY takes no condition, so on MySQL and MariaDB each assignment

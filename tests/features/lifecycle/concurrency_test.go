@@ -93,6 +93,26 @@ func TestOptimisticConcurrency(t *testing.T) {
 			require.NoError(t, two.SaveChanges(ctx), "after a reload it can win")
 		})
 
+		t.Run("a version from the client is the one checked", func(t *testing.T) {
+			page := &Page{Title: "v1"}
+			require.NoError(t, db.Pages.Insert(ctx, page))
+
+			// A client read the page at version 1, then someone saved it.
+			clientVersion := page.Version
+			page.Title = "v2"
+
+			require.NoError(t, db.SaveChanges(ctx))
+
+			// The client's PUT: load the row, apply the body, version included.
+			s := ant.Session(db)
+			loaded, err := s.Pages.Find(ctx, page.ID)
+			require.NoError(t, err)
+
+			loaded.Title, loaded.Version = "from a stale client", clientVersion
+
+			require.ErrorIs(t, s.SaveChanges(ctx), ant.ErrConcurrency)
+		})
+
 		t.Run("a bulk update counts as a write", func(t *testing.T) {
 			page := &Page{Title: "bulk"}
 			session := ant.Session(db)
