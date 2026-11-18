@@ -290,7 +290,12 @@ func (e *engine) versionedState(c *catalog, m *Migration, r record, ok bool, new
 }
 
 func (e *engine) status(ctx context.Context) ([]Entry, error) {
-	c, err := e.catalog(ctx)
+	return e.statusFrom(ctx, e.source)
+}
+
+// statusFrom is status over the migrations source lists.
+func (e *engine) statusFrom(ctx context.Context, source Source) ([]Entry, error) {
+	c, err := load(ctx, source, e.registered)
 	if err != nil {
 		return nil, err
 	}
@@ -373,12 +378,14 @@ func (e *engine) validate(entries []Entry, rows []record) error {
 // up applies what is pending, through version to if it is set.
 func (e *engine) up(ctx context.Context, to string) error {
 	return e.locked(ctx, func(conn *sql.Conn) error {
-		if err := e.history.ensure(ctx, conn); err != nil {
+		// The migrations first, so that a folder that is not there records
+		// nothing.
+		c, err := e.catalog(ctx)
+		if err != nil {
 			return err
 		}
 
-		c, err := e.catalog(ctx)
-		if err != nil {
+		if err := e.history.ensure(ctx, conn); err != nil {
 			return err
 		}
 

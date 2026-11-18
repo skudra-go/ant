@@ -31,6 +31,13 @@ func (t *tool) catalog(ctx context.Context) (*catalog, error) {
 	return load(ctx, t.source, t.registered)
 }
 
+// drafts is catalog for the commands that write the first migration, which
+// create the versions folder, and for check, which reports a project with no
+// migrations as one with pending changes: a folder not there yet is empty.
+func (t *tool) drafts(ctx context.Context) (*catalog, error) {
+	return load(ctx, creating{t.source}, t.registered)
+}
+
 // snapshot returns what the last migration left, or nil if nothing was generated.
 func (t *tool) snapshot(ctx context.Context) (*schema.Schema, error) {
 	s, err := readSnapshot(ctx, t.source)
@@ -108,7 +115,7 @@ func (t *tool) diff(ctx context.Context, name string, renames []string, empty, d
 		return err
 	}
 
-	c, err := t.catalog(ctx)
+	c, err := t.drafts(ctx)
 	if err != nil {
 		return err
 	}
@@ -321,7 +328,7 @@ func (t *tool) adopt(ctx context.Context, file, name string) error {
 		return err
 	}
 
-	c, err := t.catalog(ctx)
+	c, err := t.drafts(ctx)
 	if err != nil {
 		return err
 	}
@@ -395,7 +402,7 @@ func withoutMetaCommands(text string) string {
 // check fails if the migration files and models are not in step. It needs no
 // database, so it suits CI.
 func (t *tool) check(ctx context.Context) error {
-	c, err := t.catalog(ctx)
+	c, err := t.drafts(ctx)
 	if err != nil {
 		return err
 	}

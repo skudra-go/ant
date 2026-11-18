@@ -651,9 +651,11 @@ Four follow-ups to 107 (#138).
 
 
 
+
 ## 110. A version the application sets is the one checked
 
 The usual optimistic concurrency over HTTP sends the version to the client, and on a PUT loads the row, applies the body with the version in it, and saves. `SaveChanges` checked the version in the snapshot, the one it loaded, and moved the version on from the entity's, so a stale client's version passed the check, and the stored version moved back to the client's plus one (#143). `Attach` and `MarkModified` already checked the entity's own version. Now a tracked save does too, when the application changed it: an update or delete checks the version the entity holds, so a stale one is `ErrConcurrency`, and one ahead of the row is as well. An unchanged version is checked as before, with what an earlier write of the same save gave the row. Other tokens are the application's to move, so a changed one is still checked against its loaded value and written as the new one. Refusing an edited version outright was rejected: copying the client's version in is how the pattern is written.
+
 
 
 
@@ -664,9 +666,15 @@ A PUT handler that loads a row and overwrites it with the struct it decoded, `*l
 The children's foreign keys were written as zero too, since a child still in its loaded relation is not linked again, so that a foreign key changed directly moves it (decision 32). A required foreign key at its zero value names no row, so it can only mean the key was not given: such a key is now set from the relation, from the parent whose slice holds the child or the loaded parent a pointer still holds, as a moved child's is. A nullable one left empty is NULL, no parent, which the application may mean, so clearing it directly still wins over a loaded parent. A child decoded with a nullable key and put in a loaded slice is unlinked as before; set its key, or put the loaded child's fields on it, to keep it. Linking every member again on each save was rejected: it would overwrite the foreign keys an application changes to move a child.
 
 
+
 ## 112. A locking read puts the row into the tracked instance
 
 A context holds one instance per row, so a tracked query hands back the instance it already holds and drops the row it read (decision 28). That included `ForUpdate` and `ForShare`: the lock was taken, but the caller got the values of the earlier read, so "read under a lock, change, save" wrote a value computed from stale data, and a checkpoint went backwards (#223). Now a locking read puts each row it returns into the instance already tracked for it, as `Reload` does: the values, and the snapshot and state, with the same reversal if the transaction rolls back, since the row may hold the transaction's own writes. The instance stays the one the context holds, so other code that holds it sees the row too. An instance with unsaved changes, edits or a removal, keeps them while its row is still as it was loaded, as when an edit is made before the lock is taken, and is a `ConcurrencyError` once the row moved, since those changes were made to values the row no longer holds; overwriting them would lose them, and keeping them over the new row would hide the conflict the lock is there to catch. An entity added, or marked modified, holds what the application gave it to write rather than values it loaded, so it is left as it is. A read with no lock still returns the instance as it is, and the rows of a joined include are not locked, so they are not refreshed either. Returning a second, fresh instance was rejected: the context would then hold two instances of one row, and a change to the one it does not track would not be saved.
+
+
+## 113. A missing versions folder is an error
+
+A versions folder that was not there read as an empty one, so a `migrate` binary run from another directory, an image built without its migrations, or a `//go:embed migrations` passed as `Config.FS` without `Dir`, found nothing to apply, created the history table and exited 0, and the app failed at its first query (#176). Now the default source says there is no folder, where it looked, and, on disk, from which working directory, and the error wraps `fs.ErrNotExist`. `up`, `status`, `baseline`, `repair`, `script`, `snapshot`, `squash`, `Up` and `Status` refuse it, and `up`, `repair` and `baseline` read the migrations before they create the history table, so a refused run records nothing. The commands for a project with no migrations yet read it as empty: `diff` and `adopt`, which write the first migration and create the folder, `check`, which reports pending changes as it did, and `drift`, which compares the database with the models while a database is being adopted. A missing code folder is still fine, since repeatable migrations are optional. A custom `Source` decides for itself.
 
 ## 114. An identity column's default is not ant's to change
 

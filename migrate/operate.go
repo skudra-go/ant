@@ -19,12 +19,14 @@ import (
 // again, stored checksums follow the files, and rows with no file are forgotten.
 func (e *engine) repair(ctx context.Context) error {
 	return e.locked(ctx, func(conn *sql.Conn) error {
-		if err := e.history.ensure(ctx, conn); err != nil {
+		// The migrations first, so that a folder that is not there records
+		// nothing.
+		c, err := e.catalog(ctx)
+		if err != nil {
 			return err
 		}
 
-		c, err := e.catalog(ctx)
-		if err != nil {
+		if err := e.history.ensure(ctx, conn); err != nil {
 			return err
 		}
 
@@ -89,12 +91,14 @@ func (e *engine) repair(ctx context.Context) error {
 // version, or all of them. It is how an existing database joins.
 func (e *engine) baseline(ctx context.Context, version string) error {
 	return e.locked(ctx, func(conn *sql.Conn) error {
-		if err := e.history.ensure(ctx, conn); err != nil {
+		// The migrations first, so that a folder that is not there records
+		// nothing.
+		c, err := e.catalog(ctx)
+		if err != nil {
 			return err
 		}
 
-		c, err := e.catalog(ctx)
-		if err != nil {
+		if err := e.history.ensure(ctx, conn); err != nil {
 			return err
 		}
 
@@ -248,7 +252,9 @@ func (e *engine) drift(
 	source string,
 	showSQL bool,
 ) error {
-	entries, err := e.status(ctx)
+	// Adopting a database runs drift before the first migration exists, so a
+	// versions folder that is not there yet has nothing pending.
+	entries, err := e.statusFrom(ctx, creating{e.source})
 	if err != nil {
 		return err
 	}

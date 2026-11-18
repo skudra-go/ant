@@ -2,6 +2,7 @@ package migrations
 
 import (
 	"context"
+	"io/fs"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -178,6 +179,74 @@ func TestCustomNames(t *testing.T) {
 			require.True(t, p.exists("versions/release-0001.start.sql"))
 			require.Contains(t, must[V1DB](p, "up"), "Applied 0001_start")
 		})
+	})
+}
+
+// A versions folder that is not there is an error, not an empty one: a binary
+// run from another folder, or an image built without its migrations, would
+// otherwise report nothing to apply and leave the database empty. The commands
+// that write the first migration create the folder, and check and drift read
+// it as a project with no migrations yet, as when adopting a database.
+func TestMissingFolder(t *testing.T) {
+	each(t, func(t *testing.T, p *project) {
+		for _, command := range [][]string{
+			{"up"},
+			{"status"},
+			{"baseline"},
+			{"repair"},
+			{"script"},
+			{"snapshot"},
+			{"squash", "all"},
+		} {
+			_, err := run[V1DB](p, command...)
+			require.ErrorIs(t, err, fs.ErrNotExist, command)
+			require.ErrorContains(t, err, "no migrations folder at "+p.dir+"/versions", command)
+			require.ErrorContains(t, err, "working directory", command)
+		}
+
+		require.Empty(t, p.columns("ant_migrations"), "nothing was recorded")
+
+		_, err := run[V1DB](p, "check")
+		require.ErrorIs(t, err, migrate.ErrPendingChanges)
+
+		_, err = run[V1DB](p, "drift")
+		require.ErrorIs(t, err, migrate.ErrDrift, "the models have a table the database lacks")
+
+		must[V1DB](p, "diff", "start")
+		require.True(t, p.exists("versions/0001_start.up.sql"))
+		require.Contains(t, must[V1DB](p, "up"), "Applied 0001_start")
+	})
+}
+
+// With go:embed, the file system's root holds the migrations folder, so Dir
+// names it. Without it, Up says where it looked.
+func TestMissingFolderInFS(t *testing.T) {
+	each(t, func(t *testing.T, p *project) {
+		files := fstest.MapFS{
+			"migrations/versions/0001_init.up.sql": {
+				Data: []byte("CREATE TABLE embedded (id bigint PRIMARY KEY);"),
+			},
+		}
+
+		db := open[V1DB](p)
+		err := migrate.Up(t.Context(), db, migrate.Config{FS: files})
+		require.ErrorIs(t, err, fs.ErrNotExist, "Up says so too")
+
+		_, err = migrate.Status(t.Context(), db, migrate.Config{FS: files})
+		require.ErrorIs(t, err, fs.ErrNotExist)
+
+		p.config = migrate.Config{FS: files, DSN: p.target.DSN}
+
+		_, err = run[V1DB](p, "up")
+		require.ErrorIs(t, err, fs.ErrNotExist)
+		require.ErrorContains(t, err, "no migrations folder at versions in the file system")
+		require.ErrorContains(t, err, `Config.Dir`)
+		require.Empty(t, p.columns("embedded"))
+
+		p.config.Dir = "migrations"
+
+		require.Contains(t, must[V1DB](p, "up"), "Applied 0001_init")
+		require.NotEmpty(t, p.columns("embedded"))
 	})
 }
 

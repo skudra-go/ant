@@ -43,27 +43,84 @@ type folders struct {
 	versions string
 	code     string
 	parse    func(string) (string, string, bool)
+	dir      string // the folder on disk fsys reads, or "" for another file system
 }
 
 // FS returns a read-only Source over a file system, such as an embed.FS, that
 // holds versions and code folders at its root.
 func FS(fsys fs.FS) Source {
-	return folders{fsys, "versions", "code", parseFile}
+	return folders{fsys, "versions", "code", parseFile, ""}
 }
 
 // Dir returns a Store over a folder on disk that holds versions and code folders.
 func Dir(path string) Store {
-	return disk{folders{os.DirFS(path), "versions", "code", parseFile}, path}
+	return disk{folders{os.DirFS(path), "versions", "code", parseFile, path}, path}
+}
+
+// noFolderError is a versions folder that is not there. Only the commands that
+// write the first migration take it for an empty one, since for any other the
+// likely cause is a program run from another folder, or built without its
+// migrations, which would otherwise find nothing to apply and succeed (#176).
+type noFolderError struct{ at, hint string }
+
+func (e *noFolderError) Error() string {
+	return "ant: no migrations folder at " + e.at + e.hint
+}
+
+// Unwrap makes errors.Is(err, fs.ErrNotExist) true.
+func (e *noFolderError) Unwrap() error { return fs.ErrNotExist }
+
+// noFolder says where the versions folder was looked for.
+func (f folders) noFolder() error {
+	if f.dir == "" {
+		return &noFolderError{
+			f.versions + " in the file system",
+			`; with //go:embed migrations, set Config.Dir to "migrations"`,
+		}
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		cwd = err.Error()
+	}
+
+	return &noFolderError{
+		filepath.Join(f.dir, f.versions),
+		fmt.Sprintf(
+			" (working directory %s); run it from the project's folder, or set Config.Dir",
+			cwd,
+		),
+	}
+}
+
+// creating is a Source whose missing versions folder is an empty one, for the
+// commands that write the first migration into it.
+type creating struct{ Source }
+
+func (c creating) List(ctx context.Context) ([]Migration, error) {
+	list, err := c.Source.List(ctx)
+
+	var missing *noFolderError
+	if errors.As(err, &missing) {
+		return nil, nil
+	}
+
+	return list, err
 }
 
 // List returns the migrations in both folders. A SQL file that cannot be read as
 // a migration is an error, since skipping it would silently skip a schema change.
 // Down files of other tools are ignored, so an existing folder can stay as it is.
+// A versions folder that is not there is an error; a code folder is optional.
 func (f folders) List(context.Context) ([]Migration, error) {
 	var out []Migration
 
 	entries, err := fs.ReadDir(f.fsys, f.versions)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, f.noFolder()
+	}
+
+	if err != nil {
 		return nil, err
 	}
 
@@ -197,14 +254,14 @@ func (c Config) source() (Source, error) {
 			fsys = sub
 		}
 
-		return folders{fsys, c.VersionsDir, c.CodeDir, c.Parse}, nil
+		return folders{fsys, c.VersionsDir, c.CodeDir, c.Parse, ""}, nil
 	case c.Embedded != nil:
 		if _, err := os.Stat(c.Dir); errors.Is(err, fs.ErrNotExist) {
-			return folders{c.Embedded, c.VersionsDir, c.CodeDir, c.Parse}, nil
+			return folders{c.Embedded, c.VersionsDir, c.CodeDir, c.Parse, ""}, nil
 		}
 	}
 
-	return disk{folders{os.DirFS(c.Dir), c.VersionsDir, c.CodeDir, c.Parse}, c.Dir}, nil
+	return disk{folders{os.DirFS(c.Dir), c.VersionsDir, c.CodeDir, c.Parse, c.Dir}, c.Dir}, nil
 }
 
 // store returns the configured Source, for commands that write.
