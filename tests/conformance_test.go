@@ -1380,7 +1380,8 @@ func TestConformanceEditedVersion(t *testing.T) {
 			row := &Ledger{ID: id, Code: fmt.Sprint("c", id), Total: 1}
 			require.NoError(t, db.Ledgers.Insert(ctx, row))
 
-			_, err := db.Ledgers.Where(ant.Eq(&Ledgers.ID, id)).Update(ctx, ant.Inc(&Ledgers.Total, 1))
+			_, err := db.Ledgers.Where(ant.Eq(&Ledgers.ID, id)).
+				Update(ctx, ant.Inc(&Ledgers.Total, 1))
 			require.NoError(t, err)
 		}
 
