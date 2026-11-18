@@ -37,10 +37,10 @@ func (p *Page[T]) Pages() int {
 // HasNext reports whether another page follows this one.
 func (p *Page[T]) HasNext() bool { return p.Number < p.Pages() }
 
-// window returns q cut down to at most size of its rows, starting skip rows
+// within returns q cut down to at most size of its rows, starting skip rows
 // in. The query's own Limit and Offset say which rows are its rows, so the
 // window lies inside them. It reports false when no row is left there.
-func (q *Query[T]) window(skip, size int) (*Query[T], bool) {
+func (q *Query[T]) within(skip, size int) (*Query[T], bool) {
 	if q.limit != nil {
 		size = min(size, *q.limit-skip)
 	}
@@ -72,7 +72,7 @@ func (q *Query[T]) Page(ctx context.Context, number, size int) (*Page[T], error)
 
 	items := []*T{}
 
-	if page, ok := q.window((number-1)*size, size); ok {
+	if page, ok := q.within((number-1)*size, size); ok {
 		if items, err = page.All(ctx); err != nil {
 			return nil, err
 		}
@@ -96,7 +96,7 @@ func (q *Query[T]) Chunk(ctx context.Context, size int, f func([]*T) error) erro
 	}
 
 	for offset := 0; ; offset += size {
-		page, ok := q.window(offset, size)
+		page, ok := q.within(offset, size)
 		if !ok {
 			return nil
 		}
