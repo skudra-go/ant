@@ -131,6 +131,7 @@ func TestStoredTypes(t *testing.T) {
 			require.Equal(t, json.Number("9007199254740993"), doc.Meta.V["order_id"])
 
 			doc.Meta.V["note"] = "b" // another key, but the whole document is written
+
 			require.NoError(t, db.SaveChanges(ctx))
 
 			stored, err := ant.Raw[string](

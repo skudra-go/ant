@@ -39,6 +39,7 @@ func TestJSONKeepsLargeIntegers(t *testing.T) {
 
 			written, err := j.Value()
 			require.NoError(t, err)
+
 			require.JSONEq(
 				t,
 				`{"note": "b", "order_id": 9007199254740993, "ids": [18446744073709551615]}`,
