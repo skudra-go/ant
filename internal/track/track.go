@@ -116,6 +116,22 @@ func (e *Entry) Dirty() bool {
 	return false
 }
 
+// Matches reports whether row holds what the snapshot holds in each of fields:
+// whether the row, read again, is as the entry loaded it.
+func (e *Entry) Matches(row unsafe.Pointer, fields []*meta.Field) bool {
+	if e.snapshot == nil {
+		return false
+	}
+
+	for _, f := range fields {
+		if !unchanged(e.Model, f, row, e.snapshot) {
+			return false
+		}
+	}
+
+	return true
+}
+
 // KeyChanged reports whether the primary key differs from the snapshot.
 func (e *Entry) KeyChanged() bool {
 	if e.snapshot == nil {

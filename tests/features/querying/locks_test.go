@@ -44,6 +44,35 @@ func TestLocks(t *testing.T) {
 			require.Equal(t, []string{"Bob", "Carol"}, fixture.Names(got))
 		})
 
+		// A context keeps one instance per row, and a locking read puts the row
+		// as it stands under the lock into it, so the change below starts from
+		// what another worker saved, not from the earlier read.
+		t.Run("a locking read sees the row under the lock", func(t *testing.T) {
+			worker := ant.Session(db, ant.WithTracking(true))
+			earlier, err := worker.Users.Find(ctx, bob.ID)
+			require.NoError(t, err)
+
+			_, err = db.Users.Where(ant.Eq(&Users.ID, bob.ID)).
+				Update(ctx, ant.Set(&Users.Age, earlier.Age+5))
+			require.NoError(t, err)
+
+			require.NoError(t, worker.Tx(ctx, func(tx *fixture.AppDB) error {
+				locked, err := tx.Users.Where(ant.Eq(&Users.ID, bob.ID)).ForUpdate().Single(ctx)
+				if err != nil {
+					return err
+				}
+
+				locked.Age++ // the same instance as earlier, with the saved age
+
+				return tx.SaveChanges(ctx)
+			}))
+
+			stored, err := db.Users.NoTracking().Find(ctx, bob.ID)
+			require.NoError(t, err)
+			require.Equal(t, 23, stored.Age, "17, plus 5 by the other worker, plus 1")
+			require.Equal(t, 23, earlier.Age)
+		})
+
 		t.Run("ForShare allows other readers", func(t *testing.T) {
 			tx, err := ant.Begin(ctx, db)
 			require.NoError(t, err)

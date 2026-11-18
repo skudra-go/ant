@@ -166,21 +166,28 @@ func (q *Query[T]) collectJoined(rows *sql.Rows) (out []*T, err error) {
 	}
 
 	if tracked {
-		q.rememberJoined(out)
+		if err := q.rememberJoined(out); err != nil {
+			return nil, err
+		}
 	}
 
 	return out, nil
 }
 
 // rememberJoined records loaded parents on tracked entities, as IncludeOne does.
-// The root instance can be an earlier one, so that one gets the relation too.
-func (q *Query[T]) rememberJoined(items []*T) {
+// The root instance can be an earlier one, so that one gets the relation too,
+// and the row, if the query locked it.
+func (q *Query[T]) rememberJoined(items []*T) error {
 	model := q.model()
 
 	for i, item := range items {
 		loaded := unsafe.Pointer(item)
 		instance := q.state.tracker.Load(model, loaded)
 		items[i] = (*T)(instance)
+
+		if err := q.refreshLocked((*T)(instance), item); err != nil {
+			return err
+		}
 
 		entry := q.state.tracker.Get(instance)
 		if entry == nil {
@@ -199,6 +206,8 @@ func (q *Query[T]) rememberJoined(items []*T) {
 			entry.SetParent(j.relation, key)
 		}
 	}
+
+	return nil
 }
 
 // resolveIdentity makes one instance of each row, keeping the first.

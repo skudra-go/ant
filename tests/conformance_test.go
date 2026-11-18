@@ -720,6 +720,192 @@ func TestConformanceLockedQueryCounts(t *testing.T) {
 	})
 }
 
+// A locking read returns each row as it stands under the lock, also when the
+// context already tracks it, so a read-modify-write under the lock starts from
+// what the database holds (#223). The context keeps one instance per row: the
+// tracked one takes the row's values. One with unsaved changes keeps them while
+// its row is as it was loaded, and is a ConcurrencyError once the row moved. A
+// read without a lock hands back the tracked instance as it is.
+func TestConformanceLockedReadRefreshes(t *testing.T) {
+	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
+		if !has(target, dialect.RowLocks) {
+			t.Skip("no row locks")
+		}
+
+		app := openAndSeed(t, target)
+		ctx := t.Context()
+
+		named := func(name string) ant.Cond { return ant.Eq(&Users.Name, name) }
+
+		setAge := func(name string, age int) {
+			_, err := app.Users.Where(named(name)).Update(ctx, ant.Set(&Users.Age, age))
+			require.NoError(t, err)
+		}
+
+		storedAge := func(name string) int {
+			u, err := app.Users.NoTracking().Where(named(name)).First(ctx)
+			require.NoError(t, err)
+
+			return u.Age
+		}
+
+		pending := func(s *AppDB) bool {
+			changed, err := s.HasChanges(ctx)
+			require.NoError(t, err)
+
+			return changed
+		}
+
+		t.Run("the row under the lock", func(t *testing.T) {
+			worker := ant.Session(app, ant.WithTracking(true))
+			first, err := worker.Users.Where(named("alice")).First(ctx)
+			require.NoError(t, err)
+			require.Equal(t, 30, first.Age)
+
+			setAge("alice", 100) // another worker moves the checkpoint
+
+			unlocked, err := worker.Users.Where(named("alice")).First(ctx)
+			require.NoError(t, err)
+			require.Same(t, first, unlocked)
+			require.Equal(t, 30, unlocked.Age, "a read without a lock keeps the instance")
+
+			var (
+				locked  *User
+				seen    int
+				changed bool
+			)
+
+			require.NoError(t, worker.Tx(ctx, func(tx *AppDB) error {
+				var err error
+				if locked, err = tx.Users.Where(named("alice")).ForUpdate().First(ctx); err != nil {
+					return err
+				}
+
+				seen, changed = locked.Age, pending(tx)
+				locked.Age += 10
+
+				return tx.SaveChanges(ctx)
+			}))
+
+			require.Same(t, first, locked, "still one instance per row")
+			require.Equal(t, 100, seen)
+			require.False(t, changed, "the read is no change")
+			require.Equal(t, 110, storedAge("alice"))
+		})
+
+		t.Run("unsaved changes on a row that did not move are kept", func(t *testing.T) {
+			worker := ant.Session(app, ant.WithTracking(true))
+			bob, err := worker.Users.Where(named("bob")).First(ctx)
+			require.NoError(t, err)
+
+			bob.Age = 26
+
+			var locked *User
+
+			require.NoError(t, worker.Tx(ctx, func(tx *AppDB) error {
+				var err error
+				if locked, err = tx.Users.Where(named("bob")).ForUpdate().First(ctx); err != nil {
+					return err
+				}
+
+				return tx.SaveChanges(ctx)
+			}))
+
+			require.Same(t, bob, locked)
+			require.Equal(t, 26, locked.Age)
+			require.Equal(t, 26, storedAge("bob"))
+		})
+
+		t.Run("unsaved changes on a row that moved are a conflict", func(t *testing.T) {
+			worker := ant.Session(app, ant.WithTracking(true))
+			carol, err := worker.Users.Where(named("carol")).First(ctx)
+			require.NoError(t, err)
+
+			carol.Age = 36
+
+			setAge("carol", 50)
+
+			err = worker.Tx(ctx, func(tx *AppDB) error {
+				_, err := tx.Users.Where(named("carol")).ForUpdate().All(ctx)
+
+				return err
+			})
+
+			var conflict *ant.ConcurrencyError
+			require.ErrorAs(t, err, &conflict)
+			require.Equal(t, "User", conflict.Model)
+			require.Equal(t, carol.ID, conflict.Key)
+			require.Equal(t, 36, carol.Age, "the edit is the application's to drop")
+			require.Equal(t, 50, storedAge("carol"))
+		})
+
+		t.Run("a rollback takes the read back", func(t *testing.T) {
+			worker := ant.Session(app, ant.WithTracking(true))
+			alice, err := worker.Users.Where(named("alice")).First(ctx)
+			require.NoError(t, err)
+
+			before := alice.Age
+
+			rollBack := errors.New("roll back")
+			seen := 0
+
+			err = worker.Tx(ctx, func(tx *AppDB) error {
+				_, err := tx.Users.Where(named("alice")).Update(ctx, ant.Set(&Users.Age, 200))
+				if err != nil {
+					return err
+				}
+
+				locked, err := tx.Users.Where(named("alice")).ForUpdate().First(ctx)
+				if err != nil {
+					return err
+				}
+
+				seen = locked.Age
+
+				return rollBack
+			})
+			require.ErrorIs(t, err, rollBack)
+			require.Equal(t, 200, seen)
+			require.Equal(t, before, alice.Age, "the row it read went with the rollback")
+			require.False(t, pending(worker))
+		})
+
+		t.Run("with a joined include", func(t *testing.T) {
+			alice, err := app.Users.NoTracking().Where(named("alice")).First(ctx)
+			require.NoError(t, err)
+
+			post := &Post{UserID: alice.ID, Title: "draft"}
+			require.NoError(t, app.Posts.Insert(ctx, post))
+
+			worker := ant.Session(app, ant.WithTracking(true))
+			first, err := worker.Posts.Find(ctx, post.ID)
+			require.NoError(t, err)
+
+			_, err = app.Posts.Where(ant.Eq(&Posts.ID, post.ID)).
+				Update(ctx, ant.Set(&Posts.Title, "published"))
+			require.NoError(t, err)
+
+			var locked []*Post
+
+			require.NoError(t, worker.Tx(ctx, func(tx *AppDB) error {
+				var err error
+
+				locked, err = tx.Posts.Where(ant.Eq(&Posts.ID, post.ID)).
+					IncludeJoined(&Posts.User).
+					ForUpdate().
+					All(ctx)
+
+				return err
+			}))
+
+			require.Len(t, locked, 1)
+			require.Same(t, first, locked[0])
+			require.Equal(t, "published", locked[0].Title)
+			require.Equal(t, "alice", locked[0].User.Name)
+		})
+	})
+}
+
 // A joined include is a left join, whose far side PostgreSQL refuses to lock.
 // The lock is for the query's own rows.
 func TestConformanceLockWithJoinedInclude(t *testing.T) {

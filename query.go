@@ -12,6 +12,7 @@ import (
 	"unsafe"
 
 	"github.com/skudra-go/ant/internal/meta"
+	"github.com/skudra-go/ant/internal/track"
 	"github.com/skudra-go/ant/qb"
 )
 
@@ -544,12 +545,25 @@ func (q *Query[T]) fetchWith(
 	}
 
 	if q.tracked() && !q.inSlice {
+		var read []*T
+
+		// A joined query swaps in the tracked instances as it reads.
+		if q.lock != nil && len(q.inJoin) == 0 {
+			read = slices.Clone(items)
+		}
+
 		// A []*T is a []unsafe.Pointer to the tracker, which swaps in the
 		// instances it already holds.
 		q.state.tracker.LoadAll(
 			q.model(),
 			unsafe.Slice((*unsafe.Pointer)(unsafe.Pointer(unsafe.SliceData(items))), len(items)),
 		)
+
+		for i, row := range read {
+			if err := q.refreshLocked(items[i], row); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	if err := q.load(ctx, items); err != nil {
@@ -565,6 +579,42 @@ func (q *Query[T]) fetchWith(
 	}
 
 	return items, nil
+}
+
+// refreshLocked puts a row that a locking read returned into the instance the
+// tracker already held for it, so that the caller sees the row as it stands
+// under the lock, and a change made under the lock starts from it (#223). The
+// values are taken as Reload takes them, and a rollback takes them back the same
+// way. An instance with unsaved changes keeps them while its row is still as it
+// was loaded, and is a ConcurrencyError once the row moved, since those changes
+// were made to values the row no longer holds.
+func (q *Query[T]) refreshLocked(instance, row *T) error {
+	if q.lock == nil || instance == row {
+		return nil
+	}
+
+	entry := q.state.tracker.Get(unsafe.Pointer(instance))
+
+	columns := q.columns()
+	if entry == nil || entry.Matches(unsafe.Pointer(row), columns) {
+		return nil
+	}
+
+	if entry.State != track.Unchanged || entry.Dirty() || entry.KeyChanged() {
+		key, _ := entry.OriginalKey()
+
+		return &ConcurrencyError{Model: q.model().Type.Name(), Key: key}
+	}
+
+	before := *instance
+
+	for _, f := range columns {
+		f.Value(unsafe.Pointer(instance)).Set(f.Value(unsafe.Pointer(row)))
+	}
+
+	q.state.record(q.state.tracker.Reloaded(entry, unsafe.Pointer(&before)))
+
+	return nil
 }
 
 func (q *Query[T]) load(ctx context.Context, items []*T) error {

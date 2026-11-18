@@ -282,7 +282,9 @@ err = session.SaveChanges(ctx)
   `Column`, `Omit`, `Raw`, `Select` and `Project` results are never tracked, so
   changing them saves nothing.
 - A context holds one instance per row: a second query for the same row returns the
-  same pointer, unsaved changes included. `Reload(ctx, e)` rereads it.
+  same pointer, unsaved changes included. `Reload(ctx, e)` rereads it. A locking
+  read (`ForUpdate`, `ForShare`) puts the row into that instance, or returns
+  `ErrConcurrency` if the instance has unsaved changes and the row has moved.
 - `SaveChanges` returns `ant.ErrConcurrency` when the row was deleted, or its
   version changed, since it was loaded. A version set on a loaded entity, such
   as the one a client sent back, is the one checked.
