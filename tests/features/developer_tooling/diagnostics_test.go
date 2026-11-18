@@ -169,6 +169,17 @@ func TestDetailedErrors(t *testing.T) {
 			_, err := ant.Raw[int](db, "SELECT nothing_here").All(ctx)
 			require.ErrorContains(t, err, "[sql: SELECT nothing_here]")
 		})
+
+		t.Run("a session can ask for it alone", func(t *testing.T) {
+			db := fixture.Open[fixture.AppDB](t, target)
+			session := ant.Session(db, ant.WithDetailedErrors())
+
+			_, err := ant.Raw[int](session, "SELECT nothing_here").All(ctx)
+			require.ErrorContains(t, err, "[sql: SELECT nothing_here]")
+
+			_, err = ant.Raw[int](db, "SELECT nothing_here").All(ctx)
+			require.NotContains(t, err.Error(), "[sql:", "the context it came from is as it was")
+		})
 	})
 }
 

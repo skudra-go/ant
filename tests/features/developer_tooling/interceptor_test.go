@@ -1,8 +1,11 @@
 package developer_tooling
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -208,5 +211,108 @@ func TestSessionInterceptors(t *testing.T) {
 			require.Len(t, first.statements(), 1)
 			require.Len(t, second.statements(), 1)
 		}
+
+		// A per-request logger sees the whole request, not only its transactions,
+		// and the context's own interceptors still see the session's statements.
+		t.Run("outside a transaction too", func(t *testing.T) {
+			shared := &recorder{}
+			db := fixture.Open[fixture.AppDB](t, target, ant.WithInterceptor(shared))
+			alice, _, _ := fixture.Seed(t, db)
+
+			var logs bytes.Buffer
+
+			mine := &recorder{}
+			s := ant.Session(
+				db,
+				ant.WithLogger(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))),
+				ant.WithInterceptor(mine),
+			)
+
+			shared.reset()
+
+			steps := map[string]func() error{
+				"Count": func() error {
+					_, err := s.Users.Count(ctx)
+
+					return err
+				},
+				"First": func() error {
+					_, err := s.Users.OrderBy(&Users.ID).First(ctx)
+
+					return err
+				},
+				"Insert": func() error {
+					return s.Posts.Insert(ctx, &fixture.Post{UserID: alice.ID, Title: "s"})
+				},
+				"Update": func() error {
+					_, err := s.Users.Where(ant.Eq(&Users.ID, alice.ID)).
+						Update(ctx, ant.Set(&Users.Age, 31))
+
+					return err
+				},
+				"Raw": func() error {
+					_, err := ant.Raw[int](s, "SELECT 1").All(ctx)
+
+					return err
+				},
+			}
+
+			for name, step := range steps {
+				before := len(mine.statements())
+
+				require.NoError(t, step(), name)
+				require.Greater(t, len(mine.statements()), before, name)
+			}
+
+			require.Equal(t, mine.statements(), shared.statements())
+
+			require.Equal(
+				t,
+				len(mine.statements()),
+				strings.Count(logs.String(), "ant: statement"),
+				"the session's logger too",
+			)
+
+			_, err := db.Users.Count(ctx)
+			require.NoError(t, err)
+			require.Len(t, shared.statements(), len(mine.statements())+1, "the root's are its own")
+		})
+
+		// A session made inside a transaction, or inside a savepoint that Begin
+		// opened there, sees the statements it runs in it.
+		t.Run("inside a transaction and a savepoint", func(t *testing.T) {
+			db := fixture.Open[fixture.AppDB](t, target)
+			mine, nested := &recorder{}, &recorder{}
+
+			var afterRelease error
+
+			require.NoError(t, db.Tx(ctx, func(tx *fixture.AppDB) error {
+				if _, err := ant.Session(tx, ant.WithInterceptor(mine)).Users.Count(ctx); err != nil {
+					return err
+				}
+
+				sp, err := ant.Begin(ctx, tx)
+				if err != nil {
+					return err
+				}
+
+				inner := ant.Session(sp, ant.WithInterceptor(nested))
+				if _, err := inner.Users.Count(ctx); err != nil {
+					return err
+				}
+
+				if err := sp.Commit(); err != nil {
+					return err
+				}
+
+				_, afterRelease = inner.Users.Count(ctx)
+
+				return nil
+			}))
+
+			require.Len(t, mine.statements(), 1)
+			require.Len(t, nested.statements(), 1)
+			require.Error(t, afterRelease, "a released savepoint still refuses the session's statements")
+		})
 	})
 }

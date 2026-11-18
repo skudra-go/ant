@@ -322,6 +322,8 @@ So ant provides the check: `drift` works with no snapshot, and says exactly what
 
 `ant.Session(db)` copied a context's settings, including `WithTracking(false)`, so `SaveChanges` on such a session did nothing and returned nil. An application needs tracking off on its shared context, or it grows without end, so this is the normal setup. `Session` now takes options, and `ant.Session(db, ant.WithTracking(true))` is the unit of work. The blog example found this.
 
+The executor that runs statements carries the interceptors and the error detail, and a session copied db's, so `WithLogger`, `WithInterceptor`, `WithDiagnostics` and `WithDetailedErrors` on a session reached only the statements of transactions it opened, which wrap the executor again, and `WithReplicas` reached none (#210). A session now wraps its executors again with its own settings, under the guard of a savepoint it was made in, so a released savepoint still refuses its statements, and wraps the replicas it adds. Refusing those options on a session was rejected: a logger or tracer per request is what they are for.
+
 ## 62. The statement AST is public
 
 `internal/qb` moved to `qb`, because a dialect outside this module has to render it. It stays outside the stability promise until one exists, since only a real one will show whether the shape is right.

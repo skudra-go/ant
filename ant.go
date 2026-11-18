@@ -249,7 +249,9 @@ func bindState[DB any](s *state) (*DB, error) {
 // context grows without end, so prefer a session per request.
 //
 // A session takes its settings from db, and options change them for the session.
-// An application that keeps tracking off on its shared context passes
+// Interceptors, a logger and replicas it is given add to db's, for every statement
+// the session runs, in a transaction or not. An application that keeps tracking off
+// on its shared context passes
 // WithTracking(true) to the sessions that use SaveChanges, which otherwise has
 // nothing to save.
 func Session[DB any](db *DB, options ...Option) *DB {
@@ -273,6 +275,23 @@ func Session[DB any](db *DB, options ...Option) *DB {
 		option(&s.settings)
 	}
 
+	// The executors came wrapped with db's interceptors and error detail, so
+	// they are wrapped again with the session's, or its options would reach
+	// only the statements of transactions it opens (#210).
+	s.exec = rewrap(parent.exec, &s.settings, false)
+	s.replicas = make([]exec.Executor, 0, len(s.settings.replicas))
+
+	for _, replica := range parent.replicas {
+		s.replicas = append(s.replicas, rewrap(replica, &s.settings, true))
+	}
+
+	for _, pool := range s.settings.replicas[len(parent.settings.replicas):] {
+		s.replicas = append(
+			s.replicas,
+			exec.Wrap(pool, s.settings.interceptors, true, s.settings.detailed),
+		)
+	}
+
 	s.settings.events.attach(s.tracker)
 
 	session, err := bindState[DB](&s)
@@ -281,6 +300,22 @@ func Session[DB any](db *DB, options ...Option) *DB {
 	}
 
 	return session
+}
+
+// rewrap returns e wrapped with the interceptors and error detail of settings
+// in place of those it had. A savepoint's guard stays outside them, so the
+// statements still stop once the savepoint ends.
+func rewrap(e exec.Executor, settings *settings, replica bool) exec.Executor {
+	switch e := e.(type) {
+	case savepointExec:
+		return savepointExec{rewrap(e.Executor, settings, replica), e.sp}
+	case *exec.Plain:
+		return exec.Wrap(e.Executor, settings.interceptors, replica, settings.detailed)
+	case *exec.Observed:
+		return exec.Wrap(e.Executor, settings.interceptors, replica, settings.detailed)
+	}
+
+	return e
 }
 
 func bindTables(db any, s *state) error {

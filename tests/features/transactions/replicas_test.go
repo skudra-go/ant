@@ -44,6 +44,35 @@ func (c *counter) take() (primary, replicas int) {
 	return primary, replicas
 }
 
+// A session can add replicas, and its interceptors see the reads it sends there.
+func TestSessionReplicas(t *testing.T) {
+	fixture.Each(t, func(t *testing.T, target fixture.Target) {
+		ctx := t.Context()
+		replica, err := sql.Open(target.Dialect.DriverName(), target.DSN)
+		require.NoError(t, err)
+		t.Cleanup(func() { replica.Close() })
+
+		db := fixture.Open[AppDB](t, target)
+		fixture.Seed(t, db)
+
+		seen := &counter{}
+		session := ant.Session(db, ant.WithReplicas(replica), ant.WithInterceptor(seen))
+
+		_, err = session.Users.All(ctx)
+		require.NoError(t, err)
+
+		primary, replicas := seen.take()
+		require.Zero(t, primary)
+		require.Equal(t, 1, replicas)
+
+		_, err = db.Users.All(ctx)
+		require.NoError(t, err)
+
+		primary, replicas = seen.take()
+		require.Zero(t, primary+replicas, "the context it came from has none")
+	})
+}
+
 // Reads go to replicas, and anything that must see the latest data does not.
 func TestReplicas(t *testing.T) {
 	fixture.Each(t, func(t *testing.T, target fixture.Target) {
