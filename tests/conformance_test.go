@@ -839,6 +839,53 @@ func TestConformanceLockedReadRefreshes(t *testing.T) {
 			require.Equal(t, 50, storedAge("carol"))
 		})
 
+		t.Run("a removal asked for before the row moved is a conflict", func(t *testing.T) {
+			worker := ant.Session(app, ant.WithTracking(true))
+			doomed := &User{Name: "doomed", Email: "doomed@x", Age: 1}
+			require.NoError(t, app.Users.Insert(ctx, doomed))
+
+			loaded, err := worker.Users.Find(ctx, doomed.ID)
+			require.NoError(t, err)
+			require.NoError(t, ant.Remove(ctx, worker, loaded))
+
+			setAge("doomed", 2)
+
+			err = worker.Tx(ctx, func(tx *AppDB) error {
+				_, err := tx.Users.Where(named("doomed")).ForUpdate().All(ctx)
+
+				return err
+			})
+			require.ErrorIs(t, err, ant.ErrConcurrency)
+			require.Equal(t, 2, storedAge("doomed"))
+		})
+
+		t.Run("an entity marked modified keeps what it was given", func(t *testing.T) {
+			worker := ant.Session(app, ant.WithTracking(true))
+			stored, err := app.Users.NoTracking().Where(named("bob")).First(ctx)
+			require.NoError(t, err)
+
+			given := *stored
+			given.Age = 60
+			require.NoError(t, ant.MarkModified(ctx, worker, &given))
+
+			setAge("bob", 70)
+
+			var locked *User
+
+			require.NoError(t, worker.Tx(ctx, func(tx *AppDB) error {
+				var err error
+				if locked, err = tx.Users.Where(named("bob")).ForUpdate().First(ctx); err != nil {
+					return err
+				}
+
+				return tx.SaveChanges(ctx)
+			}))
+
+			require.Same(t, &given, locked)
+			require.Equal(t, 60, locked.Age)
+			require.Equal(t, 60, storedAge("bob"))
+		})
+
 		t.Run("a rollback takes the read back", func(t *testing.T) {
 			worker := ant.Session(app, ant.WithTracking(true))
 			alice, err := worker.Users.Where(named("alice")).First(ctx)

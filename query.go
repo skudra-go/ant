@@ -585,22 +585,28 @@ func (q *Query[T]) fetchWith(
 // tracker already held for it, so that the caller sees the row as it stands
 // under the lock, and a change made under the lock starts from it (#223). The
 // values are taken as Reload takes them, and a rollback takes them back the same
-// way. An instance with unsaved changes keeps them while its row is still as it
-// was loaded, and is a ConcurrencyError once the row moved, since those changes
-// were made to values the row no longer holds.
+// way. An instance with unsaved changes, edits or a removal, keeps them while
+// its row is still as it was loaded, and is a ConcurrencyError once the row
+// moved, since those changes were made to values the row no longer holds.
 func (q *Query[T]) refreshLocked(instance, row *T) error {
 	if q.lock == nil || instance == row {
 		return nil
 	}
 
+	// An entity added, or marked modified, holds what the application gave it
+	// to write rather than values it loaded, so it is left as it is.
 	entry := q.state.tracker.Get(unsafe.Pointer(instance))
-
-	columns := q.columns()
-	if entry == nil || entry.Matches(unsafe.Pointer(row), columns) {
+	if entry == nil || !entry.HasOriginal() || entry.State == track.Added ||
+		entry.State == track.Modified {
 		return nil
 	}
 
-	if entry.State != track.Unchanged || entry.Dirty() || entry.KeyChanged() {
+	columns := q.columns()
+	if entry.Matches(unsafe.Pointer(row), columns) {
+		return nil
+	}
+
+	if entry.State == track.Deleted || entry.Dirty() || entry.KeyChanged() {
 		key, _ := entry.OriginalKey()
 
 		return &ConcurrencyError{Model: q.model().Type.Name(), Key: key}
