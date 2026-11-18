@@ -206,3 +206,36 @@ func TestValueDecodesFromJSON(t *testing.T) {
 		t.Fatal("a value of the wrong type decoded")
 	}
 }
+
+// A number inside an interface keeps its digits, read from the database or from
+// a request body, so the value written back is the one that was read (#201).
+func TestValueKeepsLargeIntegers(t *testing.T) {
+	if err := SetKeys("k1", map[string][]byte{"k1": make([]byte, 32)}); err != nil {
+		t.Fatal(err)
+	}
+
+	big := json.Number("9007199254740993")
+
+	sealed, err := New(map[string]any{"id": big}).Value()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var scanned Value[map[string]any]
+	if err := scanned.Scan(sealed); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := scanned.V["id"]; got != big {
+		t.Fatalf("scanned %v (%T), want %v", got, got, big)
+	}
+
+	var decoded Value[map[string]any]
+	if err := json.Unmarshal([]byte(`{"id": 9007199254740993}`), &decoded); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := decoded.V["id"]; got != big {
+		t.Fatalf("decoded %v (%T), want %v", got, got, big)
+	}
+}

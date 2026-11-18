@@ -83,7 +83,8 @@ func SetKeys(active string, keys map[string][]byte) error {
 }
 
 // Value holds a Go value that is encrypted in the database. A NULL column reads
-// as the zero value.
+// as the zero value. A number read into an interface is a json.Number, as in
+// ant.JSON, so an integer past 2^53 keeps its digits.
 type Value[V any] struct {
 	V V
 }
@@ -112,7 +113,7 @@ func (s *Value[V]) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
-	return json.Unmarshal(data, &s.V)
+	return jsontext.Unmarshal(data, &s.V)
 }
 
 // Value implements driver.Valuer. The output is key:base64(nonce+ciphertext).
@@ -170,7 +171,7 @@ func (s *Value[V]) Scan(src any) error {
 		return err
 	}
 
-	return json.Unmarshal(plain, &s.V)
+	return jsontext.Unmarshal(plain, &s.V)
 }
 
 func open(text string) ([]byte, error) {

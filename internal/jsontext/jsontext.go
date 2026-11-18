@@ -1,10 +1,13 @@
-// Package jsontext checks a value before encoding/json writes it.
+// Package jsontext checks a value before encoding/json writes it, and reads
+// JSON back without losing digits.
 package jsontext
 
 import (
+	"bytes"
 	"encoding"
 	"encoding/json"
 	"errors"
+	"io"
 	"reflect"
 	"strings"
 	"unicode/utf8"
@@ -89,3 +92,29 @@ func valid(v reflect.Value, depth int) bool {
 
 	return true
 }
+
+// Unmarshal is json.Unmarshal, except that a number decoded into an interface,
+// as in a map[string]any, becomes a json.Number rather than a float64, which
+// holds integers exactly only up to 2^53. A value written back from it then
+// keeps every digit. It refuses what json.Unmarshal refuses, text after the
+// value included.
+func Unmarshal(data []byte, v any) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+
+	if err := decoder.Decode(v); err != nil {
+		if errors.Is(err, io.EOF) {
+			return io.ErrUnexpectedEOF
+		}
+
+		return err
+	}
+
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
+		return errTrailing
+	}
+
+	return nil
+}
+
+var errTrailing = errors.New("ant: JSON holds more after its value")

@@ -11,7 +11,9 @@ import (
 )
 
 // JSON stores a Go value in a JSON column. The zero value of V is stored as its
-// JSON form, and a NULL column reads as the zero value.
+// JSON form, and a NULL column reads as the zero value. A number read into an
+// interface, as in a map[string]any, is a json.Number, so an integer past 2^53
+// keeps its digits when the value is written back.
 type JSON[V any] struct {
 	V V
 }
@@ -29,8 +31,8 @@ func (j JSON[V]) ColumnType(dialect string) string {
 // and not this wrapper.
 func (j JSON[V]) MarshalJSON() ([]byte, error) { return json.Marshal(j.V) }
 
-// UnmarshalJSON reads the value inside.
-func (j *JSON[V]) UnmarshalJSON(data []byte) error { return json.Unmarshal(data, &j.V) }
+// UnmarshalJSON reads the value inside, as Scan does.
+func (j *JSON[V]) UnmarshalJSON(data []byte) error { return jsontext.Unmarshal(data, &j.V) }
 
 // Value implements driver.Valuer. Text that is not valid UTF-8 is refused, as a
 // text column refuses it, since JSON would store U+FFFD in its place.
@@ -57,9 +59,9 @@ func (j *JSON[V]) Scan(src any) error {
 	case nil:
 		return nil
 	case string:
-		return json.Unmarshal([]byte(src), &j.V)
+		return jsontext.Unmarshal([]byte(src), &j.V)
 	case []byte:
-		return json.Unmarshal(src, &j.V)
+		return jsontext.Unmarshal(src, &j.V)
 	}
 
 	return fmt.Errorf("ant: cannot scan %T into JSON", src)

@@ -124,7 +124,8 @@ Calls that take columns of mixed types take `ant.FieldRef`, made with
   integer field),
   `embedded` / `embedded,prefix=x_`. Combine with commas.
 - A field of type `ant.DeletedAt` turns on soft deletes. `ant.JSON[T]`
-  stores a value as JSON.
+  stores a value as JSON. A number read into an interface (`map[string]any`)
+  is a `json.Number`, not a `float64`.
 - Everything else is configured in typed Go, with a `Configure` method on the model:
 
 ```go

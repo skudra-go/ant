@@ -114,8 +114,33 @@ func TestStoredTypes(t *testing.T) {
 			require.NoError(t, err)
 			loaded, err := db.Docs.NoTracking().Find(ctx, row.ID)
 			require.NoError(t, err)
-			require.Equal(t, 2.0, loaded.Meta.V["level"])
+			require.Equal(t, json.Number("2"), loaded.Meta.V["level"])
 			require.Equal(t, true, loaded.Meta.V["keep"])
+		})
+
+		t.Run("a number inside an any keeps its digits", func(t *testing.T) {
+			_, err := ant.Raw[any](
+				db,
+				`INSERT INTO docs (meta) VALUES ('{"note": "a", "order_id": 9007199254740993}')`,
+			).
+				Exec(ctx)
+			require.NoError(t, err)
+
+			doc, err := db.Docs.Where(postgres.JSONText(&Docs.Meta, "note").Eq("a")).Single(ctx)
+			require.NoError(t, err)
+			require.Equal(t, json.Number("9007199254740993"), doc.Meta.V["order_id"])
+
+			doc.Meta.V["note"] = "b" // another key, but the whole document is written
+			require.NoError(t, db.SaveChanges(ctx))
+
+			stored, err := ant.Raw[string](
+				db,
+				"SELECT meta->>'order_id' FROM docs WHERE id = $1",
+				doc.ID,
+			).
+				First(ctx)
+			require.NoError(t, err)
+			require.Equal(t, "9007199254740993", *stored)
 		})
 	})
 }
