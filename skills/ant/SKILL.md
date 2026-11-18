@@ -115,7 +115,8 @@ Calls that take columns of mixed types take `ant.FieldRef`, made with
 - A field named `ID` is the primary key. A zero integer key means "generate one",
   and the database's key is copied back after an insert.
 - `time.Time` fields named `CreatedAt` and `UpdatedAt` are maintained by ant, on any
-  model. `ant.Base` is just `ID`, `CreatedAt` and `UpdatedAt`.
+  model. `ant.Base` is just `ID`, `CreatedAt` and `UpdatedAt`. A zero `UpdatedAt`,
+  as in a struct decoded from a request body, is stamped on every save.
 - A nullable column is a pointer or `sql.Null[T]` field. A plain field can't read
   `NULL`. Zero values are always written, never skipped.
 - Tags: `ant:"-"` (not a column), `column=name`, `unique`, `default=expr` (a zero

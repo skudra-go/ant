@@ -633,7 +633,7 @@ func (u *unit) follow(n *node, r *meta.Relation, link meta.Link, entity unsafe.P
 	}
 
 	switch {
-	case u.unmoved(n, r, link, entity):
+	case u.unmoved(n, r, link, entity) && !keyless(n, r, link, entity):
 	case r.Kind == meta.Many && r.Pivot == nil && !link.BelongsTo && other.entry == nil &&
 		!other.insert && u.tracksRelation(n, r):
 		other.links = append(other.links, fkLink{n, link.Foreign, link.Local})
@@ -674,6 +674,24 @@ func (n *node) setMorph(r *meta.Relation) {
 	if f := r.MorphField; f != nil && n.model.Has(f) {
 		f.Value(n.entity).Set(reflect.ValueOf(r.MorphValue))
 	}
+}
+
+// keyless reports whether the required foreign key between n and a related
+// entity holds its zero value, which names no parent, as in a child decoded from
+// a request body that gave none and put in place of a loaded one. Such a key is
+// set from the relation, as a moved child's is, while a nullable one left empty
+// is the application's to clear (#152).
+func keyless(n *node, r *meta.Relation, link meta.Link, entity unsafe.Pointer) bool {
+	holder, f := entity, link.Foreign
+
+	switch {
+	case r.Pivot != nil:
+		return false
+	case link.BelongsTo:
+		holder, f = n.entity, link.Local
+	}
+
+	return !nullable(f) && f.Value(holder).IsZero()
 }
 
 // unmoved reports whether entity is where the tracker last saw it in r.
@@ -1654,12 +1672,19 @@ func (u *unit) update(ctx context.Context, to exec.Executor, n *node) error {
 		return fmt.Errorf("%w: %s", ErrReadOnly, n.model.Type.Name())
 	}
 
-	if updated := n.model.Updated; updated != nil && !slices.Contains(n.changed, updated) {
-		if entity := n.entity; n.writesInto() {
+	// An UpdatedAt the application set is kept, but a zero one is stamped: it is
+	// what a struct decoded from a request body holds, put in place of a loaded
+	// entity, not a time anyone chose (#152).
+	if updated := n.model.Updated; updated != nil && n.writesInto() {
+		set := slices.Contains(n.changed, updated)
+
+		if entity := n.entity; !set || updated.Value(entity).IsZero() {
 			n.restore = append(n.restore, prior{updated, copyOf(updated, entity)})
 			setTime(updated, entity, u.s.settings.timestamp())
 
-			n.changed = append(n.changed, updated)
+			if !set {
+				n.changed = append(n.changed, updated)
+			}
 		}
 	}
 

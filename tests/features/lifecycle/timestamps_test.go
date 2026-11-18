@@ -138,6 +138,61 @@ func TestTimestamps(t *testing.T) {
 			require.ErrorContains(t, err, "Author.Name has two mappings")
 		})
 
+		// A PUT handler that loads the row and overwrites it with the decoded body
+		// leaves UpdatedAt at the zero time, which is stamped, as CreatedAt is kept.
+		t.Run("replacing a loaded entity stamps a zero UpdatedAt", func(t *testing.T) {
+			session := ant.Session(db)
+			loaded, err := session.Authors.Find(ctx, ann.ID)
+			require.NoError(t, err)
+
+			created := loaded.CreatedAt
+
+			tick()
+
+			input := Author{Name: "from the body"}
+			input.ID = loaded.ID
+			*loaded = input
+
+			require.NoError(t, session.SaveChanges(ctx))
+
+			got := stored(ann.ID)
+			require.Equal(t, "from the body", got.Name)
+			require.True(t, got.CreatedAt.Equal(created))
+			require.True(t, got.UpdatedAt.Equal(now.Truncate(time.Microsecond)))
+			require.True(t, loaded.UpdatedAt.Equal(got.UpdatedAt))
+		})
+
+		// Children decoded from a body and put in place of a loaded relation keep
+		// their parent and are stamped, though the body gave neither.
+		t.Run("replacing loaded children keeps their parent", func(t *testing.T) {
+			owner := &Author{Name: "owner of notes"}
+			require.NoError(t, db.Authors.Insert(ctx, owner))
+
+			note := &Note{AuthorID: owner.ID, Text: "loaded"}
+			require.NoError(t, db.Notes.Insert(ctx, note))
+
+			session := ant.Session(db)
+			loaded, err := session.Authors.Include(&Authors.Notes).Find(ctx, owner.ID)
+			require.NoError(t, err)
+			require.Len(t, loaded.Notes, 1)
+
+			tick()
+
+			decoded := []Note{{Text: "from the body"}}
+			decoded[0].ID = note.ID
+			loaded.Notes = decoded
+
+			require.NoError(t, session.SaveChanges(ctx))
+
+			got, err := db.Notes.NoTracking().Find(ctx, note.ID)
+			require.NoError(t, err)
+			require.Equal(t, "from the body", got.Text)
+			require.Equal(t, owner.ID, got.AuthorID)
+			require.Equal(t, owner.ID, loaded.Notes[0].AuthorID)
+			require.True(t, got.CreatedAt.Equal(note.CreatedAt))
+			require.True(t, got.UpdatedAt.Equal(now.Truncate(time.Microsecond)))
+		})
+
 		t.Run("a failed save restores UpdatedAt", func(t *testing.T) {
 			session := ant.Session(db)
 			got, err := session.Authors.Find(ctx, ann.ID)

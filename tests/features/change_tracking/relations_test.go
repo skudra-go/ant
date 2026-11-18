@@ -138,6 +138,41 @@ func TestChangingRelations(t *testing.T) {
 		})
 	})
 
+	// A post decoded from a request body has no UserID. Put in place of a loaded
+	// one, it is still in alice's posts, so it keeps her as its user.
+	t.Run("replace an element with one that has no foreign key", func(t *testing.T) {
+		fixture.RunTracked(t, func(t *testing.T, db *AppDB) {
+			session, alice := loaded(t, db)
+			decoded := Post{Title: "A2"}
+			decoded.ID = alice.Posts[0].ID
+			alice.Posts[0] = decoded
+
+			require.NoError(t, session.SaveChanges(ctx()))
+			require.Equal(t, []string{"A2", "B", "C"}, storedTitles(t, db, alice.ID))
+			require.Equal(t, alice.ID, alice.Posts[0].UserID)
+		})
+	})
+
+	// A required foreign key at its zero value names no user, so a loaded user
+	// it still points to sets it, as a moved post's is.
+	t.Run("a zero foreign key under a loaded parent is the parent's", func(t *testing.T) {
+		fixture.RunTracked(t, func(t *testing.T, db *AppDB) {
+			alice, _, _ := fixture.Seed(t, db)
+			post := &Post{UserID: alice.ID, Title: "mine"}
+			require.NoError(t, db.Posts.InsertOnly(ctx(), post))
+
+			session := ant.Session(db)
+			loaded, err := session.Posts.IncludeOne(&Posts.User).Find(ctx(), post.ID)
+			require.NoError(t, err)
+
+			loaded.UserID = 0
+
+			require.NoError(t, session.SaveChanges(ctx()))
+			require.Equal(t, alice.ID, loaded.UserID)
+			require.Equal(t, []string{"mine"}, storedTitles(t, db, alice.ID))
+		})
+	})
+
 	t.Run("a relation that was not loaded removes nothing", func(t *testing.T) {
 		fixture.RunTracked(t, func(t *testing.T, db *AppDB) {
 			alice, _, _ := fixture.Seed(t, db)
@@ -265,6 +300,19 @@ func TestOptionalRelations(t *testing.T) {
 
 			require.NoError(t, session.SaveChanges(ctx))
 			require.Equal(t, blue.ID, *teamOf(ben.ID))
+		})
+
+		// A nullable foreign key at its zero value is NULL, no parent, which is
+		// the application's to choose, so it wins over the loaded parent.
+		t.Run("clearing the foreign key directly wins over a loaded parent", func(t *testing.T) {
+			session := ant.Session(db)
+			member, err := session.Members.IncludeOne(&Members.Team).Find(ctx, ben.ID)
+			require.NoError(t, err)
+			require.NotNil(t, member.Team)
+			member.TeamID = nil
+
+			require.NoError(t, session.SaveChanges(ctx))
+			require.Nil(t, teamOf(ben.ID))
 		})
 	})
 }
