@@ -39,7 +39,7 @@ Writing migrations (no database needed):
 
 Running them (needs a database):
   up                     apply pending migrations, then changed repeatable ones
-    --to <version>         stop after this version
+    --to <version>         stop after this version, which must exist
     --dry-run              print what would run, and change nothing
   status                 list every migration and whether it has run
   drift                  compare the live database with the migrations
@@ -238,6 +238,10 @@ func Run[DB any](ctx context.Context, d dialect.Dialect, args []string, config .
 
 	switch command {
 	case "up":
+		if err := e.knows(ctx, to); err != nil {
+			return err
+		}
+
 		if dry {
 			return e.preview(ctx, to)
 		}
@@ -360,6 +364,30 @@ func confirmReset(given string, in *os.File, out io.Writer) func(string) error {
 }
 
 // preview prints what up would do.
+// knows refuses an up --to version that no migration has. Compared with each
+// version instead, a typo such as v2 sorted after every numbered one, so every
+// migration ran (#185). A version matches without its leading zeros, as it does
+// when compared.
+func (e *engine) knows(ctx context.Context, to string) error {
+	if to == "" {
+		return nil
+	}
+
+	c, err := e.catalog(ctx)
+	if err != nil {
+		return err
+	}
+
+	if !slices.ContainsFunc(
+		c.versioned,
+		func(m Migration) bool { return compareVersions(m.Version, to) == 0 },
+	) {
+		return fmt.Errorf("%w: no migration has version %s", ErrBadMigration, to)
+	}
+
+	return nil
+}
+
 func (e *engine) preview(ctx context.Context, to string) error {
 	entries, err := e.status(ctx)
 	if err != nil {

@@ -301,10 +301,32 @@ func TestUpOptions(t *testing.T) {
 			require.Empty(t, p.columns("one"))
 		})
 
+		// A version no migration has, as a typo gives, is refused, rather than
+		// compared with every version, which ran them all.
+		t.Run("--to a version that is not there is an error", func(t *testing.T) {
+			for _, to := range []string{"v2", "0003", "1a", "two"} {
+				for _, args := range [][]string{{"up", "--to", to}, {"up", "--dry-run", "--to", to}} {
+					_, err := run[V1DB](p, args...)
+					require.ErrorIs(t, err, migrate.ErrBadMigration, args)
+					require.ErrorContains(t, err, "no migration has version "+to, args)
+				}
+			}
+
+			require.Empty(t, p.columns("one"))
+			require.Empty(t, p.columns("two"))
+			require.Empty(t, p.columns("ant_migrations"), "nothing was recorded")
+		})
+
 		t.Run("--to stops at a version", func(t *testing.T) {
 			must[V1DB](p, "up", "--to", "0001")
 			require.NotEmpty(t, p.columns("one"))
 			require.Empty(t, p.columns("two"))
+		})
+
+		t.Run("--to takes a version without its zeros", func(t *testing.T) {
+			require.Contains(t, must[V1DB](p, "up", "--dry-run", "--to", "2"), "CREATE TABLE two")
+			must[V1DB](p, "up", "--to", "2")
+			require.NotEmpty(t, p.columns("two"))
 		})
 	})
 }
