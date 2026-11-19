@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"maps"
 	"math"
@@ -1555,13 +1556,29 @@ func walk(m *Model, t reflect.Type, offset uintptr, prefix, columnPrefix string)
 		}
 
 		// A write moves the version on by one, which needs a signed integer.
-		if tag.version && !signedInt(sf.Type.Kind()) {
-			return fmt.Errorf(
-				"ant: version field %s.%s must be a signed integer, got %s; use ant:\"token\" for a value the application manages",
-				m.Type.Name(),
-				name,
-				sf.Type,
-			)
+		if tag.version {
+			if !signedInt(sf.Type.Kind()) {
+				return fmt.Errorf(
+					"ant: version field %s.%s must be a signed integer, got %s; use ant:\"token\" for a value the application manages",
+					m.Type.Name(),
+					name,
+					sf.Type,
+				)
+			}
+
+			// A second version field would replace the first one without
+			// saying so, and only one of them can count the writes.
+			for _, f := range m.Fields {
+				if f.Version {
+					return fmt.Errorf(
+						"ant: %s.%s and %s.%s are both version fields: a model has one",
+						m.Type.Name(),
+						f.Name,
+						m.Type.Name(),
+						name,
+					)
+				}
+			}
 		}
 
 		read := ReaderFor(sf.Type)
@@ -1793,6 +1810,22 @@ func parseTag(s string) (tag, error) {
 		default:
 			return out, fmt.Errorf("unknown tag key %q", key)
 		}
+	}
+
+	// A skipped field has no column, so the tags on it describe nothing.
+	if out.skip {
+		return out, nil
+	}
+
+	switch {
+	case out.readOnly && out.writeOnly:
+		return out, errors.New(
+			`ant: readonly and writeonly together: the column would never be read or written`,
+		)
+	case out.computed && out.unique:
+		return out, errors.New(
+			`ant: computed and unique together: the database fills the column, so ant cannot keep it unique`,
+		)
 	}
 
 	return out, nil
