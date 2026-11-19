@@ -918,6 +918,17 @@ func (p *phases) alterTable(o, t *Table, gone map[Ref]columns) {
 	for _, c := range t.Columns {
 		existing := o.Column(c.Name)
 
+		// An identity column is filled by the database, through an identity or a
+		// serial's nextval, which inspect reads as the same thing, so a default a
+		// model or snapshot gives one is not a change to make: dropping a serial's
+		// would fail every insert, and PostgreSQL refuses a default on an identity
+		// (#225).
+		if existing != nil && existing.Identity && c.Identity && existing.Default != c.Default {
+			same := *existing
+			same.Default = c.Default
+			existing = &same
+		}
+
 		switch {
 		case existing == nil && c.Generated != "":
 			p.addGenerated = append(p.addGenerated, AddColumn{Table: ref, Column: c})

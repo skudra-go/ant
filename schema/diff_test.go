@@ -1239,3 +1239,38 @@ func TestScriptSafety(t *testing.T) {
 	_, err = schema.Statements(ddl(t), plan)
 	require.ErrorContains(t, err, "is 64 bytes")
 }
+
+// An identity column is filled by the database, through an identity or a
+// serial's nextval, so a default given to it, or taken away, is no change, and a
+// retype leaves the serial's default where it is (#225).
+func TestIdentityDefaultIsNoChange(t *testing.T) {
+	keyed := func(typ, def string) *schema.Schema {
+		table := users()
+		table.Columns[0] = &schema.Column{Name: "id", Type: typ, Identity: true, Default: def}
+
+		return of(table)
+	}
+
+	serial := "nextval('users_id_seq'::regclass)"
+
+	require.Empty(t, run(t, keyed("bigint", serial), keyed("bigint", "")), "removed")
+	require.Empty(t, run(t, keyed("bigint", ""), keyed("bigint", serial)), "added")
+
+	retyped := run(t, keyed("integer", serial), keyed("bigint", ""))
+	require.Len(t, retyped, 1)
+	require.Contains(t, retyped[0], `ALTER COLUMN "id" TYPE bigint`)
+	require.NotContains(t, retyped[0], "DEFAULT", "the serial keeps its nextval")
+
+	plain := of(users())
+	plain.Tables[0].Columns[0] = &schema.Column{Name: "id", Type: "bigint", Default: serial}
+
+	dropped := of(users())
+	dropped.Tables[0].Columns[0] = &schema.Column{Name: "id", Type: "bigint"}
+
+	require.Equal(
+		t,
+		[]string{`ALTER TABLE "users" ALTER COLUMN "id" DROP DEFAULT`},
+		run(t, plain, dropped),
+		"a column that is not an identity keeps its default as the model says",
+	)
+}

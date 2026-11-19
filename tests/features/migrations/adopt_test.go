@@ -86,6 +86,72 @@ func TestAdoptingAnExistingDatabase(t *testing.T) {
 	})
 }
 
+// KeyedLegacy is Legacy with the default of its serial key spelled out, as a
+// dump shows it. ant generates the key either way.
+type KeyedLegacy struct {
+	ID       int32
+	FullName string
+	Status   string
+	Created  string
+}
+
+func (KeyedLegacy) Configure(b *ant.ModelBuilder[KeyedLegacy]) {
+	b.Table("tbl_customer")
+	b.KeyName("pk_customer")
+	b.NoTimestamps()
+	b.Column(&KeyedLegacies.ID).Default("nextval('tbl_customer_id_seq'::regclass)")
+	b.Column(&KeyedLegacies.FullName).Type("varchar(120)").Unique("uq_customer_name")
+	b.Column(&KeyedLegacies.Status).Type("varchar(10)").Default("'new'")
+	b.Column(&KeyedLegacies.Created).Type("date").Default("CURRENT_DATE")
+	b.Check("ck_customer_status", "status IN ('new', 'gone')")
+	b.Index(&KeyedLegacies.Status).Name("ix_customer_status")
+}
+
+// KeyedLegacyDB holds KeyedLegacy.
+type KeyedLegacyDB struct {
+	ant.Context
+	Customers ant.Table[KeyedLegacy]
+}
+
+// KeyedLegacies is KeyedLegacy's probe.
+var KeyedLegacies = ant.Fields[KeyedLegacy]()
+
+// A serial key's nextval default is how the database generates it, as an
+// identity is, so adding or removing it in the model is no change: dropping it
+// would make every insert fail.
+func TestSerialKeyDefault(t *testing.T) {
+	each(t, func(t *testing.T, p *project) {
+		p.sql(legacySchema)
+
+		require.Contains(t, must[KeyedLegacyDB](p, "drift"), "No drift")
+		must[KeyedLegacyDB](p, "diff", "baseline")
+		must[KeyedLegacyDB](p, "baseline")
+
+		t.Run("removing it from the model", func(t *testing.T) {
+			require.Contains(t, must[LegacyDB](p, "diff", "drop_key_default"), "No changes")
+			require.False(t, p.exists("versions/0002_drop_key_default.up.sql"))
+			must[LegacyDB](p, "check")
+			require.Contains(t, must[LegacyDB](p, "drift"), "No drift")
+
+			db := open[LegacyDB](p)
+			row := &Legacy{FullName: "New Row", Status: "new", Created: "2026-01-01"}
+			require.NoError(t, db.Customers.Insert(t.Context(), row))
+			require.NotZero(t, row.ID)
+		})
+	})
+
+	// The other way round: a snapshot without it, and a model that adds it.
+	each(t, func(t *testing.T, p *project) {
+		p.sql(legacySchema)
+
+		must[LegacyDB](p, "diff", "baseline")
+		must[LegacyDB](p, "baseline")
+
+		require.Contains(t, must[KeyedLegacyDB](p, "diff", "add_key_default"), "No changes")
+		must[KeyedLegacyDB](p, "check")
+	})
+}
+
 // A model that only nearly matches is exactly what drift is for: each difference
 // is named, so the loop with a person or an assistant ends.
 func TestDriftGuidesAdoption(t *testing.T) {
