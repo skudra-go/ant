@@ -1246,7 +1246,12 @@ func TestScriptSafety(t *testing.T) {
 func TestIdentityDefaultIsNoChange(t *testing.T) {
 	keyed := func(typ, def string) *schema.Schema {
 		table := users()
-		table.Columns[0] = &schema.Column{Name: "id", Type: typ, Identity: true, Default: def}
+		table.Columns[0] = &schema.Column{
+			Name:     "id",
+			Type:     typ,
+			Identity: true,
+			Default:  def,
+		}
 
 		return of(table)
 	}
