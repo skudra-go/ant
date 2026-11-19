@@ -515,10 +515,23 @@ func (e *engine) applyInTx(ctx context.Context, conn *sql.Conn, m Migration, r *
 	return tx.Commit()
 }
 
+// unfinished is what history says of a migration with no transaction around it
+// while it runs, and after a process that died while running it.
+const unfinished = "it did not finish: the process running up stopped partway, or is still running it"
+
 // applyPlain runs a migration with no transaction around it. A failure may leave
 // part of it applied, so it is recorded, and up refuses to continue until someone
-// has looked.
+// has looked. It is recorded as failed before it starts, too, so a process that
+// is killed partway leaves it failed rather than pending, which up would run
+// again from the first statement.
 func (e *engine) applyPlain(ctx context.Context, conn *sql.Conn, m Migration, r *record) error {
+	started := *r
+	started.Success, started.Error = false, unfinished
+
+	if err := e.history.writeAlone(ctx, conn, started); err != nil {
+		return fmt.Errorf("ant: record %s: %w", m.ID(), err)
+	}
+
 	var failure error
 
 	if m.run != nil {
@@ -549,11 +562,11 @@ func (e *engine) applyPlain(ctx context.Context, conn *sql.Conn, m Migration, r 
 				m.ID(),
 				failure,
 			),
-			e.history.write(calm, conn, *r),
+			e.history.writeAlone(calm, conn, *r),
 		)
 	}
 
-	return e.history.write(ctx, conn, *r)
+	return e.history.writeAlone(ctx, conn, *r)
 }
 
 func (e *engine) resetSession(ctx context.Context, x execer) error {

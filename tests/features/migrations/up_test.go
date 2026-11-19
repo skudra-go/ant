@@ -238,6 +238,71 @@ CREATE TABLE never (id int);
 	})
 }
 
+// A process that dies while it runs a file outside a transaction has no chance to
+// record the failure. The file is recorded as failed before it starts, so up
+// refuses to run it again from the first statement.
+func TestNoTransactionMigrationCutOff(t *testing.T) {
+	each(t, func(t *testing.T, p *project) {
+		p.write("versions/0001_items.up.sql", "CREATE TABLE items (name text);")
+		p.write("versions/0002_once.up.sql", `-- ant:no-transaction
+INSERT INTO items (name) VALUES ('once');
+SELECT pg_sleep(29.5);
+INSERT INTO items (name) VALUES ('end');
+`)
+
+		sleeping := `FROM pg_stat_activity
+WHERE datname = current_database() AND pid <> pg_backend_pid() AND query LIKE '%pg_sleep(29.5)%'`
+
+		done := make(chan error, 1)
+
+		go func() {
+			_, err := run[V1DB](p, "up")
+			done <- err
+		}()
+
+		// Ending its connection in the sleep is what a killed process does.
+		require.Eventually(
+			t,
+			func() bool { return scalar[int](p, "SELECT count(*) "+sleeping) == 1 },
+			10*time.Second,
+			10*time.Millisecond,
+		)
+
+		p.sql("SELECT pg_terminate_backend(pid) " + sleeping)
+		require.Error(t, <-done)
+
+		t.Run("status shows it failed", func(t *testing.T) {
+			require.Contains(t, must[V1DB](p, "status"), "failed")
+		})
+
+		t.Run("up refuses to run it again", func(t *testing.T) {
+			_, err := run[V1DB](p, "up")
+			require.ErrorIs(t, err, migrate.ErrFailed)
+			require.ErrorContains(t, err, "did not finish")
+			require.Equal(t, 1, scalar[int](p, "SELECT count(*) FROM items WHERE name = 'once'"))
+			require.Equal(t, 0, scalar[int](p, "SELECT count(*) FROM items WHERE name = 'end'"))
+		})
+	})
+}
+
+// A file outside a transaction that finishes leaves one row in history, which
+// says it succeeded.
+func TestNoTransactionMigrationRecord(t *testing.T) {
+	each(t, func(t *testing.T, p *project) {
+		p.write("versions/0001_items.up.sql", "-- ant:no-transaction\nCREATE TABLE items (name text);\n")
+		must[V1DB](p, "up")
+
+		require.Equal(
+			t,
+			"true ",
+			scalar[string](
+				p,
+				"SELECT string_agg(success::text || ' ' || coalesce(error, ''), ',') FROM ant_migrations",
+			),
+		)
+	})
+}
+
 // baseline after a hand fix: the migration really did finish, so record that.
 func TestFinishingAFailedMigrationByHand(t *testing.T) {
 	each(t, func(t *testing.T, p *project) {

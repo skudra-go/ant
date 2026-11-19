@@ -212,6 +212,23 @@ func (h history) write(ctx context.Context, e execer, r record) error {
 	return err
 }
 
+// writeAlone is write in a transaction of its own, for a connection outside
+// one, so a crash between taking out the old row and putting in the new one
+// cannot leave neither.
+func (h history) writeAlone(ctx context.Context, conn *sql.Conn, r record) error {
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if err := h.write(ctx, tx, r); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
 // literal quotes text as a SQL string, for scripts run by other tools.
 func literal(text string) string {
 	return "'" + strings.ReplaceAll(text, "'", "''") + "'"
