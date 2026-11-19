@@ -142,6 +142,35 @@ func TestEnumsSequencesAndComments(t *testing.T) {
 	})
 }
 
+// EnsureCreated, for tests and prototypes, makes the enums and sequences the
+// models use before their tables, and leaves ones already there alone.
+func TestEnsureCreatedWithEnumsAndSequences(t *testing.T) {
+	each(t, func(t *testing.T, p *project) {
+		db := open[TicketDB](p)
+		ctx := t.Context()
+
+		require.NoError(t, db.EnsureCreated(ctx))
+
+		ticket := &Ticket{Code: "abcd"}
+		require.NoError(t, db.Tickets.Insert(ctx, ticket))
+		require.EqualValues(t, 1000, ticket.Number)
+		require.Equal(t, "open", ticket.Status)
+
+		require.NoError(t, db.EnsureCreated(ctx), "a second time finds them all")
+
+		t.Run("only what is missing", func(t *testing.T) {
+			p.sql("DROP TABLE tickets")
+			p.sql("DROP SEQUENCE ticket_numbers")
+
+			require.NoError(t, db.EnsureCreated(ctx), "the enum is still there")
+
+			again := &Ticket{Code: "efgh"}
+			require.NoError(t, db.Tickets.Insert(ctx, again))
+			require.EqualValues(t, 1000, again.Number, "a new sequence")
+		})
+	})
+}
+
 // LineItem has a foreign key of two columns, which relations cannot express.
 type LineItem struct {
 	ID      int64

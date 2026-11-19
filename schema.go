@@ -949,7 +949,8 @@ func (c *Context) ddl() (schema.Dialect, *schema.Schema, error) {
 }
 
 // EnsureCreated creates the tables, indexes, and foreign keys of models that have
-// no table yet, directly from the structs, and leaves existing tables as they are.
+// no table yet, and the enums and sequences they use that are not there, directly
+// from the structs, and leaves existing ones as they are.
 // It is for tests and prototypes. Use migrations for anything with data to keep.
 func (c *Context) EnsureCreated(ctx context.Context) error {
 	d, target, err := c.ddl()
@@ -971,9 +972,22 @@ func (c *Context) EnsureCreated(ctx context.Context) error {
 	existing := target.Clone()
 	existing.Schemas = live.Schemas
 
+	// What the models declare counts as there only if the database has it, so
+	// the diff creates what is missing and leaves the rest as it is: tables, and
+	// the enums and sequences they use (#101).
 	existing.Tables = slices.DeleteFunc(
 		existing.Tables,
 		func(t *schema.Table) bool { return live.Table(t.Ref()) == nil },
+	)
+
+	existing.Enums = slices.DeleteFunc(
+		existing.Enums,
+		func(e *schema.Enum) bool { return live.Enum(e.Name) == nil },
+	)
+
+	existing.Sequences = slices.DeleteFunc(
+		existing.Sequences,
+		func(s *schema.Sequence) bool { return live.Sequence(s.Name) == nil },
 	)
 
 	plan, err := schema.Diff(existing, target)
