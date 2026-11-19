@@ -219,7 +219,10 @@ func (c AlterColumn) String() string {
 	}
 
 	if c.From.Default != c.To.Default {
-		what = append(what, "default")
+		what = append(
+			what,
+			fmt.Sprintf("default %s to %s", orNone(c.From.Default), orNone(c.To.Default)),
+		)
 	}
 
 	if c.From.Identity != c.To.Identity {
@@ -697,4 +700,14 @@ type SetColumnComment struct {
 // String implements Change.
 func (c SetColumnComment) String() string {
 	return fmt.Sprintf("set comment on column %s.%s", c.Table, c.Column)
+}
+
+// orNone names an absent SQL expression, so a summary reads "default true to
+// none" rather than dropping the side that has nothing.
+func orNone(expr string) string {
+	if expr == "" {
+		return "none"
+	}
+
+	return expr
 }
