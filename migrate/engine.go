@@ -492,6 +492,10 @@ func (e *engine) apply(ctx context.Context, conn *sql.Conn, m Migration) error {
 		)
 	}
 
+	if err := m.checkBody(e.d); err != nil {
+		return err
+	}
+
 	started := time.Now()
 	r := record{
 		Kind:      m.Kind,
