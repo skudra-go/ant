@@ -1,6 +1,7 @@
 package migrations
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -344,5 +345,69 @@ func TestForeignKeyTakesItsTargetsType(t *testing.T) {
 		require.NoError(t, db.Orgs.Insert(t.Context(), org))
 		require.NoError(t, db.Seats.Insert(t.Context(), &Seat{OrgID: org.ID}))
 		require.Contains(t, must[OrgDB](p, "drift"), "No drift")
+	})
+}
+
+// A required foreign key added to a table with rows can't be filled with the
+// zero value, as other new NOT NULL columns are: no row has key 0, so the file
+// could never apply (#186). The column is added NULL and made NOT NULL after,
+// and the file says to fill it in between.
+type Gadget struct {
+	ID   int64
+	Name string
+}
+
+type GadgetDB struct {
+	ant.Context
+	Gadgets ant.Table[Gadget]
+}
+
+type Maker struct {
+	ID   int64
+	Name string
+}
+
+type MadeGadget struct {
+	ID      int64
+	Name    string
+	MakerID int64
+	Maker   *Maker
+}
+
+func (MadeGadget) Configure(b *ant.ModelBuilder[MadeGadget]) { b.Table("gadgets") }
+
+type MadeGadgetDB struct {
+	ant.Context
+	Gadgets ant.Table[MadeGadget]
+	Makers  ant.Table[Maker]
+}
+
+func TestNewRequiredForeignKeyColumn(t *testing.T) {
+	each(t, func(t *testing.T, p *project) {
+		must[GadgetDB](p, "diff", "start")
+		must[GadgetDB](p, "up")
+		p.sql("INSERT INTO gadgets (name) VALUES ('g')")
+
+		must[MadeGadgetDB](p, "diff", "add_maker")
+		file := "versions/0002_add_maker.up.sql"
+		text := p.read(file)
+		require.Contains(t, text, `ALTER TABLE "gadgets" ADD COLUMN "maker_id" bigint;`)
+		require.Contains(t, text, `ALTER TABLE "gadgets" ALTER COLUMN "maker_id" SET NOT NULL;`)
+		require.Contains(t, text, "need a maker_id that refers to a row of makers")
+		require.NotContains(t, text, "DEFAULT 0")
+
+		_, err := run[MadeGadgetDB](p, "up")
+		require.ErrorContains(t, err, "contains null values", "left as it is, it says why")
+
+		p.write(file, strings.Replace(
+			text,
+			`ALTER TABLE "gadgets" ALTER COLUMN "maker_id" SET NOT NULL;`,
+			"INSERT INTO makers (name) VALUES ('m');\n"+
+				"UPDATE gadgets SET maker_id = (SELECT id FROM makers);\n"+
+				`ALTER TABLE "gadgets" ALTER COLUMN "maker_id" SET NOT NULL;`,
+			1,
+		))
+		must[MadeGadgetDB](p, "up")
+		require.Contains(t, must[MadeGadgetDB](p, "drift"), "No drift")
 	})
 }
