@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/skudra-go/ant"
 	"github.com/skudra-go/ant/migrate"
 	"github.com/skudra-go/ant/tests/features/fixture"
 )
@@ -580,6 +581,67 @@ func TestStatusCheck(t *testing.T) {
 			_, err := run[V1DB](p, "status", "--check")
 			require.ErrorIs(t, err, migrate.ErrChecksum)
 			require.NotErrorIs(t, err, migrate.ErrPending)
+		})
+	})
+}
+
+// Club is a table that gets a unique index built online.
+type Club struct {
+	ID    int64
+	Email string
+}
+
+func (Club) Configure(b *ant.ModelBuilder[Club]) {}
+
+type ClubDB struct {
+	ant.Context
+	Clubs ant.Table[Club]
+}
+
+type ClubUnique struct {
+	ID    int64
+	Email string
+}
+
+func (ClubUnique) Configure(b *ant.ModelBuilder[ClubUnique]) {
+	b.Table("clubs")
+	b.Index(&ClubUniques.Email).Unique().Concurrently()
+}
+
+var ClubUniques = ant.Fields[ClubUnique]()
+
+type ClubUniqueDB struct {
+	ant.Context
+	Clubs ant.Table[ClubUnique]
+}
+
+// A CREATE INDEX CONCURRENTLY that fails leaves an invalid index behind. Inspect
+// hid it, so drift asked for the index the database had, and running the file
+// again failed with "already exists" (#97). The file drops a leftover first, and
+// drift names it.
+func TestFailedConcurrentIndex(t *testing.T) {
+	each(t, func(t *testing.T, p *project) {
+		must[ClubDB](p, "diff", "start")
+		must[ClubDB](p, "up")
+		p.sql("INSERT INTO clubs (email) VALUES ('a@x'), ('a@x')")
+
+		must[ClubUniqueDB](p, "diff", "email_unique")
+
+		_, err := run[ClubUniqueDB](p, "up")
+		require.ErrorContains(t, err, "could not create unique index")
+
+		t.Run("drift names the invalid index", func(t *testing.T) {
+			out, err := run[ClubUniqueDB](p, "drift")
+			require.ErrorIs(t, err, migrate.ErrDrift)
+			require.Contains(t, out, "drop invalid index clubs_email_idx on clubs")
+			require.Contains(t, out, "create index clubs_email_idx on clubs")
+		})
+
+		t.Run("once the rows are fixed, the file runs again", func(t *testing.T) {
+			p.sql("DELETE FROM clubs WHERE id = (SELECT max(id) FROM clubs)")
+			must[ClubUniqueDB](p, "repair")
+			must[ClubUniqueDB](p, "up")
+			require.Contains(t, must[ClubUniqueDB](p, "drift"), "No drift")
 		})
 	})
 }
