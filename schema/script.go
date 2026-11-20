@@ -26,12 +26,26 @@ func Backfill(d Dialect, p *Plan) {
 
 		add.Backfill = d.Zero(add.Column.Type)
 
-		if values := p.values[add.Column.Type]; add.Backfill == "" && len(values) > 0 {
+		values := p.values[add.Column.Type]
+		if len(values) == 0 {
+			values = p.values[unquote(add.Column.Type)] // an enum whose name needs quotes
+		}
+
+		if add.Backfill == "" && len(values) > 0 {
 			add.Backfill = "'" + strings.ReplaceAll(values[0], "'", "''") + "'"
 		}
 
 		p.Changes[i] = add
 	}
+}
+
+// unquote reads a name written in double quotes, with a quote in it doubled.
+func unquote(name string) string {
+	if len(name) < 2 || name[0] != '"' || name[len(name)-1] != '"' {
+		return name
+	}
+
+	return strings.ReplaceAll(name[1:len(name)-1], `""`, `"`)
 }
 
 // lineBreaks are what end a -- comment, written out instead.

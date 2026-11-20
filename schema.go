@@ -537,7 +537,11 @@ func (b *schemaBuilder) column(m *meta.Model, f *meta.Field) (*schema.Column, er
 	}
 
 	if q := storage.Sequence; q != nil {
-		c.Default = "nextval('" + strings.ReplaceAll(q.Name, "'", "''") + "')"
+		c.Default = "nextval('" + strings.ReplaceAll(typeName(b.d, q.Name), "'", "''") + "')"
+	}
+
+	if e := storage.Enum; e != nil && c.Type == e.Name {
+		c.Type = typeName(b.d, e.Name)
 	}
 
 	label := m.Type.Name() + "." + f.Name
@@ -563,6 +567,25 @@ func (b *schemaBuilder) column(m *meta.Model, f *meta.Field) (*schema.Column, er
 	}
 
 	return c, nil
+}
+
+// typeName writes the name of an enum or a sequence where a column uses it, as
+// CREATE TYPE and CREATE SEQUENCE named it: quoted. PostgreSQL folds a name
+// without quotes to lower case, so a column of type UserStatus looked for
+// userstatus, which did not exist (#100). A lower-case name stays as it is,
+// as the database gives it back.
+func typeName(d schema.Dialect, name string) string {
+	plain := name != ""
+
+	for i, r := range name {
+		plain = plain && (r == '_' || r >= 'a' && r <= 'z' || i > 0 && r >= '0' && r <= '9')
+	}
+
+	if plain {
+		return name
+	}
+
+	return d.Quote(name)
 }
 
 func (b *schemaBuilder) columnType(t reflect.Type, s meta.Storage) string {
