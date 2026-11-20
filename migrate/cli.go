@@ -42,6 +42,7 @@ Running them (needs a database):
     --to <version>         stop after this version, which must exist
     --dry-run              print what would run, and change nothing
   status                 list every migration and whether it has run
+    --check                fail if any is waiting, or up would refuse to run
   drift                  compare the live database with the migrations
     --sql                  also print SQL that would close the gap
   db-show                summarize the live database
@@ -116,6 +117,7 @@ func Run[DB any](ctx context.Context, d dialect.Dialect, args []string, config .
 		empty, dry, keep     bool
 		plain, showSQL       bool
 		fromSnapshot, seed   bool
+		checkStatus          bool
 	)
 	flags.StringVar(&dsn, "dsn", "", "")
 
@@ -127,6 +129,8 @@ func Run[DB any](ctx context.Context, d dialect.Dialect, args []string, config .
 	case "up":
 		flags.StringVar(&to, "to", "", "")
 		flags.BoolVar(&dry, "dry-run", false, "")
+	case "status":
+		flags.BoolVar(&checkStatus, "check", false, "")
 	case "drift":
 		flags.BoolVar(&showSQL, "sql", false, "")
 	case "squash":
@@ -251,7 +255,7 @@ func Run[DB any](ctx context.Context, d dialect.Dialect, args []string, config .
 
 		return e.up(ctx, to)
 	case "status":
-		return e.printStatus(ctx)
+		return e.printStatus(ctx, checkStatus)
 	case "drift":
 		target, label, err := t.expected(ctx)
 		if err != nil {
@@ -445,7 +449,10 @@ func (e *engine) show(ctx context.Context) error {
 	return w.Flush()
 }
 
-func (e *engine) printStatus(ctx context.Context) error {
+// printStatus lists the migrations. With check, it fails if any is waiting or
+// up would refuse to run, which a deploy gate needs: status said "changed" and
+// still exited 0, and nothing returned ErrPending (#188).
+func (e *engine) printStatus(ctx context.Context, check bool) error {
 	entries, err := e.status(ctx)
 	if err != nil {
 		return err
@@ -484,7 +491,22 @@ func (e *engine) printStatus(ctx context.Context) error {
 		e.say("\n%d waiting. Apply with: up", waiting)
 	}
 
-	return nil
+	if !check {
+		return nil
+	}
+
+	rows, err := e.history.read(ctx, e.pool)
+	if err != nil {
+		return err
+	}
+
+	var problems []error
+
+	if waiting > 0 {
+		problems = append(problems, fmt.Errorf("%w: %d waiting", ErrPending, waiting))
+	}
+
+	return errors.Join(append(problems, e.validate(entries, rows))...)
 }
 
 type repeated []string

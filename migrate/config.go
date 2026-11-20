@@ -39,7 +39,8 @@ var (
 	ErrStaleSnapshot = errors.New("ant: snapshot does not match the migration files")
 	// ErrDrift reports a database that differs from what migrations describe.
 	ErrDrift = errors.New("ant: database differs from the migrations")
-	// ErrPending reports migrations that have not been applied.
+	// ErrPending reports migrations that have not been applied, from status
+	// --check.
 	ErrPending = errors.New("ant: migrations are pending")
 	// ErrReadOnly reports a command that writes, on a Source that cannot.
 	ErrReadOnly = errors.New("ant: migration source cannot be written")
