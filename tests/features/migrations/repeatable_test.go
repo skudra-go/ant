@@ -71,7 +71,12 @@ func TestRepeatable(t *testing.T) {
 func TestRepeatableAfterVersioned(t *testing.T) {
 	each(t, func(t *testing.T, p *project) {
 		p.write("versions/0001_items.up.sql", "CREATE TABLE items (id int, name varchar(50));")
-		p.write("code/item_names.sql", "CREATE OR REPLACE VIEW item_names AS SELECT id, name FROM items;")
+
+		p.write(
+			"code/item_names.sql",
+			"CREATE OR REPLACE VIEW item_names AS SELECT id, name FROM items;",
+		)
+
 		must[V1DB](p, "up")
 
 		t.Run("a migration that drops the view gets it back", func(t *testing.T) {
@@ -97,17 +102,20 @@ func TestRepeatableAfterVersioned(t *testing.T) {
 			require.Contains(t, must[V1DB](p, "up", "--dry-run"), "Nothing to apply")
 		})
 
-		t.Run("up through a version leaves it outdated, and the next up runs it", func(t *testing.T) {
-			p.write("versions/0003_drop_again.up.sql", "DROP VIEW item_names;")
-			out := must[V1DB](p, "up", "--to", "0003")
-			require.NotContains(t, out, "item_names.sql")
-			require.Empty(t, p.columns("item_names"))
+		t.Run(
+			"up through a version leaves it outdated, and the next up runs it",
+			func(t *testing.T) {
+				p.write("versions/0003_drop_again.up.sql", "DROP VIEW item_names;")
+				out := must[V1DB](p, "up", "--to", "0003")
+				require.NotContains(t, out, "item_names.sql")
+				require.Empty(t, p.columns("item_names"))
 
-			require.Contains(t, must[V1DB](p, "status"), "outdated")
-			require.Contains(t, must[V1DB](p, "up"), "Applied item_names.sql")
-			require.Equal(t, []string{"id", "name"}, p.columns("item_names"))
-			require.Contains(t, must[V1DB](p, "up"), "Nothing to apply")
-		})
+				require.Contains(t, must[V1DB](p, "status"), "outdated")
+				require.Contains(t, must[V1DB](p, "up"), "Applied item_names.sql")
+				require.Equal(t, []string{"id", "name"}, p.columns("item_names"))
+				require.Contains(t, must[V1DB](p, "up"), "Nothing to apply")
+			},
+		)
 	})
 }
 

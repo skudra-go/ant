@@ -244,6 +244,7 @@ CREATE TABLE never (id int);
 func TestNoTransactionMigrationCutOff(t *testing.T) {
 	each(t, func(t *testing.T, p *project) {
 		p.write("versions/0001_items.up.sql", "CREATE TABLE items (name text);")
+
 		p.write("versions/0002_once.up.sql", `-- ant:no-transaction
 INSERT INTO items (name) VALUES ('once');
 SELECT pg_sleep(29.5);
@@ -289,7 +290,11 @@ WHERE datname = current_database() AND pid <> pg_backend_pid() AND query LIKE '%
 // says it succeeded.
 func TestNoTransactionMigrationRecord(t *testing.T) {
 	each(t, func(t *testing.T, p *project) {
-		p.write("versions/0001_items.up.sql", "-- ant:no-transaction\nCREATE TABLE items (name text);\n")
+		p.write(
+			"versions/0001_items.up.sql",
+			"-- ant:no-transaction\nCREATE TABLE items (name text);\n",
+		)
+
 		must[V1DB](p, "up")
 
 		require.Equal(

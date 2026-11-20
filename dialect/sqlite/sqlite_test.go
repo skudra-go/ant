@@ -74,7 +74,11 @@ func TestOpenRefusesADSNWithoutForeignKeys(t *testing.T) {
 		t.Fatal("Open must refuse a data source name without foreign_keys")
 	}
 
-	db, err := ant.Open[appDB](context.Background(), Dialect, "file:"+path+"?_pragma=foreign_keys(1)")
+	db, err := ant.Open[appDB](
+		context.Background(),
+		Dialect,
+		"file:"+path+"?_pragma=foreign_keys(1)",
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +86,9 @@ func TestOpenRefusesADSNWithoutForeignKeys(t *testing.T) {
 	defer db.Close()
 
 	var on int
-	if err := db.DB().QueryRowContext(context.Background(), "PRAGMA foreign_keys").Scan(&on); err != nil {
+	if err := db.DB().
+		QueryRowContext(context.Background(), "PRAGMA foreign_keys").
+		Scan(&on); err != nil {
 		t.Fatal(err)
 	}
 

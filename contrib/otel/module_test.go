@@ -15,7 +15,9 @@ func TestRequiresAReleasedAnt(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	line := regexp.MustCompile(`(?m)^\s*(?:require\s+)?github\.com/skudra-go/ant\s+(\S+)`).FindSubmatch(data)
+	line := regexp.MustCompile(`(?m)^\s*(?:require\s+)?github\.com/skudra-go/ant\s+(\S+)`).
+		FindSubmatch(data)
+
 	if line == nil {
 		t.Fatal("go.mod does not require github.com/skudra-go/ant")
 	}
