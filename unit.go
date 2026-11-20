@@ -1710,6 +1710,7 @@ func (u *unit) update(ctx context.Context, to exec.Executor, n *node) error {
 		}
 	}
 
+	byKey := slices.Clip(where)
 	where = append(where, u.tokenConditions(n)...)
 	u.bumpVersion(n)
 
@@ -1731,13 +1732,99 @@ func (u *unit) update(ctx context.Context, to exec.Executor, n *node) error {
 		})
 	}
 
-	if err := u.writeOne(ctx, to, n, stmt); err != nil {
+	if back := filledOnWrite(n); len(back) > 0 {
+		if err := u.writeBack(ctx, to, n, stmt, byKey, back); err != nil {
+			return err
+		}
+	} else if err := u.writeOne(ctx, to, n, stmt); err != nil {
 		return err
 	}
 
 	u.wroteVersion(n)
 
 	return nil
+}
+
+// filledOnWrite returns the fields of n the database fills on every write,
+// generated columns and those a trigger keeps, if the unit may write into its
+// entity.
+func filledOnWrite(n *node) []*meta.Field {
+	if !n.writesInto() {
+		return nil
+	}
+
+	var out []*meta.Field
+
+	for _, f := range n.model.Fields {
+		if f.ReadOnly && !f.Computed && !f.WriteOnly {
+			out = append(out, f)
+		}
+	}
+
+	return out
+}
+
+// writeBack runs an update and reads back what the database filled, as an insert
+// does, so that the entity and its snapshot hold what the row does. A column a
+// trigger keeps stayed at the loaded value, and as a token it failed the next
+// save with a conflict no one else caused (#156). The row is read by its key
+// after the write, in the same transaction, rather than returned by the UPDATE:
+// SQLite's RETURNING leaves out what triggers change, and SQL Server refuses
+// OUTPUT on a table with a trigger.
+func (u *unit) writeBack(
+	ctx context.Context,
+	to exec.Executor,
+	n *node,
+	stmt *qb.Update,
+	byKey []qb.Cond,
+	back []*meta.Field,
+) error {
+	if err := u.writeOne(ctx, to, n, stmt); err != nil {
+		return err
+	}
+
+	columns := make([]qb.Selected, len(back))
+
+	for i, f := range back {
+		columns[i] = qb.Selected{Value: qb.Column{Name: f.Column}}
+	}
+
+	rows, err := u.s.queryOn(ctx, to, &qb.Select{
+		Columns: columns,
+		From:    qb.Source{Table: n.model.Table},
+		Where:   byKey,
+	})
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return err
+		}
+
+		key, _ := n.model.KeyOf(n.entity)
+
+		return &ConcurrencyError{Model: n.model.Type.Name(), Key: key}
+	}
+
+	dest := make([]any, len(back))
+
+	for i, f := range back {
+		n.restore = append(n.restore, prior{f, copyOf(f, n.entity)})
+		dest[i] = f.Addr(n.entity)
+	}
+
+	if err := rows.Scan(dest...); err != nil {
+		return err
+	}
+
+	for _, f := range back {
+		f.InUTC(n.entity)
+	}
+
+	return rows.Close()
 }
 
 // owns reports whether the unit may write into n's entity: the entry's own, or a
