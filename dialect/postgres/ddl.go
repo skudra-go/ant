@@ -4,8 +4,6 @@ import (
 	"cmp"
 	"encoding/json"
 	"fmt"
-	"net"
-	"net/netip"
 	"reflect"
 	"strconv"
 	"strings"
@@ -33,14 +31,12 @@ func (impl) ColumnType(t reflect.Type, f schema.Facets) (string, bool) {
 	switch {
 	case t == reflect.TypeFor[time.Time]():
 		return "timestamptz", true
+	// json.RawMessage is the one native type here that reads back: PostgreSQL
+	// sends jsonb as bytes. inet, cidr and interval reach database/sql as text,
+	// which it cannot scan into net.IP, netip, or time.Duration, so those types
+	// keep no native mapping (see docs/databases.md).
 	case t == reflect.TypeFor[json.RawMessage]():
 		return "jsonb", true
-	case t == reflect.TypeFor[net.IP](), t == reflect.TypeFor[netip.Addr]():
-		return "inet", true
-	case t == reflect.TypeFor[netip.Prefix]():
-		return "cidr", true
-	case t == reflect.TypeFor[time.Duration]():
-		return "interval", true
 	case t.Kind() == reflect.Array && t.Len() == 16 && t.Elem().Kind() == reflect.Uint8:
 		return "uuid", true // the shape of github.com/google/uuid.UUID
 	case t.Kind() == reflect.Slice && t.Elem().Kind() == reflect.Uint8:
