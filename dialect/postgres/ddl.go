@@ -515,7 +515,18 @@ func (d impl) Statements(change schema.Change) ([]string, error) {
 			fmt.Sprintf("RENAME CONSTRAINT %s TO %s", d.Quote(c.From), d.Quote(c.To)),
 		), nil
 	case schema.CreateIndex:
-		return []string{d.createIndex(c.Table, c.Index, c.RunsOnline())}, nil
+		create := d.createIndex(c.Table, c.Index, c.RunsOnline())
+
+		// A concurrent build that fails leaves an invalid index of the name, and
+		// running the file again then failed with "already exists" (#97).
+		if c.RunsOnline() {
+			return []string{
+				"DROP INDEX CONCURRENTLY IF EXISTS " + d.indexRef(c.Table, c.Index.Name),
+				create,
+			}, nil
+		}
+
+		return []string{create}, nil
 	case schema.DropIndex:
 		out := "DROP INDEX "
 

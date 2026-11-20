@@ -417,6 +417,14 @@ type DropIndex struct {
 
 // String implements Change.
 func (c DropIndex) String() string {
+	if c.Index.Invalid {
+		return fmt.Sprintf(
+			"drop invalid index %s on %s, which a failed CREATE INDEX CONCURRENTLY left",
+			c.Index.Name,
+			c.Table,
+		)
+	}
+
 	return fmt.Sprintf("drop index %s on %s", c.Index.Name, c.Table)
 }
 

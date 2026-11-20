@@ -429,11 +429,12 @@ func (d impl) indexes(ctx context.Context, q schema.Querier, t *liveTable) error
 		ctx,
 		`
 		SELECT x.indexrelid::bigint, i.relname, x.indisunique, am.amname,
-		       COALESCE(pg_get_expr(x.indpred, x.indrelid), ''), x.indnkeyatts
+		       COALESCE(pg_get_expr(x.indpred, x.indrelid), ''), x.indnkeyatts,
+		       NOT x.indisvalid
 		FROM pg_index x
 		JOIN pg_class i ON i.oid = x.indexrelid
 		JOIN pg_am am ON am.oid = i.relam
-		WHERE x.indrelid = $1::bigint::oid AND x.indisvalid AND NOT EXISTS (
+		WHERE x.indrelid = $1::bigint::oid AND NOT EXISTS (
 			SELECT 1 FROM pg_constraint c WHERE c.conindid = x.indexrelid AND c.conrelid = x.indrelid)
 		ORDER BY i.relname`,
 		t.oid,
@@ -459,6 +460,7 @@ func (d impl) indexes(ctx context.Context, q schema.Querier, t *liveTable) error
 			&f.into.Method,
 			&f.into.Where,
 			&f.keys,
+			&f.into.Invalid,
 		); err != nil {
 			return err
 		}

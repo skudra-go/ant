@@ -279,7 +279,10 @@ func TestReplacedColumns(t *testing.T) {
 
 		require.Equal(
 			t,
-			[]string{`CREATE INDEX CONCURRENTLY "posts_id_idx" ON "posts" ("id")`},
+			[]string{
+				`DROP INDEX CONCURRENTLY IF EXISTS "posts_id_idx"`,
+				`CREATE INDEX CONCURRENTLY "posts_id_idx" ON "posts" ("id")`,
+			},
 			run(t, of(posts()), of(next)),
 		)
 	})
