@@ -554,3 +554,32 @@ func TestSkip(t *testing.T) {
 		require.Contains(t, must[V1DB](p, "status"), "skipped")
 	})
 }
+
+// A deploy gate runs status --check, which fails while anything waits or up
+// would refuse to run. status said "changed" and still exited 0, and nothing
+// returned ErrPending (#188). Without --check, status only lists.
+func TestStatusCheck(t *testing.T) {
+	each(t, func(t *testing.T, p *project) {
+		p.write("versions/0001_init.up.sql", "CREATE TABLE one (id int);")
+		p.write("versions/0002_two.up.sql", "CREATE TABLE two (id int);")
+		must[V1DB](p, "up", "--to", "0001")
+
+		_, err := run[V1DB](p, "status")
+		require.NoError(t, err)
+
+		_, err = run[V1DB](p, "status", "--check")
+		require.ErrorIs(t, err, migrate.ErrPending)
+		require.ErrorContains(t, err, "1 waiting")
+
+		must[V1DB](p, "up")
+		require.Contains(t, must[V1DB](p, "status", "--check"), "0002_two")
+
+		t.Run("a changed file fails it too", func(t *testing.T) {
+			p.write("versions/0001_init.up.sql", "CREATE TABLE one (id int); -- edited")
+
+			_, err := run[V1DB](p, "status", "--check")
+			require.ErrorIs(t, err, migrate.ErrChecksum)
+			require.NotErrorIs(t, err, migrate.ErrPending)
+		})
+	})
+}
