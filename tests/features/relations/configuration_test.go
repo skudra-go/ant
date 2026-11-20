@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/skudra-go/ant"
+	"github.com/skudra-go/ant/dialect/postgres"
 	"github.com/skudra-go/ant/tests/features/fixture"
 )
 
@@ -53,7 +54,6 @@ type ShelfDB struct {
 	Authors ant.Table[Author]
 	Volumes ant.Table[Volume]
 	Quotes  ant.Table[Quote]
-	Orphans ant.Table[Orphan]
 }
 
 var (
@@ -67,8 +67,7 @@ func TestConfiguredRelations(t *testing.T) {
 	ddl := `
 		CREATE TABLE authors (id BIGSERIAL PRIMARY KEY, handle TEXT UNIQUE NOT NULL);
 		CREATE TABLE volumes (id BIGSERIAL PRIMARY KEY, writer_id BIGINT NOT NULL REFERENCES authors, title TEXT NOT NULL);
-		CREATE TABLE quotes (id BIGSERIAL PRIMARY KEY, author_handle TEXT NOT NULL REFERENCES authors (handle), text TEXT NOT NULL);
-		CREATE TABLE orphans (id BIGSERIAL PRIMARY KEY)`
+		CREATE TABLE quotes (id BIGSERIAL PRIMARY KEY, author_handle TEXT NOT NULL REFERENCES authors (handle), text TEXT NOT NULL)`
 	fixture.RunWith(t, ddl, func(t *testing.T, db *ShelfDB) {
 		ctx := t.Context()
 		ada := &Author{Handle: "ada"}
@@ -98,19 +97,32 @@ func TestConfiguredRelations(t *testing.T) {
 			require.Len(t, found.Quotes, 1)
 		})
 
-		t.Run("no foreign key is an error at the terminal call", func(t *testing.T) {
-			_, err := db.Orphans.Include(&Orphans.Strays).All(ctx)
-			require.ErrorIs(t, err, ant.ErrNoForeignKey)
-			_, err = db.Orphans.Where(ant.Has(&Orphans.Strays)).All(ctx)
-			require.ErrorIs(t, err, ant.ErrNoForeignKey)
-		})
-
 		t.Run("a column used as a relation", func(t *testing.T) {
 			var notRelated []string
 
 			//antvet:ignore not a probe, on purpose: the test checks the error
-			_, err := db.Orphans.Include(&notRelated).All(ctx)
+			_, err := db.Authors.Include(&notRelated).All(ctx)
 			require.ErrorIs(t, err, ant.ErrNotProbe)
 		})
 	})
+}
+
+// A relation with no foreign key is refused when the context opens, rather
+// than on the first query that uses it (#203). Every use refuses it too.
+func TestRelationWithNoForeignKey(t *testing.T) {
+	type OrphansDB struct {
+		ant.Context
+		Orphans ant.Table[Orphan]
+	}
+
+	_, err := ant.Wrap[OrphansDB](postgres.Dialect, nil)
+	require.ErrorIs(t, err, ant.ErrNoForeignKey)
+	require.ErrorContains(t, err, "Orphan.Strays")
+
+	var table ant.Table[Orphan]
+
+	_, _, err = table.Include(&Orphans.Strays).ToSQL()
+	require.ErrorIs(t, err, ant.ErrNoForeignKey)
+	_, _, err = table.Where(ant.Has(&Orphans.Strays)).ToSQL()
+	require.ErrorIs(t, err, ant.ErrNoForeignKey)
 }

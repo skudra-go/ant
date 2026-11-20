@@ -190,7 +190,6 @@ func TestProbeOtherNative(t *testing.T) {
 		},
 		Eq:    ant.Eq[netip.Addr],
 		In:    ant.In[netip.Addr],
-		NoPtr: true,
 	})
 
 	probekit.Probe(t, probekit.Spec[net.IP]{

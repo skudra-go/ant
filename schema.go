@@ -3,6 +3,7 @@ package ant
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"reflect"
 	"slices"
@@ -89,18 +90,65 @@ func models(db any) ([]*meta.Model, error) {
 	return out, sameTable(out)
 }
 
-// tableModels returns the configured models of a context struct's Table
-// fields. eachTable has already accepted the struct.
-func tableModels(db any) []*meta.Model {
-	var out []*meta.Model
+// checkModels checks every model of a context struct and every model its
+// relations reach, and resolves each relation, so that a model ant can't use
+// fails when the context opens rather than on first use, as the docs promise.
+// A relation that found no foreign key, or a join table with no name, passed
+// Open and failed the first request that touched it (#203). It reports every
+// problem it finds, not only the first, so a large model set is fixed in one go.
+func checkModels(db any) error {
+	var (
+		seen     []*meta.Model
+		problems []error
+	)
 
-	_ = eachTable(db, func(table any) error {
-		out = append(out, table.(modelTable).tableModel())
+	add := func(m *meta.Model) {
+		if slices.Contains(seen, m) {
+			return
+		}
+
+		configureModel(m)
+		seen = append(seen, m)
+
+		if err := m.Err(); err != nil {
+			problems = append(problems, err)
+		}
+	}
+
+	if err := eachTable(db, func(table any) error {
+		add(table.(modelTable).tableModel())
 
 		return nil
-	})
+	}); err != nil {
+		problems = append(problems, err)
+	}
 
-	return out
+	tables := slices.Clone(seen)
+
+	for i := 0; i < len(seen); i++ {
+		if seen[i].Err() != nil {
+			continue
+		}
+
+		for _, r := range seen[i].Relations {
+			target := meta.OfType(r.Target)
+			add(target)
+
+			if target.Err() != nil {
+				continue
+			}
+
+			if _, err := linkFor(r); err != nil {
+				problems = append(problems, err)
+			}
+		}
+	}
+
+	if err := sameTable(tables); err != nil {
+		problems = append(problems, err)
+	}
+
+	return errors.Join(problems...)
 }
 
 var (
