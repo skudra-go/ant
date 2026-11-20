@@ -75,7 +75,9 @@ adults, err := db.Users.
 ```
 
 - `ant.Open` fills in every `ant.Table` field and fails at startup if a model can't
-  be mapped. Open once per process. Never construct `AppDB` yourself.
+  be mapped: an unknown tag key, two fields on one column, a relation with no
+  foreign key, or `[]*Post` where `[]Post` is meant. It reports every broken model
+  at once. Open once per process. Never construct `AppDB` yourself.
 - The application imports the driver: `_ "github.com/jackc/pgx/v5/stdlib"` for
   PostgreSQL, `_ "modernc.org/sqlite"`, `_ "github.com/go-sql-driver/mysql"` or
   `_ "github.com/microsoft/go-mssqldb"`.
