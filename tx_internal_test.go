@@ -28,7 +28,7 @@ type externalDB struct {
 // changes, until it is released or rolled back.
 func TestUseTxHoldsNothingItCannotSettle(t *testing.T) {
 	ctx := t.Context()
-	dsn := "file:" + filepath.Join(t.TempDir(), "ant.db")
+	dsn := "file:" + filepath.Join(t.TempDir(), "ant.db") + "?_pragma=foreign_keys(1)"
 
 	db, err := Open[externalDB](ctx, sqlite.Dialect, dsn, WithTracking(true))
 	if err != nil {

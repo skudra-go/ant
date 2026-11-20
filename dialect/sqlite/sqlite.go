@@ -3,6 +3,9 @@ package sqlite
 
 import (
 	"errors"
+	"fmt"
+	"net/url"
+	"strings"
 
 	"github.com/skudra-go/ant/dialect"
 	"github.com/skudra-go/ant/qb"
@@ -37,6 +40,39 @@ var syntax = dialect.Syntax{
 
 func (impl) Name() string       { return "sqlite" }
 func (impl) DriverName() string { return "sqlite" }
+
+// CheckDSN refuses a data source name that does not say whether foreign keys are
+// on. SQLite turns them off on every new connection unless told, so REFERENCES
+// constraints accept a row whose foreign key points at nothing, and no error
+// says so. The driver takes _pragma=foreign_keys(1), or _foreign_keys or _fk; a
+// value that turns them off is a choice, and is accepted.
+func (impl) CheckDSN(dsn string) error {
+	_, query, _ := strings.Cut(dsn, "?")
+
+	values, err := url.ParseQuery(query)
+	if err != nil {
+		return fmt.Errorf("ant: sqlite: %w", err)
+	}
+
+	if values.Has("_foreign_keys") || values.Has("_fk") {
+		return nil
+	}
+
+	for _, pragma := range values["_pragma"] {
+		name, _, _ := strings.Cut(pragma, "(")
+		name, _, _ = strings.Cut(name, "=")
+
+		if strings.EqualFold(strings.TrimSpace(name), "foreign_keys") {
+			return nil
+		}
+	}
+
+	return errors.New(
+		"ant: sqlite: the data source name needs _pragma=foreign_keys(1); " +
+			"without it SQLite enforces no foreign key, and accepts a row that points at nothing. " +
+			"Use _pragma=foreign_keys(0) to keep them off on purpose",
+	)
+}
 
 func (impl) Placeholder(n int) string { return "?" }
 
