@@ -2,6 +2,7 @@ package ant
 
 import (
 	"reflect"
+	"slices"
 	"sync"
 
 	"github.com/skudra-go/ant/internal/meta"
@@ -19,7 +20,12 @@ type Naming struct {
 var conventions struct {
 	sync.RWMutex
 	naming Naming
-	bulk   []func(*ModelConvention)
+	bulk   []*conventionRule
+}
+
+// conventionRule is one rule from WithConvention.
+type conventionRule struct {
+	apply func(*ModelConvention)
 }
 
 // WithNaming sets a naming strategy, such as PascalCase table names for an
@@ -37,7 +43,8 @@ func WithNaming(naming Naming) Option {
 
 // WithConvention adds a rule applied to every model as it is configured, before
 // its Configure method, which can override it. Metadata is global, so a process has
-// one set of rules, added in the first Open.
+// one set of rules, added in the first Open. The same option given again, as to
+// Open and to the migrate commands, adds no second rule.
 //
 //	ant.WithConvention(func(m *ant.ModelConvention) {
 //		for _, f := range m.Fields() {
@@ -47,11 +54,15 @@ func WithNaming(naming Naming) Option {
 //		}
 //	})
 func WithConvention(rule func(*ModelConvention)) Option {
+	r := &conventionRule{rule}
+
 	return func(*settings) {
 		conventions.Lock()
 		defer conventions.Unlock()
 
-		conventions.bulk = append(conventions.bulk, rule)
+		if !slices.Contains(conventions.bulk, r) {
+			conventions.bulk = append(conventions.bulk, r)
+		}
 	}
 }
 
@@ -113,6 +124,6 @@ func applyConventions(model *meta.Model) {
 	}
 
 	for _, rule := range conventions.bulk {
-		rule(&ModelConvention{model})
+		rule.apply(&ModelConvention{model})
 	}
 }

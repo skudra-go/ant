@@ -221,3 +221,35 @@ func TestBulkConvention(t *testing.T) {
 		require.Equal(t, "text", table.Column("note").Type, "Configure wins")
 	})
 }
+
+// Prefixed is used by the test below alone.
+type Prefixed struct {
+	ID   int64
+	Name string
+}
+
+// PrefixedDB holds it.
+type PrefixedDB struct {
+	ant.Context
+	Rows ant.Table[Prefixed]
+}
+
+// One option given twice, as to Open and to the migrate program, is one rule, so
+// a rule that is not safe to repeat still runs once on each model.
+func TestConventionGivenTwice(t *testing.T) {
+	fixture.Serial(t) // conventions are process-wide
+
+	prefix := ant.WithConvention(func(m *ant.ModelConvention) {
+		if m.Name() == "Prefixed" {
+			m.SetTable("app_" + m.Table())
+		}
+	})
+
+	s, err := ant.SchemaOf[PrefixedDB](postgres.Dialect, prefix, prefix)
+	require.NoError(t, err)
+	require.NotNil(t, s.Table(schema.Ref{Name: "app_prefixeds"}))
+
+	_, table, err := ant.TableOf[Prefixed]()
+	require.NoError(t, err)
+	require.Equal(t, "app_prefixeds", table)
+}

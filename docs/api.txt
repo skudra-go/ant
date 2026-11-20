@@ -459,7 +459,7 @@ ant: func RowNumber() Expr[int64]
 ant: func SQLCond(text string, args ...any) Cond
 ant: func SQLState(err error) string
 ant: func SQL[V any](text string, args ...any) Expr[V]
-ant: func SchemaOf[DB any](d dialect.Dialect) (*schema.Schema, error)
+ant: func SchemaOf[DB any](d dialect.Dialect, options ...Option) (*schema.Schema, error)
 ant: func Session[DB any](db *DB, options ...Option) *DB
 ant: func SetExpr[V any](field *V, value Expr[V]) Assignment
 ant: func Set[V any](field *V, v V) Assignment

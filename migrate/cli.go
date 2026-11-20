@@ -102,7 +102,7 @@ func Run[DB any](ctx context.Context, d dialect.Dialect, args []string, config .
 		config:     c,
 		source:     source,
 		registered: registeredMigrations[DB](),
-		models:     func() (*schema.Schema, error) { return ant.SchemaOf[DB](d) },
+		models:     func() (*schema.Schema, error) { return ant.SchemaOf[DB](d, c.Options...) },
 		ask:        terminalQuestions(os.Stdin, c.Out),
 	}
 
@@ -225,7 +225,9 @@ func Run[DB any](ctx context.Context, d dialect.Dialect, args []string, config .
 		return fmt.Errorf("%s needs a database: pass --dsn, or set DATABASE_URL", command)
 	}
 
-	db, err := ant.Open[DB](ctx, d, dsn, ant.WithTracking(false))
+	options := append(slices.Clip(c.Options), ant.WithTracking(false))
+
+	db, err := ant.Open[DB](ctx, d, dsn, options...)
 	if err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}

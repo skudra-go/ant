@@ -25,10 +25,19 @@ func (t *Table[T]) tableModel() *meta.Model { return configure[T]() }
 
 // SchemaOf returns the schema DB's models describe: its Table fields, and models
 // reached through their relations. It needs no connection. Views and models
-// excluded from migrations have no table in the result.
-func SchemaOf[DB any](d dialect.Dialect) (*schema.Schema, error) {
+// excluded from migrations have no table in the result. Options are those the
+// application gives Open: WithNaming and WithConvention name the models, and a
+// program that needs their schema before it opens a context, such as the
+// migrate commands, passes them here.
+func SchemaOf[DB any](d dialect.Dialect, options ...Option) (*schema.Schema, error) {
 	if _, ok := any(new(DB)).(Handle); !ok {
 		return nil, fmt.Errorf("%w: %T", ErrNoContext, new(DB))
+	}
+
+	unused := defaultSettings()
+
+	for _, option := range options {
+		option(&unused)
 	}
 
 	ddl, err := schema.Of(d)

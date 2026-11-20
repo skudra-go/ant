@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/skudra-go/ant"
 	"github.com/skudra-go/ant/schema"
 )
 
@@ -89,6 +90,11 @@ type Config struct {
 	// DSN connects the commands that need a database. The --dsn flag and the
 	// DATABASE_URL variable come first and second, and this is the last resort.
 	DSN string
+	// Options are those the application gives ant.Open. Main and Run pass them
+	// to ant.SchemaOf and ant.Open, so that WithNaming and WithConvention name
+	// tables and columns in migrations as they do in the application. Up and
+	// Status use the context they are given, which was opened with them.
+	Options []ant.Option
 	// Skip lists versions to leave unapplied, for a migration that must not run
 	// in some environment.
 	Skip []string

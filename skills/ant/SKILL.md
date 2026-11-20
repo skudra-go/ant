@@ -366,6 +366,8 @@ func main() {
 }
 ```
 
+If the application opens with `ant.WithNaming` or `ant.WithConvention`, pass the same options in `migrate.Config{Options: ...}`, or the migrations use the default names.
+
 ```bash
 go run ./cmd/migrate diff add_bio   # writes migrations/versions/0002_add_bio.up.sql
 go run ./cmd/migrate up             # needs DATABASE_URL or --dsn
