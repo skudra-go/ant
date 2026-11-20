@@ -91,6 +91,7 @@ On 2026-11-20 the decisions moved from one file, `docs/DECISIONS.md`, to a file 
 | [84](084-every-time-is-bound-in-utc-where-columns-keep-no-zone.md) | Every time is bound in UTC where columns keep no zone | active | `utc` `time` `sql-null` `nulltime` `DeletedAt` `raw-query` `sqlserver` `sqlite` |
 | [95](095-in-means-eq-and-other-value-rules.md) | In means Eq, and other value rules | active | `In` `NotIn` `Eq` `null` `any-array` `secure.Value` `UnixTime` `utf8` |
 | [109](109-numbers-inside-an-interface-read-as-json-number.md) | Numbers inside an interface read as json.Number | active | `json.Number` `UseNumber` `JSON` `secure.Value` `float64` `snowflake` |
+| [122](122-a-type-maps-to-a-native-column-only-if-it-reads-back.md) | A type maps to a native column only if it reads back | active | `ColumnType` `jsonb` `inet` `cidr` `interval` `bigint` `bytea` `ErrNoColumnType` `RawMessage` `net.IP` `netip` |
 
 #### Relations
 
@@ -306,7 +307,8 @@ Before changing a file, read the decisions about it.
 | `dialect/mysql/mysql.go` | [13](013-mariadb-shares-the-mysql-package.md) [71](071-dependencies-stay-out-of-the-root-package.md) [74](074-dialects-state-their-differences.md) [75](075-generated-values-without-returning.md) [85](085-mysql-reads-the-table-it-writes-through-a-derived-table.md) |
 | `dialect/mysql/mysql_test.go` | [13](013-mariadb-shares-the-mysql-package.md) |
 | `dialect/postgres/array_test.go` | [43](043-database-specific-helpers.md) |
-| `dialect/postgres/ddl.go` | [50](050-three-layers-for-migrations.md) [52](052-new-not-null-columns-fill-existing-rows.md) [78](078-a-replaced-column-takes-its-dependents-along-and-they.md) [114](114-an-identity-columns-default-is-not-ants-to-change.md) |
+| `dialect/postgres/ddl.go` | [50](050-three-layers-for-migrations.md) [52](052-new-not-null-columns-fill-existing-rows.md) [78](078-a-replaced-column-takes-its-dependents-along-and-they.md) [114](114-an-identity-columns-default-is-not-ants-to-change.md) [122](122-a-type-maps-to-a-native-column-only-if-it-reads-back.md) |
+| `dialect/postgres/ddl_test.go` | [122](122-a-type-maps-to-a-native-column-only-if-it-reads-back.md) |
 | `dialect/postgres/expression.go` | [57](057-drift-compares-what-the-server-stored.md) |
 | `dialect/postgres/functions.go` | [42](042-converters-are-scanner-and-valuer.md) [43](043-database-specific-helpers.md) |
 | `dialect/postgres/inspect.go` | [57](057-drift-compares-what-the-server-stored.md) [72](072-partitions-are-not-migrations.md) [73](073-drift-compares-what-models-declare.md) [114](114-an-identity-columns-default-is-not-ants-to-change.md) |
@@ -481,6 +483,7 @@ Before changing a file, read the decisions about it.
 | `tests/features/transactions/retry_test.go` | [31](031-failed-saves.md) [99](099-a-retried-attempt-leaves-nothing-in-the-tracker.md) |
 | `tests/features/transactions/tx_test.go` | [2](002-tx-is-a-generic-method-on-context.md) [106](106-begin-inside-a-transaction-opens-a-savepoint.md) |
 | `tests/features/value_handling/json_test.go` | [42](042-converters-are-scanner-and-valuer.md) [109](109-numbers-inside-an-interface-read-as-json-number.md) |
+| `tests/features/value_handling/native_types_test.go` | [122](122-a-type-maps-to-a-native-column-only-if-it-reads-back.md) |
 | `tests/features/value_handling/postgres_test.go` | [43](043-database-specific-helpers.md) |
 | `tests/features/value_handling/probes/rows/probes_test.go` | [25](025-scanning.md) [119](119-an-upserts-update-writes-the-zero-a-default-field-holds.md) |
 | `tests/features/writing` | [80](080-every-write-moves-the-version-on.md) |

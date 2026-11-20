@@ -82,7 +82,8 @@ Error helpers mean the same everywhere. `ant.IsUniqueViolation` works on all fiv
 
 - An `sql.Null[uint64]` above `math.MaxInt64` is refused by `database/sql`, though a bare `uint64` field is not.
 - `NULL` cannot be read into a named `[]byte` type, such as `json.RawMessage` or `net.IP`. Use a pointer to it for a column that allows `NULL`.
-- pgx hands an `INTERVAL` to `database/sql` as text, which does not convert to a `time.Duration`. Read it into `pgtype.Interval`, or store a number of microseconds.
+- pgx hands an `INTERVAL` to `database/sql` as text, which does not convert to a `time.Duration`. So a `time.Duration` field is a `bigint` column, a count of nanoseconds, which reads back. Read an `INTERVAL` into `pgtype.Interval` if you have one.
+- pgx hands `INET` and `CIDR` to `database/sql` as text, which it cannot scan into `net.IP`, `netip.Addr`, or `netip.Prefix`. ant maps none of these to a column type, so `EnsureCreated` and migrations report `ErrNoColumnType` until the column is named with `ColumnBuilder.Type`, such as `Type("inet")`. Keep the value as a `string` to read it back.
 - `ant.JSON` and `secure.Value` refuse text that is not valid UTF-8, as a text column does: `encoding/json` would store U+FFFD in its place.
 
 **Times.** SQLite stores times as text, and SQL Server's `DATETIME2` has no zone, so ant binds UTC on both to keep one clock, whatever holds the time: `*time.Time`, `sql.NullTime`, an `sql.Null` of a time, a pointer to one, or an interface holding one, types built on them such as `ant.DeletedAt`, and arguments of raw queries, each element of an `IN` list included. A `driver.Valuer` of your own is passed as it is, so have it give a time in UTC. MySQL's driver does the same. A time read back is held in UTC on every database, in each of those shapes, though pgx decodes `TIMESTAMPTZ` in the process's zone. `ant.Past` and `ant.Future` compare with the server's own clock, so run the server in UTC. On SQLite and MySQL, `CURRENT_TIMESTAMP` has whole seconds.
@@ -90,6 +91,8 @@ Error helpers mean the same everywhere. `ant.IsUniqueViolation` works on all fiv
 **Parameters.** Limits differ: 65,535 on PostgreSQL and MySQL, 32,766 on SQLite, and about 2,100 on SQL Server, where ant stays at 2,000. `InsertMany`, `SaveChanges`, and `Include` split their work to fit. Your own `In` with a long list does not.
 
 **Types.** `postgres.Array`, `postgres.JSONSet`, `postgres.Vector`, and the rest of `dialect/postgres` need PostgreSQL. A `postgres.Array` holds plain values, so reading an array with a NULL element is an error, not the text `NULL`, `false`, or zero. `Collate` quotes its name, which SQL Server does not accept.
+
+A `json.RawMessage` field is `jsonb` on PostgreSQL. A column that an earlier migration made `bytea` for it is changed to `jsonb` by the next migration, which warns that the change may fail or lose data: write the conversion in a migration file of your own if the stored values need one.
 
 ## Drivers
 
