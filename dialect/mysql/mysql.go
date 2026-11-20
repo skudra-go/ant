@@ -98,6 +98,14 @@ func (impl) CheckDSN(dsn string) error {
 	return nil
 }
 
+// CountsChangedRows reports that the driver counts the rows an UPDATE altered,
+// not the rows it matched, which is what ant reads to tell a row left as it was
+// from a row that is gone. A data source name that sets clientFoundRows changes
+// that, and then the check never fires: the count is already nonzero. That is
+// harmless here, but ant does not set the option and cannot see one an
+// application set, since the dialect is given no data source name here.
+func (impl) CountsChangedRows() bool { return true }
+
 func (impl) Placeholder(n int) string { return "?" }
 
 func (impl) Quote(ident string) string { return dialect.QuoteWith(ident, "`", "`") }
