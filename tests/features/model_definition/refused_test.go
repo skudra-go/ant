@@ -284,3 +284,55 @@ func TestInheritedRelationKeepsItsKey(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, text, `"squad_id"`)
 }
+
+// Default names join columns with underscores, so an index on a_b and one on
+// (a, b) were both t_a_b_idx, and the second CREATE INDEX failed when the
+// migration ran (#112). Naming one of them settles it.
+type Pair struct {
+	ID int64
+	A  string
+	B  string
+	AB string `ant:"column=a_b"`
+}
+
+func (Pair) Configure(b *ant.ModelBuilder[Pair]) {
+	b.Index(&Pairs.AB)
+	b.Index(&Pairs.A).And(&Pairs.B)
+}
+
+type NamedPair struct {
+	ID int64
+	A  string
+	B  string
+	AB string `ant:"column=a_b"`
+}
+
+func (NamedPair) Configure(b *ant.ModelBuilder[NamedPair]) {
+	b.Table("pairs")
+	b.Index(&NamedPairs.AB)
+	b.Index(&NamedPairs.A).And(&NamedPairs.B).Name("pairs_a_then_b_idx")
+}
+
+var (
+	Pairs      = ant.Fields[Pair]()
+	NamedPairs = ant.Fields[NamedPair]()
+)
+
+func TestDefaultNamesThatCollideAreRefused(t *testing.T) {
+	_, err := ant.SchemaOf[struct {
+		ant.Context
+		Pairs ant.Table[Pair]
+	}](postgres.Dialect)
+	require.ErrorIs(t, err, ant.ErrBadSchema)
+	require.ErrorContains(
+		t,
+		err,
+		"the index on pairs (a_b) and the index on pairs (a, b) are both named pairs_a_b_idx",
+	)
+
+	_, err = ant.SchemaOf[struct {
+		ant.Context
+		Pairs ant.Table[NamedPair]
+	}](postgres.Dialect)
+	require.NoError(t, err)
+}
