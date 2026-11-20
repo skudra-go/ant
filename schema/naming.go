@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"strings"
+	"unicode/utf8"
 )
 
 // The default names follow PostgreSQL's own, so a table written by hand and one
@@ -41,5 +42,12 @@ func name(d Dialect, parts ...string) string {
 	sum := sha256.Sum256([]byte(out))
 	suffix := "_" + hex.EncodeToString(sum[:4])
 
-	return out[:limit-len(suffix)] + suffix
+	// Cut where a character starts: a cut through one left invalid UTF-8,
+	// which PostgreSQL refuses in a name (#112).
+	cut := limit - len(suffix)
+	for cut > 0 && !utf8.RuneStart(out[cut]) {
+		cut--
+	}
+
+	return out[:cut] + suffix
 }

@@ -1,6 +1,7 @@
 package ant
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
@@ -286,6 +287,10 @@ func buildSchema(d schema.Dialect, db any) (*schema.Schema, error) {
 	}
 
 	if err := b.constraints(list); err != nil {
+		return nil, err
+	}
+
+	if err := distinctNames(b.out); err != nil {
 		return nil, err
 	}
 
@@ -913,6 +918,68 @@ func (b *schemaBuilder) constraints(models []*meta.Model) error {
 					t.Indexes,
 					&schema.Index{Name: schema.IndexName(b.d, t.Name, columns...), Parts: parts},
 				)
+			}
+		}
+	}
+
+	return nil
+}
+
+// distinctNames refuses two tables, keys or indexes of one schema with one name,
+// which PostgreSQL keeps in one namespace. The default names join columns with
+// underscores, so an index on a_b and one on (a, b) both became t_a_b_idx, and
+// the second CREATE INDEX failed when the migration ran, after check had passed
+// (#112). Naming one with .Name(...) settles it.
+func distinctNames(s *schema.Schema) error {
+	owners := map[[2]string]string{}
+
+	claim := func(schemaName, name, what string) error {
+		at := [2]string{schemaName, name}
+		if other, ok := owners[at]; ok {
+			return fmt.Errorf(
+				"%w: %s and %s are both named %s: name one of them with .Name(...)",
+				ErrBadSchema,
+				other,
+				what,
+				name,
+			)
+		}
+
+		owners[at] = what
+
+		return nil
+	}
+
+	for _, t := range s.Tables {
+		ref := t.Ref().String()
+
+		if err := claim(t.Schema, t.Name, "table "+ref); err != nil {
+			return err
+		}
+
+		if k := t.PrimaryKey; k != nil {
+			if err := claim(t.Schema, k.Name, "the primary key of "+ref); err != nil {
+				return err
+			}
+		}
+
+		for _, k := range t.Uniques {
+			what := fmt.Sprintf("the unique key on %s (%s)", ref, strings.Join(k.Columns, ", "))
+			if err := claim(t.Schema, k.Name, what); err != nil {
+				return err
+			}
+		}
+
+		for _, i := range t.Indexes {
+			columns := make([]string, len(i.Parts))
+
+			for n, part := range i.Parts {
+				columns[n] = cmp.Or(part.Column, part.Expr)
+			}
+
+			what := fmt.Sprintf("the index on %s (%s)", ref, strings.Join(columns, ", "))
+			if err := claim(t.Schema, i.Name, what); err != nil {
+				return err
 			}
 		}
 	}
