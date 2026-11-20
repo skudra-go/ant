@@ -882,6 +882,8 @@ schema: func (c RenameIndex) String() string
 schema: func (c RenameTable) String() string
 schema: func (c ReorderEnum) String() string
 schema: func (c ReorderEnum) Warning() string
+schema: func (c Repartition) String() string
+schema: func (c Repartition) Warning() string
 schema: func (c SetColumnComment) String() string
 schema: func (c SetTableComment) String() string
 schema: func (h Hint) Change() Change
@@ -957,6 +959,7 @@ schema: type RenameConstraint
 schema: type RenameIndex
 schema: type RenameTable
 schema: type ReorderEnum
+schema: type Repartition
 schema: type Schema
 schema: type Sequence
 schema: type SetColumnComment

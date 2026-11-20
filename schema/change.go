@@ -580,6 +580,29 @@ func (c RemoveEnumValue) Warning() string {
 	)
 }
 
+// Repartition reports a table whose partitioning changed: added, removed, or
+// by another method or key. PostgreSQL cannot change it in place, so it needs a
+// person, and has no statements of its own.
+type Repartition struct {
+	Table    Ref
+	From, To *Partition
+}
+
+// String implements Change.
+func (c Repartition) String() string {
+	return fmt.Sprintf("repartition %s: %s to %s", c.Table, partitioning(c.From), partitioning(c.To))
+}
+
+// Warning implements Change.
+func (c Repartition) Warning() string {
+	return fmt.Sprintf(
+		"PostgreSQL cannot change how %s is partitioned. Do it by hand: create the new table %s, "+
+			"copy the rows over, and swap the names.",
+		c.Table,
+		partitioning(c.To),
+	)
+}
+
 // CreateSequence creates a sequence.
 type CreateSequence struct {
 	quiet

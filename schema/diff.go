@@ -915,6 +915,12 @@ func (p *phases) alterTable(o, t *Table, gone map[Ref]columns) {
 		p.comments = append(p.comments, SetTableComment{Table: ref, Comment: t.Comment})
 	}
 
+	// It was never compared, so a change to it gave an empty plan, and check,
+	// diff and drift all said the database matched the models (#96).
+	if !samePartitioning(o.Partition, t.Partition) {
+		p.alterColumns = append(p.alterColumns, Repartition{Table: ref, From: o.Partition, To: t.Partition})
+	}
+
 	for _, c := range t.Columns {
 		existing := o.Column(c.Name)
 

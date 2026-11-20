@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 )
 
 // Format is the version of the snapshot file format.
@@ -90,6 +91,25 @@ type Table struct {
 type Partition struct {
 	Method  string   `json:"method"` // RANGE, LIST, or HASH
 	Columns []string `json:"columns"`
+}
+
+// partitioning says how a table is partitioned, as PARTITION BY does, or that
+// it is not.
+func partitioning(p *Partition) string {
+	if p == nil {
+		return "not partitioned"
+	}
+
+	return "partitioned by " + p.Method + " (" + strings.Join(p.Columns, ", ") + ")"
+}
+
+// samePartitioning reports whether a and b partition a table the same way.
+func samePartitioning(a, b *Partition) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+
+	return strings.EqualFold(a.Method, b.Method) && slices.Equal(a.Columns, b.Columns)
 }
 
 // Ref returns the table's name.
