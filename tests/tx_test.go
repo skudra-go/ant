@@ -230,7 +230,13 @@ func TestWithoutAutoTxRetrySavesTheRest(t *testing.T) {
 	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
 		ctx := t.Context()
 
-		app, err := ant.Open[AppDB](ctx, target.Dialect, target.DSN, ant.WithTracking(true), ant.WithoutAutoTx())
+		app, err := ant.Open[AppDB](
+			ctx,
+			target.Dialect,
+			target.DSN,
+			ant.WithTracking(true),
+			ant.WithoutAutoTx(),
+		)
 		require.NoError(t, err)
 		t.Cleanup(func() { app.Close() })
 
@@ -293,7 +299,13 @@ func TestSavepointLostEndsTx(t *testing.T) {
 		ctx := t.Context()
 		ends := &endsTx{match: "Second"}
 
-		app, err := ant.Open[AppDB](ctx, target.Dialect, target.DSN, ant.WithTracking(true), ant.WithInterceptor(ends))
+		app, err := ant.Open[AppDB](
+			ctx,
+			target.Dialect,
+			target.DSN,
+			ant.WithTracking(true),
+			ant.WithInterceptor(ends),
+		)
 		require.NoError(t, err)
 		t.Cleanup(func() { app.Close() })
 

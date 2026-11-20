@@ -716,6 +716,7 @@ func TestConcurrentUse(t *testing.T) {
 		t.Run("a load after a save does not stop the rollback", func(t *testing.T) {
 			fay := &User{Name: "Fay", Email: "fay.load@example.com"}
 			gus := &User{Name: "Gus", Email: "gus.load@example.com"}
+
 			require.NoError(t, ant.Add(ctx, db, fay))
 
 			err := db.Tx(ctx, func(tx *AppDB) error {
@@ -1154,6 +1155,7 @@ func TestConcurrentUseWithTrackingOff(t *testing.T) {
 		require.ErrorIs(t, ant.Add(ctx, db, &User{Name: "Hal"}), ant.ErrNoTracking)
 		require.ErrorIs(t, ant.MarkModified(ctx, db, alice), ant.ErrNoTracking)
 		require.ErrorIs(t, ant.Remove(ctx, db, alice), ant.ErrNoTracking)
+
 		require.ErrorIs(
 			t,
 			ant.TrackGraph(ctx, db, alice, func(ant.GraphNode) ant.State { return ant.Modified }),
@@ -1185,7 +1187,10 @@ func TestConcurrentUseWithTrackingOff(t *testing.T) {
 		for i, tt := range ops {
 			t.Run("while another write runs: "+tt.name, func(t *testing.T) {
 				held := func(ctx context.Context) error {
-					return db.Users.Insert(ctx, &User{Name: "Ivy", Email: fmt.Sprint("ivy", i, "@example.com")})
+					return db.Users.Insert(
+						ctx,
+						&User{Name: "Ivy", Email: fmt.Sprint("ivy", i, "@example.com")},
+					)
 				}
 
 				require.NoError(t, h.while(t, held, func() { require.NoError(t, tt.op(ctx)) }))

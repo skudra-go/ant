@@ -54,7 +54,11 @@ func TestRollbackForgetsWhatItTracked(t *testing.T) {
 			require.ErrorIs(t, err, errStop)
 
 			// The handler goes on to write an audit row on the same session.
-			require.NoError(t, ant.Add(ctx, s, &Post{UserID: account.ID, Title: "transfer refused"}))
+			require.NoError(
+				t,
+				ant.Add(ctx, s, &Post{UserID: account.ID, Title: "transfer refused"}),
+			)
+
 			require.NoError(t, s.SaveChanges(ctx))
 			require.Equal(t, 100, stored(account.ID).Age, "the refused transfer stays rolled back")
 		})
@@ -73,6 +77,7 @@ func TestRollbackForgetsWhatItTracked(t *testing.T) {
 					}
 
 					u.Age = 1
+
 					require.NoError(t, tx.SaveChanges(ctx))
 
 					panic("boom")
@@ -158,6 +163,7 @@ func TestRollbackForgetsWhatItTracked(t *testing.T) {
 
 			require.Equal(t, 7, stored(outer.ID).Age, "the outer edit was saved")
 			require.Zero(t, stored(inner.ID).Age, "the savepoint's edit was rolled back")
+
 			require.Equal(
 				t,
 				[]string{"outer"},
