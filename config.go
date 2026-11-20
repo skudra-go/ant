@@ -629,7 +629,10 @@ func (c *ColumnBuilder) Precision(precision, scale int) *ColumnBuilder {
 }
 
 // Default sets the column's default, a SQL expression such as now() or 'draft'.
-// As with the ant:"default" tag, a zero field is left for the database to fill.
+// As with the ant:"default" tag, a zero field is left for the database to fill
+// on insert, so a bool or number field with a default never inserts false or 0.
+// Where the zero must be stored, use a pointer field with NotNull: nil takes
+// the default. An update, including an upsert's, writes the zero.
 func (c *ColumnBuilder) Default(expr string) *ColumnBuilder {
 	return c.set(func(f *meta.Field) { f.Storage.Default, f.Default = expr, true })
 }

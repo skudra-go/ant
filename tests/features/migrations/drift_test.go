@@ -83,6 +83,16 @@ func TestDrift(t *testing.T) {
 			p.sql("ALTER TABLE items DROP COLUMN hotfix")
 		})
 
+		t.Run("a default the models lack comes with a note on zero values", func(t *testing.T) {
+			p.sql("ALTER TABLE items ALTER COLUMN weight SET DEFAULT 3")
+			out, err := run[ItemDB](p, "drift")
+			require.ErrorIs(t, err, migrate.ErrDrift)
+			require.Contains(t, out, "change column items.weight: default")
+			require.Contains(t, out, "never inserts false or 0")
+			require.Contains(t, out, ".NotNull() and .Default(...)")
+			p.sql("ALTER TABLE items ALTER COLUMN weight DROP DEFAULT")
+		})
+
 		t.Run("so is a dropped index, a changed check, and a changed default", func(t *testing.T) {
 			p.sql("DROP INDEX items_label_lower_idx")
 
@@ -96,6 +106,7 @@ func TestDrift(t *testing.T) {
 			require.Contains(t, out, "create index items_label_lower_idx")
 			require.Contains(t, out, "add check items_weight_check")
 			require.Contains(t, out, "change column items.kind: default")
+			require.NotContains(t, out, "never inserts false or 0", "the models have a default")
 			require.Contains(t, out, "CREATE UNIQUE INDEX")
 		})
 	})

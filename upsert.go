@@ -71,7 +71,8 @@ func (c *Conflict) DoNothing() *Conflict {
 }
 
 // DoUpdate overwrites only the named columns of the existing row. By default,
-// every column except the key and the constraint's own is overwritten.
+// every column except the key and the constraint's own is overwritten, with the
+// entity's values, including a zero the insert leaves to a column's default.
 func (c *Conflict) DoUpdate(fields ...FieldRef) *Conflict {
 	n := *c
 	n.update = slices.Clone(c.update)

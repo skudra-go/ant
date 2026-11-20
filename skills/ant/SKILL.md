@@ -120,7 +120,9 @@ Calls that take columns of mixed types take `ant.FieldRef`, made with
 - A nullable column is a pointer or `sql.Null[T]` field. A plain field can't read
   `NULL`. Zero values are always written, never skipped.
 - Tags: `ant:"-"` (not a column), `column=name`, `unique`, `default=expr` (a zero
-  value means "use the database default"), `readonly`, `writeonly`, `immutable`,
+  value means "use the database default" on insert, so `Active bool` with
+  `default=true` never inserts `false`: make it `*bool` with `.NotNull()` where the
+  zero must be stored; updates, including an upsert's, write the zero), `readonly`, `writeonly`, `immutable`,
   `computed` (filled by `Query.With`), `version` (optimistic concurrency, a signed
   integer field),
   `embedded` / `embedded,prefix=x_`. Combine with commas.

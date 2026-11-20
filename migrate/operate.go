@@ -335,6 +335,10 @@ func (e *engine) drift(
 		e.say("  %s", change)
 	}
 
+	if slices.ContainsFunc(plan.Changes, defaultMissing) {
+		e.say("\n%s", defaultNote)
+	}
+
 	if showSQL {
 		schema.Backfill(e.d, plan)
 
@@ -563,4 +567,20 @@ func script(
 	}
 
 	return b.String(), nil
+}
+
+// defaultNote goes with a default the database has and the models lack. A
+// default in a model also says that a zero value is left to the database on
+// insert, so adding one where the zero must be stored would lose it (#192).
+const defaultNote = "A column with a default in the database has none in the models. " +
+	"A default in a model also leaves a zero value to the database on insert, so a bool or " +
+	"number field with one never inserts false or 0. Where the zero must be stored, make the " +
+	"field a pointer with .NotNull() and .Default(...): nil takes the default."
+
+// defaultMissing reports whether change gives a column the default the models
+// have, where the database has one they lack.
+func defaultMissing(change schema.Change) bool {
+	c, ok := change.(schema.AlterColumn)
+
+	return ok && c.From.Default != "" && c.To.Default == ""
 }
