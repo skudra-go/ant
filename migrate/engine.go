@@ -25,7 +25,7 @@ const (
 	Failed     State = "failed"   // it stopped partway, outside a transaction
 	Changed    State = "changed"  // applied, but its file differs
 	Missing    State = "missing"  // applied, but it has no file
-	Outdated   State = "outdated" // repeatable, and its file differs: it will rerun
+	Outdated   State = "outdated" // repeatable, and its file differs or a versioned migration ran since: it will rerun
 	Removed    State = "removed"  // repeatable, applied, and its file is gone
 	Skipped    State = "skipped"  // listed in Config.Skip
 	Late       State = "late"     // pending, and older than an applied migration
@@ -171,6 +171,10 @@ func (e *engine) entries(c *catalog, rows []record) []Entry {
 	applied := map[Kind]map[string]record{Versioned: {}, Repeatable: {}}
 	newest := ""
 
+	// lastVersioned is when the latest versioned migration was applied. A code
+	// file applied before it may define what that migration dropped or changed.
+	var lastVersioned time.Time
+
 	for _, r := range rows {
 		if applied[r.Kind] == nil {
 			continue
@@ -181,6 +185,10 @@ func (e *engine) entries(c *catalog, rows []record) []Entry {
 		if r.Kind == Versioned && r.Success &&
 			(newest == "" || compareVersions(r.Key, newest) > 0) {
 			newest = r.Key
+		}
+
+		if r.Kind == Versioned && r.Success && r.AppliedAt.After(lastVersioned) {
+			lastVersioned = r.AppliedAt
 		}
 	}
 
@@ -238,7 +246,7 @@ func (e *engine) entries(c *catalog, rows []record) []Entry {
 			entry.AppliedAt, entry.Duration, entry.Error = r.AppliedAt, r.Duration, r.Error
 			entry.State = Done
 
-			if r.Checksum != m.Checksum() || !r.Success {
+			if r.Checksum != m.Checksum() || !r.Success || r.AppliedAt.Before(lastVersioned) {
 				entry.State = Outdated
 			}
 		}
@@ -400,6 +408,7 @@ func (e *engine) up(ctx context.Context, to string) error {
 		}
 
 		count := 0
+		versioned := false
 
 		for _, entry := range entries {
 			if entry.migration == nil {
@@ -409,20 +418,19 @@ func (e *engine) up(ctx context.Context, to string) error {
 			m := *entry.migration
 
 			switch {
-			case to != "" && m.Kind == Repeatable:
-				continue
-			case to != "" && compareVersions(m.Version, to) > 0:
+			case !within(m, to):
 				continue
 			case entry.State == Absorbed:
 				if err := e.absorb(ctx, conn, m); err != nil {
 					return err
 				}
-			case entry.State == Pending, entry.State == Outdated, entry.State == Late:
+			case runs(entry), rerunsAfter(entry, versioned):
 				if err := e.apply(ctx, conn, m); err != nil {
 					return err
 				}
 
 				count++
+				versioned = versioned || m.Kind == Versioned
 			}
 		}
 
@@ -432,6 +440,30 @@ func (e *engine) up(ctx context.Context, to string) error {
 
 		return nil
 	})
+}
+
+// within reports whether up, through version to if it is set, reaches m. Through
+// a version, up applies no code file.
+func within(m Migration, to string) bool {
+	if to == "" {
+		return true
+	}
+
+	return m.Kind == Versioned && compareVersions(m.Version, to) <= 0
+}
+
+// runs reports whether up applies entry as it stands: a pending migration, or a
+// code file that is outdated.
+func runs(entry Entry) bool {
+	return slices.Contains([]State{Pending, Outdated, Late}, entry.State)
+}
+
+// rerunsAfter reports whether up reruns a code file that is up to date, because
+// versioned migrations ran before it in the same up. Such a migration may have
+// dropped a view the file defines, to change a column the view reads, and the
+// file is the only place the view is defined.
+func rerunsAfter(entry Entry, versioned bool) bool {
+	return versioned && entry.Kind == Repeatable && entry.State == Done
 }
 
 // absorb records a baseline without running it, since the database already has

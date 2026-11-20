@@ -395,18 +395,16 @@ func (e *engine) preview(ctx context.Context, to string) error {
 	}
 
 	count := 0
+	versioned := false
 
 	for _, entry := range entries {
 		m := entry.migration
-		if m == nil || (entry.State != Pending && entry.State != Outdated && entry.State != Late) {
-			continue
-		}
-
-		if to != "" && (m.Kind == Repeatable || compareVersions(m.Version, to) > 0) {
+		if m == nil || !within(*m, to) || (!runs(entry) && !rerunsAfter(entry, versioned)) {
 			continue
 		}
 
 		count++
+		versioned = versioned || m.Kind == Versioned
 
 		e.say("-- %s", m.ID())
 

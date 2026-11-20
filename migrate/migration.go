@@ -17,7 +17,10 @@ const (
 	// Versioned migrations run once, in order.
 	Versioned Kind = "versioned"
 	// Repeatable migrations run after the versioned ones, and again whenever
-	// they change. They suit views and functions.
+	// they change or a versioned migration runs, since that migration may have
+	// dropped what they define. They suit views and functions, and must be safe
+	// to run again. A versioned migration cannot use what they define, since on
+	// a new database they run after it.
 	Repeatable Kind = "repeatable"
 )
 
