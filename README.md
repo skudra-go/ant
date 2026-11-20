@@ -243,7 +243,7 @@ The [roadmap](docs/ROADMAP.md) lists what's planned, and why some items were ski
 - [Documentation](https://skudra.net): guides, recipes and reference.
 - [Feature examples](tests/features/): a short test for every feature, edge cases included
 - [ant-examples](https://github.com/skudra-go/ant-examples): small projects built on ant
-- [Roadmap](docs/ROADMAP.md) and [design decisions](docs/DECISIONS.md)
+- [Roadmap](docs/ROADMAP.md) and [design decisions](docs/decisions/README.md)
 
 ## With an AI assistant
 
