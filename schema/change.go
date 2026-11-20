@@ -90,11 +90,14 @@ func (c MoveTable) name() string {
 }
 
 // AddColumn adds a column. Backfill is a literal that fills existing rows of a
-// NOT NULL column.
+// NOT NULL column. References is the table a foreign key the plan adds on a NOT
+// NULL column points at: no literal names one of its rows, so the column is
+// added NULL and made NOT NULL after, for the rows to be filled in between.
 type AddColumn struct {
-	Table    Ref
-	Column   *Column
-	Backfill string
+	Table      Ref
+	Column     *Column
+	Backfill   string
+	References *Ref
 }
 
 // String implements Change.
@@ -107,6 +110,15 @@ func (c AddColumn) Warning() string {
 	switch {
 	case c.Column.Nullable || c.Column.Default != "" || c.Column.Identity || c.Column.Generated != "":
 		return ""
+	case c.References != nil:
+		return fmt.Sprintf(
+			"existing rows of %s need a %s that refers to a row of %s, which no default gives. "+
+				"Fill it before SET NOT NULL below, as UPDATE ... SET %s = ...; or the file fails on a table with rows.",
+			c.Table,
+			c.Column.Name,
+			c.References,
+			c.Column.Name,
+		)
 	case c.Backfill == "":
 		return fmt.Sprintf(
 			"%s.%s is NOT NULL with no default, so this fails if the table has rows. Add a default, or fill the column in steps.",

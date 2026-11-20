@@ -2,6 +2,7 @@ package schema
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -24,6 +25,15 @@ func Backfill(d Dialect, p *Plan) {
 			continue
 		}
 
+		// A foreign key comes with it, which the zero value breaks: identity
+		// keys start at 1, so every row failed it (#186).
+		if ref, ok := referenced(p, add); ok {
+			add.References = &ref
+			p.Changes[i] = add
+
+			continue
+		}
+
 		add.Backfill = d.Zero(add.Column.Type)
 
 		values := p.values[add.Column.Type]
@@ -37,6 +47,19 @@ func Backfill(d Dialect, p *Plan) {
 
 		p.Changes[i] = add
 	}
+}
+
+// referenced returns the table a foreign key the plan adds on add's column
+// points at.
+func referenced(p *Plan, add AddColumn) (Ref, bool) {
+	for _, c := range p.Changes {
+		if key, ok := c.(AddForeignKey); ok && key.Table == add.Table &&
+			slices.Contains(key.Key.Columns, add.Column.Name) {
+			return Ref{key.Key.RefSchema, key.Key.RefTable}, true
+		}
+	}
+
+	return Ref{}, false
 }
 
 // unquote reads a name written in double quotes, with a quote in it doubled.

@@ -469,6 +469,16 @@ func (d impl) Statements(change schema.Change) ([]string, error) {
 
 		return out, nil
 	case schema.AddColumn:
+		if c.References != nil {
+			// Added NULL, for the rows to be filled, then made NOT NULL: see
+			// the change.
+			open := *c.Column
+			open.Nullable = true
+
+			return append(alter(c.Table, "ADD COLUMN "+d.column(&open)),
+				alter(c.Table, "ALTER COLUMN "+d.Quote(c.Column.Name)+" SET NOT NULL")...), nil
+		}
+
 		if c.Backfill == "" {
 			return alter(c.Table, "ADD COLUMN "+d.column(c.Column)), nil
 		}
