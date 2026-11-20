@@ -821,17 +821,17 @@ func TestProbeDefaults(t *testing.T) {
 			t.Errorf("bulk Set of zero values: %+v", got)
 		}
 
-		// Upserting the zero value over an existing row with explicit values.
+		// Upserting the zero value over an existing row writes the zero, as
+		// Update does: only the insert leaves it to the database (#142).
 		over := &prDefaulted{Name: "many2"}
 		ok, err = db.Rows.Upsert(ctx, over, ant.OnConflict(&f.Name))
 		require.NoError(t, err)
 		require.True(t, ok)
 
-		t.Logf(
-			"Upsert{Name only} over {Score:3, Label:\"\"}: score=%d label=%v (zero = left for the database => default 7/'dflt')",
-			over.Score,
-			over.Label,
-		)
+		got = read("many2")
+		if got.Score != 0 || got.Label != nil || over.Score != 0 || over.Label != nil {
+			t.Errorf("Upsert{Name only} over {Score:3, Label:\"\"}: stored %+v, entity %+v (want the zeros)", got, over)
+		}
 	})
 }
 

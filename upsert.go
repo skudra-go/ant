@@ -112,7 +112,12 @@ func (c *Conflict) Set(assignments ...Assignment) *Conflict {
 // version is ant's to keep, so naming it is an error. An update also sets
 // UpdatedAt to now, unless the clause assigns it: the inserted row's value is
 // the struct's, which for a loaded copy is the time it was last saved.
-func (c *Conflict) clause(model *meta.Model, now time.Time) (*qb.Conflict, error) {
+//
+// The update overwrites a column with the row the insert offers, except where
+// the insert leaves the column to the database: a zero field with a default,
+// whose offered value is the database's default. There it writes what e holds,
+// zero or not, as Update would (#142). E is nil when the clause is only checked.
+func (c *Conflict) clause(model *meta.Model, now time.Time, e unsafe.Pointer) (*qb.Conflict, error) {
 	out := &qb.Conflict{Columns: c.columns}
 
 	if c.nothing {
@@ -133,10 +138,13 @@ func (c *Conflict) clause(model *meta.Model, now time.Time) (*qb.Conflict, error
 	}
 
 	for _, name := range names {
-		out.Set = append(
-			out.Set,
-			qb.Assignment{Column: name, Value: qb.Column{Alias: "excluded", Name: name}},
-		)
+		var value qb.Expr = qb.Column{Alias: "excluded", Name: name}
+
+		if f := model.Column(name); e != nil && f != nil && f.Default && f.Value(e).IsZero() {
+			value = fieldParam(f, f.Value(e).Interface())
+		}
+
+		out.Set = append(out.Set, qb.Assignment{Column: name, Value: value})
 	}
 
 	out.Set = append(out.Set, c.set...)
@@ -273,8 +281,9 @@ func (t *Table[T]) Upsert(ctx context.Context, e *T, conflict *Conflict) (bool, 
 		return false, fmt.Errorf("%w: %s", ErrReadOnly, model.Type.Name())
 	}
 
-	clause, err := conflict.clause(model, t.state.settings.timestamp())
-	if err != nil {
+	now := t.state.settings.timestamp()
+
+	if _, err := conflict.clause(model, now, nil); err != nil {
 		return false, err
 	}
 
@@ -290,9 +299,6 @@ func (t *Table[T]) Upsert(ctx context.Context, e *T, conflict *Conflict) (bool, 
 		return false, err
 	}
 
-	// A copy that carries a version updates only the row it was loaded from.
-	checked := t.versionCheck(model, unsafe.Pointer(e), clause)
-
 	// The keys the database fills in, taken back if the write is.
 	for _, f := range model.Keys {
 		if f.FromDatabase() && f.Value(n.entity).IsZero() {
@@ -302,6 +308,18 @@ func (t *Table[T]) Upsert(ctx context.Context, e *T, conflict *Conflict) (bool, 
 
 	u := newUnit(t.state)
 	u.stamp(n)
+
+	// The clause is made from e as the hooks and stamps left it, as the insert
+	// is, so that both leave the same columns to the database.
+	clause, err := conflict.clause(model, now, unsafe.Pointer(e))
+	if err != nil {
+		return false, err
+	}
+
+	// A copy that carries a version updates only the row it was loaded from. A
+	// new entity, whose version only the stamp gave it, has none to check.
+	checked := !slices.Contains(n.stamped, model.Version) &&
+		t.versionCheck(model, unsafe.Pointer(e), clause)
 
 	stmt := insertStatement(model, unsafe.Pointer(e))
 	stmt.Conflict = clause
@@ -500,7 +518,7 @@ func (t *Table[T]) InsertMany(
 	}
 
 	if o.conflict != nil {
-		if _, err := o.conflict.clause(model, time.Time{}); err != nil {
+		if _, err := o.conflict.clause(model, time.Time{}, nil); err != nil {
 			return 0, err
 		}
 	}
@@ -520,8 +538,14 @@ func (t *Table[T]) InsertMany(
 
 	key := model.Key()
 
+	groups := keyGroups(model, entities)
+
+	if o.conflict != nil && !o.conflict.nothing {
+		groups = defaultGroups(model, groups)
+	}
+
 	err = t.state.transact(ctx, true, func(to exec.Executor) error {
-		for _, group := range keyGroups(model, entities) {
+		for _, group := range groups {
 			generated := key != nil && key.Generated && key.Value(unsafe.Pointer(group[0])).IsZero()
 			columns := insertColumns(model, generated)
 
@@ -582,6 +606,54 @@ func keyGroups[T any](model *meta.Model, entities []*T) [][]*T {
 	return slices.DeleteFunc([][]*T{generated, supplied}, func(g []*T) bool { return len(g) == 0 })
 }
 
+// defaultGroups splits each group by which columns with a default its entities
+// leave zero. The insert leaves those to the database, and a conflict's update
+// writes what the rows hold there instead, so each statement holds rows that
+// leave the same columns zero, and its update writes their zero.
+func defaultGroups[T any](model *meta.Model, groups [][]*T) [][]*T {
+	var defaulted []*meta.Field
+
+	for _, f := range model.Writable() {
+		if f.Default {
+			defaulted = append(defaulted, f)
+		}
+	}
+
+	if len(defaulted) == 0 {
+		return groups
+	}
+
+	var out [][]*T
+
+	pattern := make([]byte, len(defaulted))
+
+	for _, group := range groups {
+		index := map[string]int{}
+		first := len(out)
+
+		for _, e := range group {
+			for i, f := range defaulted {
+				pattern[i] = '0'
+
+				if f.Value(unsafe.Pointer(e)).IsZero() {
+					pattern[i] = '1'
+				}
+			}
+
+			i, ok := index[string(pattern)]
+			if !ok {
+				i = len(out) - first
+				index[string(pattern)] = i
+				out = append(out, nil)
+			}
+
+			out[first+i] = append(out[first+i], e)
+		}
+	}
+
+	return out
+}
+
 func insertColumns(model *meta.Model, generated bool) []*meta.Field {
 	if !generated {
 		return model.Writable()
@@ -619,7 +691,9 @@ func (t *Table[T]) insertBatch(
 	}
 
 	if conflict != nil {
-		clause, err := conflict.clause(model, t.state.settings.timestamp())
+		// The rows of a batch leave the same columns to their defaults, so the
+		// first one's values there are every row's.
+		clause, err := conflict.clause(model, t.state.settings.timestamp(), unsafe.Pointer(batch[0]))
 		if err != nil {
 			return 0, err
 		}

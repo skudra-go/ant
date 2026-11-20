@@ -370,6 +370,135 @@ func TestConformanceUpsert(t *testing.T) {
 	})
 }
 
+// Defaulted has columns the database fills when the entity leaves them zero.
+type Defaulted struct {
+	ID    int64
+	Email string
+	Score int  `ant:"default=10"`
+	Tier  *int `ant:"default=3"`
+}
+
+func (Defaulted) Configure(b *ant.ModelBuilder[Defaulted]) {
+	b.Table("conf_defaulteds")
+	b.Index(&Defaulteds.Email).Unique()
+}
+
+var Defaulteds = ant.Fields[Defaulted]()
+
+type DefaultedDB struct {
+	ant.Context
+	Rows ant.Table[Defaulted]
+}
+
+// A zero field with a default is left to the database on insert, but the
+// update an upsert makes writes the value the entity holds, as Update does: the
+// row an insert offers holds the database's default in that column, and copying
+// it set a user that was synced as inactive back to active (#142). Each
+// InsertMany statement holds rows that leave the same columns to their
+// defaults, so each can write the value its rows hold.
+func TestConformanceUpsertZeroDefault(t *testing.T) {
+	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
+		if !has(target, dialect.OnConflict) {
+			t.Skip("no upsert on " + target.Name)
+		}
+
+		ctx := t.Context()
+		_, err := target.DB.ExecContext(ctx, `CREATE TABLE conf_defaulteds (
+			id BIGINT PRIMARY KEY,
+			email VARCHAR(50) NOT NULL UNIQUE,
+			score INT NOT NULL DEFAULT 10,
+			tier INT DEFAULT 3)`)
+		require.NoError(t, err)
+
+		t.Cleanup(func() {
+			_, _ = target.DB.ExecContext(context.Background(), "DROP TABLE conf_defaulteds")
+		})
+
+		db, err := ant.Open[DefaultedDB](ctx, target.Dialect, target.DSN)
+		require.NoError(t, err)
+		t.Cleanup(func() { db.Close() })
+
+		five := 5
+		stored := func(email string) (int, *int) {
+			t.Helper()
+
+			row, err := db.Rows.NoTracking().Where(ant.Eq(&Defaulteds.Email, email)).Single(ctx)
+			require.NoError(t, err)
+
+			return row.Score, row.Tier
+		}
+
+		for i, email := range []string{"a@x", "b@x", "c@x", "d@x", "e@x"} {
+			require.NoError(t, db.Rows.Insert(ctx, &Defaulted{ID: int64(i + 1), Email: email, Score: 5, Tier: &five}))
+		}
+
+		t.Run("the update writes the zero it was given", func(t *testing.T) {
+			e := &Defaulted{ID: 100, Email: "a@x"}
+			_, err := db.Rows.Upsert(ctx, e, ant.OnConflict(&Defaulteds.Email))
+			require.NoError(t, err)
+
+			score, tier := stored("a@x")
+			require.Equal(t, 0, score)
+			require.Nil(t, tier)
+			require.Equal(t, 0, e.Score, "the entity gets the stored row")
+			require.Nil(t, e.Tier)
+			require.EqualValues(t, 1, e.ID)
+		})
+
+		t.Run("a column named in DoUpdate too", func(t *testing.T) {
+			e := &Defaulted{ID: 100, Email: "b@x"}
+			_, err := db.Rows.Upsert(ctx, e, ant.OnConflict(&Defaulteds.Email).DoUpdate(ant.F(&Defaulteds.Score)))
+			require.NoError(t, err)
+
+			score, tier := stored("b@x")
+			require.Equal(t, 0, score)
+			require.Equal(t, 5, *tier, "a column DoUpdate leaves out keeps its value")
+		})
+
+		t.Run("an insert still gets the defaults", func(t *testing.T) {
+			e := &Defaulted{ID: 50, Email: "new@x"}
+			inserted, err := db.Rows.Upsert(ctx, e, ant.OnConflict(&Defaulteds.Email))
+			require.NoError(t, err)
+			require.True(t, inserted)
+			require.Equal(t, 10, e.Score)
+			require.Equal(t, 3, *e.Tier)
+		})
+
+		t.Run("InsertMany, rows that differ in what they leave zero", func(t *testing.T) {
+			if !has(target, dialect.DefaultKeyword) {
+				t.Skip("no DEFAULT in a VALUES list on " + target.Name)
+			}
+
+			seven := 7
+			rows := []*Defaulted{
+				{ID: 200, Email: "c@x"},
+				{ID: 201, Email: "d@x", Score: 7, Tier: &seven},
+				{ID: 202, Email: "e@x", Score: 7},
+				{ID: 203, Email: "many@x"},
+			}
+
+			_, err := db.Rows.InsertMany(ctx, rows, ant.WithConflict(ant.OnConflict(&Defaulteds.Email)))
+			require.NoError(t, err)
+
+			score, tier := stored("c@x")
+			require.Equal(t, 0, score)
+			require.Nil(t, tier)
+
+			score, tier = stored("d@x")
+			require.Equal(t, 7, score)
+			require.Equal(t, 7, *tier)
+
+			score, tier = stored("e@x")
+			require.Equal(t, 7, score)
+			require.Nil(t, tier)
+
+			score, tier = stored("many@x")
+			require.Equal(t, 10, score, "a new row gets the defaults")
+			require.Equal(t, 3, *tier)
+		})
+	})
+}
+
 // A rolled back Upsert takes back what it filled in, as a rolled back Insert
 // does: the generated key and the timestamps, and the entity is no longer
 // tracked, so the next save inserts it.
