@@ -1223,6 +1223,7 @@ func (r *renderer) conflict(s *qb.Insert) {
 		r.write(" (")
 		list(r, c.Columns, r.quote)
 		r.write(")")
+		r.where(c.Target)
 	}
 
 	if len(c.Set) == 0 {

@@ -491,9 +491,12 @@ type Select struct {
 	Lock      *Lock
 }
 
-// Conflict is an ON CONFLICT clause. With no Set it does nothing.
+// Conflict is an ON CONFLICT clause. With no Set it does nothing. Target is
+// the predicate of a partial unique index on Columns, which the database
+// matches only when the clause repeats it; Where limits the update.
 type Conflict struct {
 	Columns []string
+	Target  []Cond
 	Set     []Assignment
 	Where   []Cond
 }

@@ -123,7 +123,7 @@ func (c *Conflict) clause(
 	now time.Time,
 	e unsafe.Pointer,
 ) (*qb.Conflict, error) {
-	out := &qb.Conflict{Columns: c.columns}
+	out := &qb.Conflict{Columns: c.columns, Target: partialTarget(model, c.columns)}
 
 	if c.nothing {
 		return out, nil
@@ -170,6 +170,56 @@ func (c *Conflict) clause(
 	}
 
 	return out, nil
+}
+
+// partialTarget returns the predicate of the partial unique index on exactly the
+// conflict's columns, which PostgreSQL and SQLite match to ON CONFLICT only when
+// the statement repeats it: a soft-deleted model keeps its emails unique that
+// way, and an upsert by email found no constraint (#150). Columns that a key or
+// another unique index covers whole need none, and two partial indexes on them
+// leave the database to say which it can't choose.
+func partialTarget(model *meta.Model, columns []string) []qb.Cond {
+	if len(columns) == 0 {
+		return nil
+	}
+
+	same := func(fields []*meta.Field) bool {
+		return len(fields) == len(columns) && !slices.ContainsFunc(fields, func(f *meta.Field) bool {
+			return f == nil || !slices.Contains(columns, f.Column)
+		})
+	}
+
+	if same(model.Keys) {
+		return nil
+	}
+
+	if f := model.Column(columns[0]); len(columns) == 1 && f != nil && f.Unique {
+		return nil
+	}
+
+	var partial []*meta.Index
+
+	for _, idx := range model.Indexes {
+		fields := make([]*meta.Field, len(idx.Parts))
+
+		for i, p := range idx.Parts {
+			fields[i] = p.Field
+		}
+
+		switch {
+		case !idx.Unique || !same(fields):
+		case idx.Where == "":
+			return nil
+		default:
+			partial = append(partial, idx)
+		}
+	}
+
+	if len(partial) != 1 {
+		return nil
+	}
+
+	return []qb.Cond{qb.Fragment{SQL: partial[0].Where}}
 }
 
 // managedColumns refuses an update that names a column ant keeps itself: the
