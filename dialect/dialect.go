@@ -49,6 +49,17 @@ type DSNChecker interface {
 	CheckDSN(dsn string) error
 }
 
+// ChangedRowsOnly is implemented by a dialect whose driver counts only the rows
+// an UPDATE altered, not the rows it matched. Saving a value a row already
+// holds then reports zero, which reads as the row having gone, so ant checks
+// the row is still there before it calls that a conflict. Implementing this
+// says nothing about INSERT: a conflict that changed nothing still reports
+// zero, and ant keeps reading that as "the conflict did nothing".
+type ChangedRowsOnly interface {
+	// CountsChangedRows reports whether affected counts changed rows only.
+	CountsChangedRows() bool
+}
+
 // QuoteWith wraps ident in open and close, doubling any embedded close.
 func QuoteWith(ident, open, close string) string {
 	return open + strings.ReplaceAll(ident, close, close+close) + close

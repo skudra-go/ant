@@ -1727,6 +1727,136 @@ type LedgerDB struct {
 	Ledgers ant.Table[Ledger]
 }
 
+// Badge has no timestamp and no version, so saving the values it already
+// holds changes nothing the database would count.
+type Badge struct {
+	ID   int64
+	Code string
+}
+
+func (Badge) Configure(b *ant.ModelBuilder[Badge]) {
+	b.Table("badges")
+}
+
+var Badges = ant.Fields[Badge]()
+
+type BadgeDB struct {
+	ant.Context
+	Badges ant.Table[Badge]
+}
+
+// Saving the values a row already holds is not a conflict. MySQL reports the
+// rows an UPDATE changed rather than the rows it matched, so a write that
+// matched a row and altered nothing counts zero there; ant has to tell that
+// apart from the row having gone. A timestamp or a version hides this: either
+// one moves on every save, so the row always changes.
+func TestConformanceSaveOfUnchangedValues(t *testing.T) {
+	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
+		ctx := t.Context()
+		_, err := target.DB.ExecContext(ctx, `CREATE TABLE badges (
+			id BIGINT PRIMARY KEY,
+			code VARCHAR(20) NOT NULL)`)
+		require.NoError(t, err)
+
+		t.Cleanup(func() {
+			_, _ = target.DB.ExecContext(context.Background(), "DROP TABLE badges")
+		})
+
+		db, err := ant.Open[BadgeDB](ctx, target.Dialect, target.DSN, ant.WithTracking(true))
+		require.NoError(t, err)
+
+		t.Cleanup(func() { _ = db.Close() })
+
+		// The key is set here rather than generated, so the table is written the
+		// same way on every database.
+		badge := &Badge{ID: 1, Code: "unchanged"}
+		require.NoError(t, db.Badges.Insert(ctx, badge))
+
+		loaded, err := db.Badges.Find(ctx, badge.ID)
+		require.NoError(t, err)
+
+		// The client sends back what the row already has, as a PUT with an
+		// unchanged body does. MarkModified is what makes ant write the row
+		// anyway: setting a field to the value it already holds otherwise
+		// leaves the entity unchanged and no statement is sent at all.
+		require.NoError(t, ant.MarkModified(ctx, db, loaded))
+
+		require.NoError(t, db.SaveChanges(ctx), "a save of the values a row already holds")
+	})
+}
+
+// The check that a row the write matched and left unchanged is still there must
+// read what the write saw. Inside a transaction it does: at REPEATABLE READ a
+// plain read answers from the transaction's snapshot, which can still hold a row
+// another transaction took away, so the save would report success over a row
+// that is gone. Here the row a second connection deletes is what the save has
+// to notice (#215).
+//
+// MySQL only: MariaDB refuses the UPDATE itself with error 1020 once the row
+// moved past the transaction's snapshot, so it never reaches the check this
+// test covers. Its own behaviour is already what the test asks for.
+func TestConformanceSaveOfUnchangedValuesInTx(t *testing.T) {
+	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
+		if !has(target, dialect.RowLocks) {
+			t.Skip("no row locks")
+		}
+
+		if target.Dialect.Name() != "mysql" {
+			t.Skip("the write fails before the check on " + target.Name)
+		}
+
+		ctx := t.Context()
+		_, err := target.DB.ExecContext(ctx, `CREATE TABLE badges (
+			id BIGINT PRIMARY KEY,
+			code VARCHAR(20) NOT NULL)`)
+		require.NoError(t, err)
+
+		t.Cleanup(func() {
+			_, _ = target.DB.ExecContext(context.Background(), "DROP TABLE badges")
+		})
+
+		db, err := ant.Open[BadgeDB](ctx, target.Dialect, target.DSN, ant.WithTracking(true))
+		require.NoError(t, err)
+
+		t.Cleanup(func() { _ = db.Close() })
+
+		badge := &Badge{ID: 1, Code: "unchanged"}
+		require.NoError(t, db.Badges.Insert(ctx, badge))
+
+		err = db.Tx(ctx, func(tx *BadgeDB) error {
+			// NoTracking, because the insert above put this row in the tracker
+			// and a tracked Find would answer from it without asking the
+			// database. This read is what fixes the transaction's snapshot, and
+			// it has to reach the database to do that.
+			if _, err := tx.Badges.NoTracking().Find(ctx, badge.ID); err != nil {
+				return err
+			}
+
+			// The second connection deletes and commits after that read, so the
+			// row is gone from the database. The tracked read below still sees
+			// it, since the snapshot this transaction reads from predates the
+			// delete.
+			if _, err := target.DB.ExecContext(ctx, `DELETE FROM badges WHERE id = 1`); err != nil {
+				return err
+			}
+
+			loaded, err := tx.Badges.Find(ctx, badge.ID)
+			if err != nil {
+				return err
+			}
+
+			if err := ant.MarkModified(ctx, tx, loaded); err != nil {
+				return err
+			}
+
+			return tx.SaveChanges(ctx)
+		})
+
+		var conflict *ant.ConcurrencyError
+		require.ErrorAs(t, err, &conflict, "a save over a row another transaction deleted")
+	})
+}
+
 // A version the application copies into a loaded entity, as a PUT handler does
 // with the one its client sent, is the version it says it saw, so the save
 // checks that one: a stale copy is refused, on update and delete alike, and the
