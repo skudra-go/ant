@@ -436,10 +436,15 @@ SELECT pg_catalog.set_config('search_path', '', false);
 	})
 }
 
-// Files from other tools often manage their own transaction, which still works.
+// Files from other tools often manage their own transaction. ant runs each file
+// in one, which their COMMIT would end, so such a file says it runs without
+// one, and then runs as written. TestFileBodyIsChecked has the refusal.
 func TestMigrationWithItsOwnTransaction(t *testing.T) {
 	each(t, func(t *testing.T, p *project) {
-		p.write("versions/0001_own.up.sql", "BEGIN;\nCREATE TABLE own (id int);\nCOMMIT;\n")
+		p.write(
+			"versions/0001_own.up.sql",
+			"-- ant:no-transaction\nBEGIN;\nCREATE TABLE own (id int);\nCOMMIT;\n",
+		)
 		p.write("versions/0002_next.up.sql", "CREATE TABLE after_own (id int);")
 		must[V1DB](p, "up")
 		require.NotEmpty(t, p.columns("after_own"))

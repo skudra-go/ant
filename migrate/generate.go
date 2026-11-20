@@ -120,6 +120,10 @@ func (t *tool) diff(ctx context.Context, name string, renames []string, empty, d
 		return err
 	}
 
+	if err := t.inStep(ctx, c); err != nil {
+		return err
+	}
+
 	if empty {
 		return t.writeEmpty(ctx, store, c, name, dry)
 	}
@@ -399,6 +403,38 @@ func withoutMetaCommands(text string) string {
 	return b.String()
 }
 
+// inStep fails if the snapshot was not written for the newest migration file,
+// so a diff from it would be measured from the wrong place. A snapshot written
+// for a file that is gone is one whose change no file holds any more: diff
+// found no changes, as the snapshot had them, and running snapshot then made
+// check pass with the change in no migration at all (#179).
+func (t *tool) inStep(ctx context.Context, c *catalog) error {
+	old, err := t.snapshot(ctx)
+	if err != nil || old == nil || old.Latest == "" {
+		return err
+	}
+
+	if !slices.ContainsFunc(c.versioned, func(m Migration) bool { return m.ID() == old.Latest }) {
+		return fmt.Errorf(
+			"%w: it was written for %s, which has no file. If you deleted that file to write "+
+				"it again, put back the snapshot it replaced, from git, then run diff",
+			ErrStaleSnapshot,
+			old.Latest,
+		)
+	}
+
+	if last := c.lastFile(); last != nil && old.Latest != last.ID() {
+		return fmt.Errorf(
+			"%w: it was written for %s, and the newest file is %s. After a merge, renumber if needed, then run snapshot",
+			ErrStaleSnapshot,
+			old.Latest,
+			last.ID(),
+		)
+	}
+
+	return nil
+}
+
 // check fails if the migration files and models are not in step. It needs no
 // database, so it suits CI.
 func (t *tool) check(ctx context.Context) error {
@@ -407,19 +443,8 @@ func (t *tool) check(ctx context.Context) error {
 		return err
 	}
 
-	old, err := t.snapshot(ctx)
-	if err != nil {
+	if err := t.inStep(ctx, c); err != nil {
 		return err
-	}
-
-	if last := c.lastFile(); last != nil && old != nil && old.Latest != "" &&
-		old.Latest != last.ID() {
-		return fmt.Errorf(
-			"%w: it was written for %s, and the newest file is %s. After a merge, renumber if needed, then run snapshot",
-			ErrStaleSnapshot,
-			old.Latest,
-			last.ID(),
-		)
 	}
 
 	plan, _, err := t.plan(ctx, nil)
