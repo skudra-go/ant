@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -437,3 +438,99 @@ func TestUpsertHooks(t *testing.T) {
 		})
 	})
 }
+
+// An After hook runs once the row is written, so what it sets on its entity is
+// a change still to save, such as a slug made from the new key (#108).
+type Story struct {
+	ID    int64
+	Name  string
+	Slug  string
+	Edits int
+}
+
+func (s *Story) AfterInsert(context.Context) error {
+	s.Slug = fmt.Sprintf("%s-%d", s.Name, s.ID)
+
+	return nil
+}
+
+func (s *Story) AfterUpdate(context.Context) error {
+	s.Edits++
+
+	return nil
+}
+
+type StoriesDB struct {
+	ant.Context
+	Stories ant.Table[Story]
+}
+
+func TestAfterHookChangesAreSaved(t *testing.T) {
+	ddl := `CREATE TABLE stories (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL,
+		slug TEXT NOT NULL, edits INT NOT NULL)`
+
+	fixture.RunTrackedWith(t, ddl, func(t *testing.T, db *StoriesDB) {
+		ctx := t.Context()
+		stored := func(id int64) *Story {
+			t.Helper()
+
+			got, err := db.Stories.NoTracking().Find(ctx, id)
+			require.NoError(t, err)
+
+			return got
+		}
+
+		for _, c := range []struct {
+			name   string
+			insert func(*StoriesDB, *Story) error
+		}{
+			{"Insert", func(db *StoriesDB, s *Story) error { return db.Stories.Insert(ctx, s) }},
+			{"SaveChanges", func(db *StoriesDB, s *Story) error {
+				if err := ant.Add(ctx, db, s); err != nil {
+					return err
+				}
+
+				return db.SaveChanges(ctx)
+			}},
+			{"Upsert", func(db *StoriesDB, s *Story) error {
+				_, err := db.Stories.Upsert(ctx, s, ant.OnConflict(&Stories.ID))
+
+				return err
+			}},
+		} {
+			t.Run(c.name, func(t *testing.T) {
+				session := ant.Session(db)
+				s := &Story{Name: "x"}
+				require.NoError(t, c.insert(session, s))
+				require.Equal(t, fmt.Sprintf("x-%d", s.ID), s.Slug)
+				require.Empty(t, stored(s.ID).Slug, "the row was written before the hook ran")
+
+				changed, err := session.HasChanges(ctx)
+				require.NoError(t, err)
+				require.True(t, changed, "the hook's edit is still to save")
+
+				require.NoError(t, session.SaveChanges(ctx))
+				require.Equal(t, s.Slug, stored(s.ID).Slug)
+				require.Equal(t, 1, s.Edits, "AfterUpdate ran for that save")
+
+				// Each save's AfterUpdate leaves one more edit to save, so a
+				// hook that always changes its entity always has more.
+				require.Equal(t, 0, stored(s.ID).Edits)
+				require.NoError(t, session.SaveChanges(ctx))
+				require.Equal(t, 1, stored(s.ID).Edits)
+			})
+		}
+
+		t.Run("with no hooks there is nothing left", func(t *testing.T) {
+			session := ant.Session(db)
+			s := &Story{Name: "y"}
+			require.NoError(t, session.Stories.Insert(ant.WithoutHooks(ctx), s))
+
+			changed, err := session.HasChanges(ctx)
+			require.NoError(t, err)
+			require.False(t, changed)
+		})
+	})
+}
+
+var Stories = ant.Fields[Story]()
