@@ -45,7 +45,8 @@ Running them (needs a database):
   drift                  compare the live database with the migrations
     --sql                  also print SQL that would close the gap
   db-show                summarize the live database
-  baseline [version]     record migrations as applied without running them
+  baseline [version]     record migrations as applied without running them, through
+                           version; with none, only if one is left to record
   repair                 accept changed files, clear failed runs, forget missing files
   seed [name...]         run data seeders
   reset                  delete everything in the database and apply all migrations
