@@ -48,7 +48,7 @@ Error helpers mean the same everywhere. `ant.IsUniqueViolation` works on all fiv
 
 ## What differs
 
-**Generated keys.** MySQL has no `RETURNING`, so a key comes from `LastInsertId`, and other database-filled columns are read back with a second query. Rows with generated keys go in one at a time there, in both `SaveChanges` and `InsertMany`.
+**Generated keys.** MySQL has no `RETURNING`, so a key comes from `LastInsertId`, and other database-filled columns are read back with a second query. Rows with generated keys go in one at a time there, in both `SaveChanges` and `InsertMany`. That query finds the row by its key, so a model with no key keeps the zero values it was given in its database-filled columns there, and a key the database fills other than through `AUTO_INCREMENT` (a `Default` on the key) is refused with `ErrUnsupported`.
 
 **`ON DUPLICATE KEY` on MySQL and MariaDB.** It has no target: any unique key triggers it, not only the columns you name. If a different key is the one that collides, `Upsert` cannot find the row by your columns, and reports that it wrote nothing. Name the only unique key that can collide. It also takes no `WHERE`, but an `Upsert` of a copy that carries a version checks it all the same: each assignment keeps the stored value unless the version matches, and a copy that is out of date changes nothing and gets `ErrConcurrency`. This reads the affected-row count, so leave the driver's `clientFoundRows` off, as it is by default.
 

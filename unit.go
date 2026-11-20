@@ -1389,6 +1389,9 @@ func (u *unit) create(ctx context.Context, to exec.Executor, n *node) error {
 
 // createThenRead inserts on a database with no RETURNING: the key comes from
 // LastInsertId, and anything else the database filled is read back by that key.
+// So the key has to be known once the row is in, and a model with no key has
+// nothing to find its row by: what the database filled is left unread, where
+// reading by no condition took another row's values (#109).
 func (u *unit) createThenRead(
 	ctx context.Context,
 	to exec.Executor,
@@ -1396,6 +1399,18 @@ func (u *unit) createThenRead(
 	stmt *qb.Insert,
 	returning []*meta.Field,
 ) error {
+	for _, f := range n.model.Keys {
+		if slices.Contains(returning, f) && (f != n.model.Key() || !f.Generated) {
+			return fmt.Errorf(
+				"%w: %s.%s is a key the database fills, which %s can only report through RETURNING",
+				ErrUnsupported,
+				n.model.Type.Name(),
+				f.Name,
+				u.s.dialect.Name(),
+			)
+		}
+	}
+
 	text, args, err := u.s.dialect.Render(stmt)
 	if err != nil {
 		return err
@@ -1427,6 +1442,10 @@ func (u *unit) createThenRead(
 
 		rest = append(rest, qb.Selected{Value: qb.Column{Name: f.Column}})
 		dest = append(dest, f.Addr(n.entity))
+	}
+
+	if len(n.model.Keys) == 0 {
+		return nil
 	}
 
 	n.generated = returning
