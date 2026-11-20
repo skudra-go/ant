@@ -435,7 +435,8 @@ func withoutRoles(d schema.Dialect, text string) (string, int) {
 	)
 
 	for line := range strings.Lines(text) {
-		if statement, ok := strings.CutSuffix(strings.TrimSpace(line), ";"); ok && roles[statement] {
+		statement, whole := strings.CutSuffix(strings.TrimSpace(line), ";")
+		if whole && roles[statement] {
 			removed++
 
 			continue
