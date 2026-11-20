@@ -1,12 +1,33 @@
 # Roadmap
 
-The full list of features ant plans to implement, derived from feature catalogs of EF Core, Eloquent, and the Go libraries. Overlapping features from different libraries are merged into one line. Anything not scheduled is listed under [Not planned](#not-planned).
+Every feature ant has, or has decided about, grouped by area. The list comes from the feature catalogs of EF Core, Eloquent, and the Go libraries, with features that overlap merged into one line.
 
-API names are targets and may change until the v1.0 freeze. Features with no public API yet have none listed.
+- `[x]` is shipped. The API named is the one to use.
+- `[ ]` is not, and the reason is under it, as `Skipped:`. Read it before working on the item: most record a decision, and some name the owner as the one to make it.
+- [Not planned](#not-planned) lists what ant leaves out on purpose.
 
-## v0.1 Foundations
+Releases are the git tags (`git tag`, or the GitHub releases page). This file does not follow them: items are grouped by what they are, not by when they shipped. Design decisions behind an item are in [`docs/decisions/`](decisions/README.md).
 
-### Model definition and mapping
+## Standing goals
+
+The work keeps to these. A change that breaks one needs a decision.
+
+- No public query API takes `any`, except the arguments of raw SQL.
+- `Include` runs exactly one extra statement per relation.
+- Zero values are written when they changed, and nothing is written when nothing changed.
+- Every test passes on every database it targets. A feature a database lacks returns a documented error, and per-dialect skips are only for those differences.
+- Paging and chunking are tested with at least 100,000 rows.
+- Composite keys work with `Find`, `Include`, and `SaveChanges`.
+- Hooks, interceptors, and observers each have tests of their order.
+- Sensitive values never appear in default logs, which a test checks.
+- Tracing adds no dependency to the root package.
+- A model change produces SQL with no database connection, and that SQL applies cleanly on PostgreSQL, the database with migrations. `check` fails CI when the models and the snapshot differ. Replacing `migrate.Source` is covered by a test.
+- The analyzer runs under `go vet -vettool`.
+- Fixtures and factories are used by ant's own integration suite.
+- Benchmarks are published and reproducible.
+- The security review has no open high-severity findings.
+
+## Model definition and mapping
 
 - [x] Plain struct models with no required base type
 - [x] Embeddable base: `ant.Base`
@@ -21,308 +42,7 @@ API names are targets and may change until the v1.0 freeze. Features with no pub
 - [x] Fluent configuration: `Configure(b *ant.ModelBuilder[E])`
 - [x] Nullable columns through pointers and `sql.Null[T]`
 - [x] Custom types through `sql.Scanner` and `driver.Valuer`
-
-### Keys and identity
-
-- [x] `ID` primary key by convention
-- [x] Explicit primary key: `b.Key(&Users.Email)`
-- [x] Application-assigned integer keys: `b.Key(&Tickets.ID).NotGenerated()`
-- [x] Database-generated integer keys
-- [x] Explicit key values on insert
-- [x] String and UUID keys supplied by the application
-
-### Querying
-
-- [x] Query from a table: `db.Users.Where(...)`
-- [x] Equality: `ant.Eq(&Users.Age, 18)`
-- [x] Inequality: `ant.Ne`
-- [x] Comparisons: `ant.Gt`, `ant.Gte`, `ant.Lt`, `ant.Lte`
-- [x] Set membership: `ant.In(&Users.Age, 18, 21)`
-- [x] Negated membership: `ant.NotIn`
-- [x] Range: `ant.Between(&Users.Age, 18, 65)`
-- [x] Pattern match: `ant.Like(&Posts.Title, "Draft%")`
-- [x] Null checks: `ant.IsNull(&Users.Bio)`, `ant.IsNotNull`
-- [x] Nil pointer in `ant.Eq` renders `IS NULL`
-- [x] Logical grouping: `ant.And`, `ant.Or`, `ant.Not`
-- [x] Column comparison: `ant.EqCol(&Users.ID, &Posts.UserID)`
-- [x] Ordering: `q.OrderBy(&Users.Name)`
-- [x] Descending and secondary ordering: `q.OrderByDesc`, `q.ThenBy`, `q.ThenByDesc`
-- [x] Limit and offset: `q.Limit(10)`, `q.Offset(20)`
-- [x] All rows: `q.All(ctx)`
-- [x] First row: `q.First(ctx)`
-- [x] Exactly one row: `q.Single(ctx)`
-- [x] Find by primary key: `db.Users.Find(ctx, id)`
-- [x] Find with fallback: `ant.ErrNotFound` from `Find`, `First`, and `Single`
-- [x] Raw SQL into structs: `ant.Raw[User](db, sql, args...).All(ctx)`
-- [x] Raw scalar and unmapped type results: `ant.Raw[int]`, `ant.Raw[Summary]`
-- [x] Raw non-query statements: `ant.Raw[any](db, sql).Exec(ctx)`
-- [x] Raw SQL with named arguments: `sql.Named("age", 18)` and `@age`
-- [x] Slice expansion in raw SQL arguments: `ant.Raw[User](db, "... IN (?)", ids)`
-- [x] Placeholder rewriting for portable raw SQL: `?` to the dialect form
-- [x] Raw SQL loaded from a file: `ant.RawFile[T](db, fsys, name)`
-- [x] Conditional clauses: `q.When(ok, func(*Query[T]) *Query[T])`
-
-### Writing
-
-- [x] Insert one or several: `db.Users.Insert(ctx, u1, u2)`
-- [x] Generated key copied back to the struct
-- [x] Bulk update: `q.Update(ctx, ant.Set(&Posts.Published, true))`
-- [x] Bulk delete: `q.Delete(ctx)`
-- [x] Rows affected returned from bulk operations
-- [x] Block update and delete with no condition: `ant.ErrNoCondition`, overridden by `q.Unfiltered()`
-- [x] Delete by primary key: `db.Users.DeleteByID(ctx, id)`
-- [x] Refresh a loaded entity: `db.Users.Reload(ctx, u)`
-
-### Transactions and connections
-
-- [x] Open a context: `ant.Open[AppDB](ctx, dialect, dsn)`
-- [x] Wrap an existing pool: `ant.Wrap[AppDB](dialect, sqlDB)`
-- [x] Close: `db.Close()`
-- [x] `context.Context` on every terminal call
-- [x] Pool settings through `db.DB()` access to `*sql.DB`
-
-### Lifecycle
-
-- [x] Errors accumulated in builders and returned at terminal calls
-- [x] Sentinel errors: `ErrNotFound`, `ErrMultipleRows`, `ErrNotProbe`, `ErrWrongModel`, and others in `ant.go`
-
-### Database support
-
-- [x] `Dialect` interface
-- [x] PostgreSQL dialect
-
-### Developer tooling
-
-- [x] Multi-database test harness: `internal/testdb`
-- [x] Docker Compose database matrix
-- [ ] CI with unit and integration jobs
-  - Skipped: Not finished. `.github/workflows/ci.yml` has both jobs, but it has never run on GitHub, and the owner set CI aside for now. Everything here was verified locally instead, so treat the workflow as untested until its first run.
-
-**Exit criteria:** every test in `tests/crud_test.go` and the non-relation tests in `tests/query_test.go` pass on PostgreSQL. No public query API takes `any` except raw SQL arguments.
-
-## v0.2 Relations
-
-### Model definition and mapping
-
 - [x] Relation detection: `[]Post` and `*User` fields are not columns
-
-### Relations
-
-- [x] One-to-many by convention: `Post.UserID`
-- [x] Many-to-one by convention: `Post.User`
-- [x] One-to-one by convention
-- [x] Self-referencing relations
-- [x] Explicit relation configuration: `b.HasMany(&Users.Posts).ForeignKey(&Posts.UserID)`
-- [x] Explicit one relation: `b.HasOne`, `b.BelongsTo`
-- [x] Relation to a non-primary key: `.References(&Users.Email)`
-- [x] Delete behavior: `.OnDelete(ant.Cascade)`, `ant.SetNull`, `ant.Restrict`, `ant.NoAction`
-- [x] Update behavior: `.OnUpdate(...)`
-- [x] Default model for a missing relation is a nil pointer
-
-### Querying
-
-- [x] Join through a relation: `q.Join(&Posts.User)`
-- [x] Left join through a relation: `q.LeftJoin(&Posts.User)`
-- [x] Multi-table joins: `Join3`, `Join4`
-- [x] Ad hoc join on a condition: `q.JoinOn[J](conds...)`
-- [x] Join with `USING`: `q.JoinUsing[J](&Users.ID)`
-- [x] Right, full, and cross join variants: `q.RightJoinOn`, `q.FullJoinOn`, `q.CrossJoin`
-- [x] Filter by relation existence: `ant.Has(&Users.Posts, conds...)`, `ant.HasOne`
-- [x] Filter by relation absence: `ant.HasNone(&Users.Posts, conds...)`
-- [x] Projection with `Select`: `j.Select(func(*Post, *User) R)`
-- [x] Single-table projection: `ant.Project[R](q, mappings...)`
-- [x] Selected columns: `q.Column(&Users.ID).Column(&Users.Name)`
-- [x] Column-level projection API that prunes the `SELECT` list: `ant.Into`, `ant.IntoExpr`
-- [x] Omit columns: `q.Omit(&Users.Bio)`
-- [x] Distinct: `q.Distinct()`
-
-### Loading
-
-- [x] Batched 1:N loading: `q.Include(&Users.Posts)`
-- [x] Batched N:1 and 1:1 loading: `q.IncludeOne(&Posts.User)`
-- [x] Nested loading: `Include` inside the shape function
-- [x] Filtered include: `q.Include(&Users.Posts, func(q) { return q.Where(...) })`
-- [x] Ordered and limited include, per parent
-- [x] Selected columns in an include
-- [x] Load into existing entities: `db.Users.Load(ctx, &Users.Posts, users...)`, `LoadOne`
-- [x] Load only if missing: `db.Users.LoadMissing`
-- [x] Single-query loading through a join: `q.IncludeJoined(&Posts.User)`
-- [x] Relation counts: `q.With(&Users.PostCount, ant.CountRelated(&Users.Posts))`
-- [x] Relation aggregates: `ant.SumRelated`, `MinRelated`, `MaxRelated`, `AvgRelated`
-- [x] Check whether a relation was loaded: a nil slice is not loaded, and an empty slice is
-- [x] Query the related rows of one entity: `ant.Related(db, user, &Users.Posts)`, `ant.RelatedOne`
-
-**Exit criteria:** `tests/relations_test.go` passes on PostgreSQL. A query test asserts `Include` runs exactly one extra statement per relation.
-
-## v0.3 Unit of work
-
-### Change tracking and unit of work
-
-- [x] Entity states: detached, added, unchanged, modified, deleted
-- [x] Snapshot on load
-- [x] Property-level diffing
-- [x] `db.SaveChanges(ctx)`
-- [x] Minimal `UPDATE` statements
-- [x] Unit-of-work ordering across foreign keys
-- [x] Identity map
-- [x] Opt out per query: `q.NoTracking()`
-- [x] Default tracking setting: `ant.WithTracking(false)`
-- [x] No-tracking with identity resolution: `q.NoTrackingResolved()`
-- [x] Attach an existing entity: `ant.Attach(ctx, db, user)`
-- [x] Detach an entity: `ant.Detach(ctx, db, user)`
-- [x] Mark for update: `ant.MarkModified(ctx, db, user)`
-- [x] Mark for delete: `ant.Remove(ctx, db, user)`
-- [x] Clear the tracker: `db.ClearTracked(ctx)`
-- [x] Query state: `entry, err := ant.Entry(ctx, db, user)`, then `entry.State()`
-- [x] Inspect dirty fields: `entry.Changed()`, `ant.IsDirty(entry, &Users.Age)`
-- [x] Original values: `ant.Original(entry, &Users.Age)`
-- [x] Has pending changes: `db.HasChanges(ctx)`
-- [x] List tracked entities: `ant.Tracked[User](ctx, db)`
-- [x] Change detection runs at `SaveChanges`, so no manual call is needed
-- [x] Custom value comparers for slices and maps: `b.Comparer`
-- [ ] Relationship fixup across loaded entities
-  - Skipped: It conflicts with the rule that a field that was not loaded stays empty, which is what makes a nil slice mean "not loaded". With fixup, a field would fill in or not depending on what else ran earlier, which makes bugs that come and go. Elements of a `[]T` relation are values, so ant could not share one entity between two parents anyway. Use `Include`, which says what you want.
-- [x] Change relations through navigations or foreign keys
-- [x] Temporary keys are not needed: Go zero keys mark new entities, and parents are inserted first
-- [x] Tracker debug output: `db.DebugTracked(ctx)`
-
-### Writing
-
-- [x] Graph insert: `db.Users.Insert(ctx, alice)` inserts `alice.Posts`
-- [x] Add related entities through a tracked navigation
-- [x] Remove related entities through a tracked navigation
-- [x] Cascade delete of tracked entities
-- [x] Set-null on orphaned tracked entities
-- [x] Saving disconnected graphs: `ant.TrackGraph(ctx, db, root, fn)`
-- [x] Skip association saves: `db.Users.InsertOnly(ctx, u)`
-- [x] Batched `SaveChanges` statements
-  - Inserts only, up to 200 rows a statement. A model with insert hooks, a `.Touch()` relation, or a `WithoutAutoTx` save is written one row at a time, because each of those needs a result per row. Updates stay one statement each, since a shared statement could only apply one set of columns.
-
-### Transactions and connections
-
-- [x] Closure transactions: `db.Tx(ctx, func(tx *AppDB) error)`
-- [x] Implicit transaction per `SaveChanges`
-- [x] Disable implicit transactions: `ant.WithoutAutoTx()`
-- [x] Manual transactions: `ant.Begin(ctx, db)`, `tx.Commit()`, `tx.Rollback()`
-- [x] Savepoints: `tx.Savepoint(ctx, name)`, `RollbackTo`, `Release`
-- [x] Nested `Tx` as a savepoint
-- [x] Isolation levels: `ant.Isolation(sql.LevelSerializable)`, `ant.ReadOnly()`
-- [x] Automatic savepoint in `SaveChanges`
-- [x] Use an external `*sql.Tx`: `ant.UseTx(db, tx)`
-- [x] Use an external `*sql.Conn`: `ant.UseConn(db, conn)`
-- [x] Share a transaction across contexts: `ant.CurrentTx` and `ant.UseTx`
-
-**Exit criteria:** `tests/tracking_test.go` and `tests/tx_test.go` pass on PostgreSQL. A fuzz test confirms that zero values are written when changed and nothing is written when unchanged.
-
-## v0.4 Dialects
-
-### Database support
-
-- [x] MySQL dialect
-  - Queries, writes, relations, tracking, and transactions, tested on 8.4 by the conformance suite. No migrations, so it stays behind PostgreSQL. See [databases](databases.md).
-- [x] MariaDB dialect
-  - Queries, writes, relations, tracking, and transactions, tested on 11.8 by the conformance suite. No migrations, so it stays behind PostgreSQL. See [databases](databases.md).
-- [x] SQLite dialect
-  - Same scope, tested through modernc.org/sqlite.
-- [x] SQL Server dialect
-  - Same scope, tested on 2022. Upserts are refused: use `ant.Merge`.
-- [x] `LastInsertId` key retrieval where `RETURNING` is missing
-- [x] SQL Server `OUTPUT` key retrieval
-- [x] Dialect-specific paging: `LIMIT`, `OFFSET FETCH`
-- [ ] Dialect type mapping
-  - Skipped: Go values reach these databases through their drivers without it. Mapping Go types to column types only matters for generating DDL, which is `schema.Dialect`, and the owner chose to do migrations on PostgreSQL first. `EnsureCreated` and `SchemaOf` report `schema.ErrUnsupported` on the others.
-- [x] Database error classification: `ant.IsUniqueViolation`, `IsForeignKeyViolation`, `IsNotNullViolation`, `IsCheckViolation`, `IsRetryable`
-- [x] Dialect capability flags with clear errors: `dialect.Supports`, `ant.ErrUnsupported`
-- [x] Third-party dialects: public `Dialect` and statement AST
-  - The AST moved from `internal/qb` to the public `qb` package, so a dialect outside this module can render it. The [compatibility policy](https://skudra.net/reference/compatibility) keeps it outside the stability promise until such a dialect exists.
-
-**Exit criteria:** the entire integration suite passes on all five databases with no per-dialect test skips other than documented capability differences.
-
-## v0.5 Query power
-
-### Querying
-
-- [x] Aggregates: `q.Count(ctx)`, `ant.SumOf(ctx, q, &Posts.Views)`, `AvgOf`, `MinOf`, `MaxOf`
-- [x] Exists: `q.Exists(ctx)`, `q.DoesNotExist(ctx)`
-- [x] Single column values: `ant.Pluck(ctx, q, &Users.Name)`
-- [x] Group by: `q.GroupBy(&Posts.UserID)`, `ant.Then(g, &Posts.Kind)`, `q.GroupByExpr(e)`
-- [x] Having: `g.Having(...)`
-- [x] Group by with typed keys and aggregates: `ant.Project`, `ant.Count()`, `ant.Sum(&Posts.Views)`
-- [x] Subquery in a condition: `ant.InSub(&Users.ID, ant.SubOf(q, &Posts.UserID))`, `ant.NotInSub`
-- [x] Exists condition: `ant.Exists(q)`, `ant.NotExists(q)`
-- [x] Scalar subquery in a projection: `ant.SubExpr(q, e).Expr()`
-- [x] Subquery ordering
-- [x] From subquery: `q.From(sub)`
-- [x] Join a subquery: `ant.JoinSub`, `ant.LeftJoinSub`
-- [x] Lateral joins: `ant.JoinLateral`, `ant.LeftJoinLateral`
-- [x] Unions: `a.Union(b)`, `UnionAll`, `Intersect`, `Except`
-- [x] Common table expressions: `q.FromCTE(name, sub)`
-- [x] Recursive common table expressions: `q.Recursive(&Folders.Children)`, `q.RecursiveOne(&Folders.Parent)`
-- [x] Window functions: `ant.RowNumber().Over(w)`, `Rank`, `DenseRank`, `Lag`, `Lead`, `ant.PartitionBy`, `ant.OrderedBy`
-- [x] `CASE` expressions: `ant.Case[V]().When(c, v).Else(v)`
-- [x] `VALUES` lists: `ant.Values`
-- [x] Multi-column `IN`: `ant.InTuples`
-- [x] Any, all, and none across columns: `ant.AnyOf`, `AllOf`, `NoneOf`
-- [x] Date part conditions: `ant.DatePart`, `ant.Today`, `ant.Past`, `ant.Future`
-- [x] Case-insensitive match: `ant.ILike`
-- [x] Explicit collation: `ant.Collate(&Users.Name, "C")`
-- [x] Database function mapping: `ant.Func[R](name, args...)`
-- [x] Table-valued functions: `ant.FromFunc`
-- [x] Random ordering: `q.OrderByRandom()`
-- [x] Clear ordering: `q.ClearOrder()`
-- [x] Newest and oldest helpers: `q.Latest(&Users.CreatedAt)`, `q.Oldest`
-- [x] Raw fragments in typed queries: `ant.SQL[V](sql, args...)`
-- [x] Raw where, having, order, and group fragments: `ant.SQLCond`, `ant.SQL[V]`
-- [x] Compose typed queries over raw SQL: `ant.FromRaw[T](db, sql)`
-- [x] Pessimistic locks: `q.ForUpdate()`, `q.ForShare()`, `NoWait`, `SkipLocked`
-- [x] Optimizer and index hints: `q.Hint(...)`
-  - PostgreSQL itself ignores hints: it needs the `pg_hint_plan` extension. On MySQL and MariaDB the hint goes after `SELECT`.
-- [x] Query comments: `q.Tag("name")`
-- [x] Column-to-column update expressions: `ant.SetExpr(&Users.Age, ant.Col(&Users.Age).Plus(1))`
-
-### Writing
-
-- [x] Batched bulk insert: `db.Users.InsertMany(ctx, users, ant.BatchSize(500))`
-- [x] Insert from a query: `db.Users.InsertFrom(ctx, ant.Project[T](q, mappings...))`
-- [x] Insert ignoring conflicts: `ant.OnConflict(&Users.Email).DoNothing()`
-- [x] Upsert on conflict: `db.Users.Upsert(ctx, v, ant.OnConflict(&Users.Email))`
-- [x] Upsert selected columns: `.DoUpdate(ant.F(&Users.Name))`, `.Set(...)`
-- [x] Upsert returning rows: the entity receives the stored row
-- [x] `MERGE` where supported: `ant.Merge`
-  - Needs PostgreSQL 15 or later. `OnConflict` does most of this on older versions.
-- [x] Find or create: `db.Users.FirstOrCreate(ctx, v, conds...)`
-- [x] Find or initialize without saving: `db.Users.FirstOrNew(ctx, v, conds...)`
-- [x] Update or create: `db.Users.Upsert`
-- [x] Bulk update of different values per row: `db.Users.UpdateMany(ctx, users, ant.F(&Users.Age))`
-- [x] Bulk update from a query: `ant.SetExpr` with `ant.SubExpr`
-- [x] Bulk delete with a join: `ant.Has`, `ant.InSub`, or `ant.Exists` in `Where`
-- [x] Increment and decrement: `ant.Inc(&Users.Age, 1)`, `ant.Dec`
-- [x] Returning rows from update and delete: `q.UpdateReturning`, `q.DeleteReturning`
-- [x] Truncate: `db.Users.Truncate(ctx)`
-- [x] Bulk copy: PostgreSQL `COPY` through `pgxext.Copy`
-- [x] Batched statements in one round trip: `pgxext.Batch`
-  - Moved out of the root package, because the wire protocol feature needs pgx itself, and the root module must not import a driver.
-- [x] Replicate an entity without its key: `ant.Clone(user)`
-
-### Performance
-
-- [x] Streaming: `q.Each(ctx)`
-- [x] Batched reads: `q.Chunk(ctx, 500, fn)`
-- [x] Keyed batches: `q.ChunkByKey(ctx, 500, fn)`
-- [x] Offset paging helper: `q.Page(ctx, n, size)` returning items and total
-- [x] Simple paging without a total: `q.Limit(n).Offset(m)`
-- [x] Keyset paging: `q.After(ctx, cursor, size)`
-- [x] Encoded cursors: `page.Next`
-- [x] Prepared statement cache: pgx caches statements per connection
-- [ ] Reuse of rendered SQL for repeated query shapes
-  - Skipped: Measured, and not worth it. Rendering a typical query takes about 7 µs, against hundreds for the round trip, and a cache key built from the same AST would cost about what it saves. pgx already caches prepared statements per connection. See [benchmarks](https://skudra.net/reference/benchmarks).
-
-**Exit criteria:** feature tests pass on all five databases or return a documented capability error. Paging and chunking are tested with at least 100,000 rows.
-
-## v0.6 Modeling depth
-
-### Model definition and mapping
-
 - [x] Embedded structs: anonymous, or `ant:"embedded"`
 - [x] Embedded prefix: `ant:"embedded,prefix=addr_"`
 - [x] Owned types: `ant:"embedded,prefix=address_"` on a struct field
@@ -372,8 +92,14 @@ API names are targets and may change until the v1.0 freeze. Features with no pub
 - [x] Strict mode that rejects unknown result columns: `ant.WithStrict()`
 - [x] Discard unknown columns: `ant.WithLooseScan()`
 
-### Keys and identity
+## Keys and identity
 
+- [x] `ID` primary key by convention
+- [x] Explicit primary key: `b.Key(&Users.Email)`
+- [x] Application-assigned integer keys: `b.Key(&Tickets.ID).NotGenerated()`
+- [x] Database-generated integer keys
+- [x] Explicit key values on insert
+- [x] String and UUID keys supplied by the application
 - [x] Composite primary keys: `b.CompositeKey(ant.F(&Tickets.A), ant.F(&Tickets.B))`, `db.Table.FindKey(ctx, a, b)`
 - [x] Composite foreign keys
   - As a constraint, through `b.ForeignKey`. Relations stay single-column, so a relation on a composite key is marked `.NoForeignKey()`, and joins name both columns.
@@ -385,39 +111,10 @@ API names are targets and may change until the v1.0 freeze. Features with no pub
   - `.Type("citext")`, or a named type with a `ColumnType` method. That needs the `citext` extension, created in `migrations/code`.
 - [x] Value objects as keys
 
-### Relations
-
-- [x] Many-to-many: `b.ManyToMany(&Users.Roles).Through("user_roles")`
-- [x] Join model with payload: a model with two one-to-many relations
-- [x] Self-referencing many-to-many: `PivotColumns`
-- [ ] Pivot attributes in results
-  - Skipped: `[]T` has nowhere to carry extra columns without a wrapper type on every relation. When a join table holds data of its own, it is a model: make it one, with two has-many relations, and all of this comes for free and typed.
-- [ ] Filter and order by pivot columns
-  - Skipped: Same reason as pivot attributes: model the join table and query it directly.
-- [ ] Pivot timestamps
-  - Skipped: Same reason as pivot attributes: a modeled join table gets timestamps like any other model.
-- [x] Attach and detach: `ant.Link(ctx, db, user, &Users.Roles, role)`, `ant.Unlink`
-- [x] Sync and toggle: `ant.SyncLinks`, `ant.Toggle`
-- [ ] Update a pivot row: `ant.UpdatePivot`
-  - Skipped: Same reason as pivot attributes: update the modeled join table.
-- [x] Has one through: `b.HasOneThrough`
-- [x] Has many through: `b.HasManyThrough`
-- [x] Polymorphic relations: `.ForeignKey(&Comments.OwnerID).Morph(&Comments.OwnerType, "post")`
-- [ ] Polymorphic many-to-many
-  - Skipped: It stacks the costs of polymorphism on those of a pivot, with no foreign key to protect either side. Use a modeled join table with a `.Morph` relation.
-- [x] Morph type map
-  - The value given to `.Morph`, so renaming a Go type cannot change what is stored.
-- [x] Latest or oldest of many: `.Latest`, `.Oldest`
-- [x] Touch parent timestamps: `.Touch()`
-- [x] Scoped relations: `.Where`
-- [x] Relations without navigation on one side
-- [x] Automatic parent population on children: `.Inverse`
-- [x] Association operations: through tracked slices, `Link`, and `CountRelated`
-
-### Value handling
+## Value handling
 
 - [x] Value converters
-  - Named types with `sql.Scanner` and `driver.Valuer`, by [decision 42](DECISIONS.md#42-converters-are-scanner-and-valuer).
+  - Named types with `sql.Scanner` and `driver.Valuer`, by [decision 42](decisions/042-converters-are-scanner-and-valuer.md).
 - [x] Built-in converters
   - `ant.JSON`, `ant.Gob`, `ant.UnixTime`, and `postgres.Array`. Same decision.
 - [x] Bulk converters for a type
@@ -448,8 +145,183 @@ API names are targets and may change until the v1.0 freeze. Features with no pub
 - [x] Serializers for JSON, gob, and Unix time: `ant.JSON`, `ant.Gob`, `ant.UnixTime`
   - Field types rather than a tag, so the compiler sees them.
 
-### Writing
+## Relations
 
+- [x] One-to-many by convention: `Post.UserID`
+- [x] Many-to-one by convention: `Post.User`
+- [x] One-to-one by convention
+- [x] Self-referencing relations
+- [x] Explicit relation configuration: `b.HasMany(&Users.Posts).ForeignKey(&Posts.UserID)`
+- [x] Explicit one relation: `b.HasOne`, `b.BelongsTo`
+- [x] Relation to a non-primary key: `.References(&Users.Email)`
+- [x] Delete behavior: `.OnDelete(ant.Cascade)`, `ant.SetNull`, `ant.Restrict`, `ant.NoAction`
+- [x] Update behavior: `.OnUpdate(...)`
+- [x] Default model for a missing relation is a nil pointer
+- [x] Many-to-many: `b.ManyToMany(&Users.Roles).Through("user_roles")`
+- [x] Join model with payload: a model with two one-to-many relations
+- [x] Self-referencing many-to-many: `PivotColumns`
+- [ ] Pivot attributes in results
+  - Skipped: `[]T` has nowhere to carry extra columns without a wrapper type on every relation. When a join table holds data of its own, it is a model: make it one, with two has-many relations, and all of this comes for free and typed.
+- [ ] Filter and order by pivot columns
+  - Skipped: Same reason as pivot attributes: model the join table and query it directly.
+- [ ] Pivot timestamps
+  - Skipped: Same reason as pivot attributes: a modeled join table gets timestamps like any other model.
+- [x] Attach and detach: `ant.Link(ctx, db, user, &Users.Roles, role)`, `ant.Unlink`
+- [x] Sync and toggle: `ant.SyncLinks`, `ant.Toggle`
+- [ ] Update a pivot row: `ant.UpdatePivot`
+  - Skipped: Same reason as pivot attributes: update the modeled join table.
+- [x] Has one through: `b.HasOneThrough`
+- [x] Has many through: `b.HasManyThrough`
+- [x] Polymorphic relations: `.ForeignKey(&Comments.OwnerID).Morph(&Comments.OwnerType, "post")`
+- [ ] Polymorphic many-to-many
+  - Skipped: It stacks the costs of polymorphism on those of a pivot, with no foreign key to protect either side. Use a modeled join table with a `.Morph` relation.
+- [x] Morph type map
+  - The value given to `.Morph`, so renaming a Go type cannot change what is stored.
+- [x] Latest or oldest of many: `.Latest`, `.Oldest`
+- [x] Touch parent timestamps: `.Touch()`
+- [x] Scoped relations: `.Where`
+- [x] Relations without navigation on one side
+- [x] Automatic parent population on children: `.Inverse`
+- [x] Association operations: through tracked slices, `Link`, and `CountRelated`
+
+## Querying
+
+- [x] Query from a table: `db.Users.Where(...)`
+- [x] Equality: `ant.Eq(&Users.Age, 18)`
+- [x] Inequality: `ant.Ne`
+- [x] Comparisons: `ant.Gt`, `ant.Gte`, `ant.Lt`, `ant.Lte`
+- [x] Set membership: `ant.In(&Users.Age, 18, 21)`
+- [x] Negated membership: `ant.NotIn`
+- [x] Range: `ant.Between(&Users.Age, 18, 65)`
+- [x] Pattern match: `ant.Like(&Posts.Title, "Draft%")`
+- [x] Null checks: `ant.IsNull(&Users.Bio)`, `ant.IsNotNull`
+- [x] Nil pointer in `ant.Eq` renders `IS NULL`
+- [x] Logical grouping: `ant.And`, `ant.Or`, `ant.Not`
+- [x] Column comparison: `ant.EqCol(&Users.ID, &Posts.UserID)`
+- [x] Ordering: `q.OrderBy(&Users.Name)`
+- [x] Descending and secondary ordering: `q.OrderByDesc`, `q.ThenBy`, `q.ThenByDesc`
+- [x] Limit and offset: `q.Limit(10)`, `q.Offset(20)`
+- [x] All rows: `q.All(ctx)`
+- [x] First row: `q.First(ctx)`
+- [x] Exactly one row: `q.Single(ctx)`
+- [x] Find by primary key: `db.Users.Find(ctx, id)`
+- [x] Find with fallback: `ant.ErrNotFound` from `Find`, `First`, and `Single`
+- [x] Raw SQL into structs: `ant.Raw[User](db, sql, args...).All(ctx)`
+- [x] Raw scalar and unmapped type results: `ant.Raw[int]`, `ant.Raw[Summary]`
+- [x] Raw non-query statements: `ant.Raw[any](db, sql).Exec(ctx)`
+- [x] Raw SQL with named arguments: `sql.Named("age", 18)` and `@age`
+- [x] Slice expansion in raw SQL arguments: `ant.Raw[User](db, "... IN (?)", ids)`
+- [x] Placeholder rewriting for portable raw SQL: `?` to the dialect form
+- [x] Raw SQL loaded from a file: `ant.RawFile[T](db, fsys, name)`
+- [x] Conditional clauses: `q.When(ok, func(*Query[T]) *Query[T])`
+- [x] Join through a relation: `q.Join(&Posts.User)`
+- [x] Left join through a relation: `q.LeftJoin(&Posts.User)`
+- [x] Multi-table joins: `Join3`, `Join4`
+- [x] Ad hoc join on a condition: `q.JoinOn[J](conds...)`
+- [x] Join with `USING`: `q.JoinUsing[J](&Users.ID)`
+- [x] Right, full, and cross join variants: `q.RightJoinOn`, `q.FullJoinOn`, `q.CrossJoin`
+- [x] Filter by relation existence: `ant.Has(&Users.Posts, conds...)`, `ant.HasOne`
+- [x] Filter by relation absence: `ant.HasNone(&Users.Posts, conds...)`
+- [x] Projection with `Select`: `j.Select(func(*Post, *User) R)`
+- [x] Single-table projection: `ant.Project[R](q, mappings...)`
+- [x] Selected columns: `q.Column(&Users.ID).Column(&Users.Name)`
+- [x] Column-level projection API that prunes the `SELECT` list: `ant.Into`, `ant.IntoExpr`
+- [x] Omit columns: `q.Omit(&Users.Bio)`
+- [x] Distinct: `q.Distinct()`
+- [x] Aggregates: `q.Count(ctx)`, `ant.SumOf(ctx, q, &Posts.Views)`, `AvgOf`, `MinOf`, `MaxOf`
+- [x] Exists: `q.Exists(ctx)`, `q.DoesNotExist(ctx)`
+- [x] Single column values: `ant.Pluck(ctx, q, &Users.Name)`
+- [x] Group by: `q.GroupBy(&Posts.UserID)`, `ant.Then(g, &Posts.Kind)`, `q.GroupByExpr(e)`
+- [x] Having: `g.Having(...)`
+- [x] Group by with typed keys and aggregates: `ant.Project`, `ant.Count()`, `ant.Sum(&Posts.Views)`
+- [x] Subquery in a condition: `ant.InSub(&Users.ID, ant.SubOf(q, &Posts.UserID))`, `ant.NotInSub`
+- [x] Exists condition: `ant.Exists(q)`, `ant.NotExists(q)`
+- [x] Scalar subquery in a projection: `ant.SubExpr(q, e).Expr()`
+- [x] Subquery ordering
+- [x] From subquery: `q.From(sub)`
+- [x] Join a subquery: `ant.JoinSub`, `ant.LeftJoinSub`
+- [x] Lateral joins: `ant.JoinLateral`, `ant.LeftJoinLateral`
+- [x] Unions: `a.Union(b)`, `UnionAll`, `Intersect`, `Except`
+- [x] Common table expressions: `q.FromCTE(name, sub)`
+- [x] Recursive common table expressions: `q.Recursive(&Folders.Children)`, `q.RecursiveOne(&Folders.Parent)`
+- [x] Window functions: `ant.RowNumber().Over(w)`, `Rank`, `DenseRank`, `Lag`, `Lead`, `ant.PartitionBy`, `ant.OrderedBy`
+- [x] `CASE` expressions: `ant.Case[V]().When(c, v).Else(v)`
+- [x] `VALUES` lists: `ant.Values`
+- [x] Multi-column `IN`: `ant.InTuples`
+- [x] Any, all, and none across columns: `ant.AnyOf`, `AllOf`, `NoneOf`
+- [x] Date part conditions: `ant.DatePart`, `ant.Today`, `ant.Past`, `ant.Future`
+- [x] Case-insensitive match: `ant.ILike`
+- [x] Explicit collation: `ant.Collate(&Users.Name, "C")`
+- [x] Database function mapping: `ant.Func[R](name, args...)`
+- [x] Table-valued functions: `ant.FromFunc`
+- [x] Random ordering: `q.OrderByRandom()`
+- [x] Clear ordering: `q.ClearOrder()`
+- [x] Newest and oldest helpers: `q.Latest(&Users.CreatedAt)`, `q.Oldest`
+- [x] Raw fragments in typed queries: `ant.SQL[V](sql, args...)`
+- [x] Raw where, having, order, and group fragments: `ant.SQLCond`, `ant.SQL[V]`
+- [x] Compose typed queries over raw SQL: `ant.FromRaw[T](db, sql)`
+- [x] Pessimistic locks: `q.ForUpdate()`, `q.ForShare()`, `NoWait`, `SkipLocked`
+- [x] Optimizer and index hints: `q.Hint(...)`
+  - PostgreSQL itself ignores hints: it needs the `pg_hint_plan` extension. On MySQL and MariaDB the hint goes after `SELECT`.
+- [x] Query comments: `q.Tag("name")`
+- [x] Column-to-column update expressions: `ant.SetExpr(&Users.Age, ant.Col(&Users.Age).Plus(1))`
+
+## Loading
+
+- [x] Batched 1:N loading: `q.Include(&Users.Posts)`
+- [x] Batched N:1 and 1:1 loading: `q.IncludeOne(&Posts.User)`
+- [x] Nested loading: `Include` inside the shape function
+- [x] Filtered include: `q.Include(&Users.Posts, func(q) { return q.Where(...) })`
+- [x] Ordered and limited include, per parent
+- [x] Selected columns in an include
+- [x] Load into existing entities: `db.Users.Load(ctx, &Users.Posts, users...)`, `LoadOne`
+- [x] Load only if missing: `db.Users.LoadMissing`
+- [x] Single-query loading through a join: `q.IncludeJoined(&Posts.User)`
+- [x] Relation counts: `q.With(&Users.PostCount, ant.CountRelated(&Users.Posts))`
+- [x] Relation aggregates: `ant.SumRelated`, `MinRelated`, `MaxRelated`, `AvgRelated`
+- [x] Check whether a relation was loaded: a nil slice is not loaded, and an empty slice is
+- [x] Query the related rows of one entity: `ant.Related(db, user, &Users.Posts)`, `ant.RelatedOne`
+
+## Writing
+
+- [x] Insert one or several: `db.Users.Insert(ctx, u1, u2)`
+- [x] Generated key copied back to the struct
+- [x] Bulk update: `q.Update(ctx, ant.Set(&Posts.Published, true))`
+- [x] Bulk delete: `q.Delete(ctx)`
+- [x] Rows affected returned from bulk operations
+- [x] Block update and delete with no condition: `ant.ErrNoCondition`, overridden by `q.Unfiltered()`
+- [x] Delete by primary key: `db.Users.DeleteByID(ctx, id)`
+- [x] Refresh a loaded entity: `db.Users.Reload(ctx, u)`
+- [x] Graph insert: `db.Users.Insert(ctx, alice)` inserts `alice.Posts`
+- [x] Add related entities through a tracked navigation
+- [x] Remove related entities through a tracked navigation
+- [x] Cascade delete of tracked entities
+- [x] Set-null on orphaned tracked entities
+- [x] Saving disconnected graphs: `ant.TrackGraph(ctx, db, root, fn)`
+- [x] Skip association saves: `db.Users.InsertOnly(ctx, u)`
+- [x] Batched `SaveChanges` statements
+  - Inserts only, up to 200 rows a statement. A model with insert hooks, a `.Touch()` relation, or a `WithoutAutoTx` save is written one row at a time, because each of those needs a result per row. Updates stay one statement each, since a shared statement could only apply one set of columns.
+- [x] Batched bulk insert: `db.Users.InsertMany(ctx, users, ant.BatchSize(500))`
+- [x] Insert from a query: `db.Users.InsertFrom(ctx, ant.Project[T](q, mappings...))`
+- [x] Insert ignoring conflicts: `ant.OnConflict(&Users.Email).DoNothing()`
+- [x] Upsert on conflict: `db.Users.Upsert(ctx, v, ant.OnConflict(&Users.Email))`
+- [x] Upsert selected columns: `.DoUpdate(ant.F(&Users.Name))`, `.Set(...)`
+- [x] Upsert returning rows: the entity receives the stored row
+- [x] `MERGE` where supported: `ant.Merge`
+  - Needs PostgreSQL 15 or later. `OnConflict` does most of this on older versions.
+- [x] Find or create: `db.Users.FirstOrCreate(ctx, v, conds...)`
+- [x] Find or initialize without saving: `db.Users.FirstOrNew(ctx, v, conds...)`
+- [x] Update or create: `db.Users.Upsert`
+- [x] Bulk update of different values per row: `db.Users.UpdateMany(ctx, users, ant.F(&Users.Age))`
+- [x] Bulk update from a query: `ant.SetExpr` with `ant.SubExpr`
+- [x] Bulk delete with a join: `ant.Has`, `ant.InSub`, or `ant.Exists` in `Where`
+- [x] Increment and decrement: `ant.Inc(&Users.Age, 1)`, `ant.Dec`
+- [x] Returning rows from update and delete: `q.UpdateReturning`, `q.DeleteReturning`
+- [x] Truncate: `db.Users.Truncate(ctx)`
+- [x] Bulk copy: PostgreSQL `COPY` through `pgxext.Copy`
+- [x] Batched statements in one round trip: `pgxext.Batch`
+  - Moved out of the root package, because the wire protocol feature needs pgx itself, and the root module must not import a driver.
+- [x] Replicate an entity without its key: `ant.Clone(user)`
 - [x] Automatic timestamps for `CreatedAt` and `UpdatedAt`
 - [x] Skip timestamps: `b.NoTimestamps()`
 - [x] Unix timestamp columns: `ant.UnixTime`
@@ -462,8 +334,74 @@ API names are targets and may change until the v1.0 freeze. Features with no pub
   - `b.Index(&Users.Email).Unique().Where("deleted_at IS NULL")`, a partial index. It does what a flag does, with no extra column.
 - [x] Pruning old rows: `db.Users.Prune(ctx, cond)`
 
-### Lifecycle
+## Change tracking and unit of work
 
+- [x] Entity states: detached, added, unchanged, modified, deleted
+- [x] Snapshot on load
+- [x] Property-level diffing
+- [x] `db.SaveChanges(ctx)`
+- [x] Minimal `UPDATE` statements
+- [x] Unit-of-work ordering across foreign keys
+- [x] Identity map
+- [x] Opt out per query: `q.NoTracking()`
+- [x] Default tracking setting: `ant.WithTracking(false)`
+- [x] No-tracking with identity resolution: `q.NoTrackingResolved()`
+- [x] Attach an existing entity: `ant.Attach(ctx, db, user)`
+- [x] Detach an entity: `ant.Detach(ctx, db, user)`
+- [x] Mark for update: `ant.MarkModified(ctx, db, user)`
+- [x] Mark for delete: `ant.Remove(ctx, db, user)`
+- [x] Clear the tracker: `db.ClearTracked(ctx)`
+- [x] Query state: `entry, err := ant.Entry(ctx, db, user)`, then `entry.State()`
+- [x] Inspect dirty fields: `entry.Changed()`, `ant.IsDirty(entry, &Users.Age)`
+- [x] Original values: `ant.Original(entry, &Users.Age)`
+- [x] Has pending changes: `db.HasChanges(ctx)`
+- [x] List tracked entities: `ant.Tracked[User](ctx, db)`
+- [x] Change detection runs at `SaveChanges`, so no manual call is needed
+- [x] Custom value comparers for slices and maps: `b.Comparer`
+- [ ] Relationship fixup across loaded entities
+  - Skipped: It conflicts with the rule that a field that was not loaded stays empty, which is what makes a nil slice mean "not loaded". With fixup, a field would fill in or not depending on what else ran earlier, which makes bugs that come and go. Elements of a `[]T` relation are values, so ant could not share one entity between two parents anyway. Use `Include`, which says what you want.
+- [x] Change relations through navigations or foreign keys
+- [x] Temporary keys are not needed: Go zero keys mark new entities, and parents are inserted first
+- [x] Tracker debug output: `db.DebugTracked(ctx)`
+- [x] Optimistic concurrency token: `ant:"version"`
+- [ ] Native tokens: `rowversion` on SQL Server
+  - Skipped: SQL Server only. `ant:"version"` covers optimistic concurrency on every database.
+- [x] Application-managed tokens: `ant:"token"`
+- [x] `ErrConcurrency` with conflict details: `ant.ConcurrencyError`
+
+## Transactions and connections
+
+- [x] Open a context: `ant.Open[AppDB](ctx, dialect, dsn)`
+- [x] Wrap an existing pool: `ant.Wrap[AppDB](dialect, sqlDB)`
+- [x] Close: `db.Close()`
+- [x] `context.Context` on every terminal call
+- [x] Pool settings through `db.DB()` access to `*sql.DB`
+- [x] Closure transactions: `db.Tx(ctx, func(tx *AppDB) error)`
+- [x] Implicit transaction per `SaveChanges`
+- [x] Disable implicit transactions: `ant.WithoutAutoTx()`
+- [x] Manual transactions: `ant.Begin(ctx, db)`, `tx.Commit()`, `tx.Rollback()`
+- [x] Savepoints: `tx.Savepoint(ctx, name)`, `RollbackTo`, `Release`
+- [x] Nested `Tx` as a savepoint
+- [x] Isolation levels: `ant.Isolation(sql.LevelSerializable)`, `ant.ReadOnly()`
+- [x] Automatic savepoint in `SaveChanges`
+- [x] Use an external `*sql.Tx`: `ant.UseTx(db, tx)`
+- [x] Use an external `*sql.Conn`: `ant.UseConn(db, conn)`
+- [x] Share a transaction across contexts: `ant.CurrentTx` and `ant.UseTx`
+- [x] Read and write connections: `ant.WithReplicas(...)`
+- [x] Replica load balancing: round robin
+- [x] Sticky reads after writes: `ant.WithStickyWrites(d)`
+- [x] Force primary: `ant.OnPrimary(ctx)`
+- [x] Retries: `ant.WithRetry(ant.Retry{...})`
+- [x] Deadlock and serialization retry for `Tx`: `ant.Attempts(5)`
+- [x] Commit failure guidance: [recipe](https://skudra.net/recipes/commit-failures)
+- [x] Multiple contexts over one pool: `ant.Session(db)`
+- [x] Multi-database routing: [recipe](https://skudra.net/recipes/several-databases)
+- [x] Advisory locks through raw SQL or `postgres` helpers
+
+## Lifecycle
+
+- [x] Errors accumulated in builders and returned at terminal calls
+- [x] Sentinel errors: `ErrNotFound`, `ErrMultipleRows`, `ErrNotProbe`, `ErrWrongModel`, and others in `ant.go`
 - [x] Global query filters: `b.Filter(name, fn)`
 - [x] Multiple named filters
 - [x] Disable filters: `q.IgnoreFilters(names...)`
@@ -472,13 +410,6 @@ API names are targets and may change until the v1.0 freeze. Features with no pub
 - [x] Parameterized scopes: a function returning a scope
 - [ ] Pending attributes from a scope
   - Skipped: This is how Eloquent presets values on a new model. In Go it is a constructor function.
-
-**Exit criteria:** each modeling feature has an integration test on all five databases or a documented capability error. Composite keys work with `Find`, `Include`, and `SaveChanges`.
-
-## v0.7 Lifecycle and ops
-
-### Lifecycle
-
 - [x] Model hooks: optional `BeforeInsert`, `AfterInsert`, `BeforeUpdate`, `AfterUpdate`, `BeforeDelete`, `AfterDelete`, `AfterLoad`
 - [x] Hook context and error cancellation
 - [x] Validation hook: optional `Validate(ctx) error`, run on every insert and update
@@ -497,55 +428,9 @@ API names are targets and may change until the v1.0 freeze. Features with no pub
 - [x] Multi-tenancy by filter, with an example in `tests/features/lifecycle`
 - [x] Plugin API: an `ant.Option` can install interceptors
 
-### Change tracking and unit of work
+## Schema and migrations
 
-- [x] Optimistic concurrency token: `ant:"version"`
-- [ ] Native tokens: `rowversion` on SQL Server
-  - Skipped: SQL Server only. `ant:"version"` covers optimistic concurrency on every database.
-- [x] Application-managed tokens: `ant:"token"`
-- [x] `ErrConcurrency` with conflict details: `ant.ConcurrencyError`
-
-### Transactions and connections
-
-- [x] Read and write connections: `ant.WithReplicas(...)`
-- [x] Replica load balancing: round robin
-- [x] Sticky reads after writes: `ant.WithStickyWrites(d)`
-- [x] Force primary: `ant.OnPrimary(ctx)`
-- [x] Retries: `ant.WithRetry(ant.Retry{...})`
-- [x] Deadlock and serialization retry for `Tx`: `ant.Attempts(5)`
-- [x] Commit failure guidance: [recipe](https://skudra.net/recipes/commit-failures)
-- [x] Multiple contexts over one pool: `ant.Session(db)`
-- [x] Multi-database routing: [recipe](https://skudra.net/recipes/several-databases)
-- [x] Advisory locks through raw SQL or `postgres` helpers
-
-### Developer tooling
-
-- [x] Logging through `log/slog`: `ant.WithLogger(l)`
-- [x] Log levels and slow query threshold: `ant.SlowThreshold(d)`
-- [x] Sensitive value redaction by default: `ant.LogValues()` opts in
-- [x] Debug one query: `q.Debug()`
-- [x] SQL inspection: `q.ToSQL()`
-- [x] Dry run: `ant.DryRun(ctx, db, fn)`
-  - It runs real statements in a transaction that rolls back, so sequences advance, and side effects outside the database still happen.
-- [x] Last executed SQL through an interceptor
-- [x] OpenTelemetry tracing: module `contrib/otel`
-- [x] Metrics sub-package with a Prometheus exporter: package `metrics`
-  - No OpenTelemetry exporter, because importing it would pull its SDK into the root module. `Snapshot` returns the numbers, and a few lines in your own code can publish them through any meter.
-- [x] Cumulative query time alert: `ant.WithDiagnostics` with `Budget`
-- [x] Warn on cartesian explosion
-  - Through `ant.WithDiagnostics`.
-- [x] Warn on N+1 patterns from repeated statements
-  - `RepeatLimit` in `ant.WithDiagnostics`.
-- [x] Detailed query errors with SQL context: `ant.WithDetailedErrors`, `ant.FailedSQL`
-- [x] Execution plan helper: `q.Explain(ctx)`
-
-**Exit criteria:** hooks, interceptors, and observers each have ordering tests. Sensitive values never appear in default logs, verified by a test. Tracing adds no dependency to the root package.
-
-## v0.8 Migrations
-
-The model is defined in [decision 11](DECISIONS.md#11-migration-model).
-
-### Schema and migrations
+The model is defined in [decision 11](decisions/011-migration-model.md). The guide is [migrations](https://skudra.net/migrations/overview). Everything here works on PostgreSQL. Other dialects implement `schema.Dialect`, and return `schema.ErrUnsupported` until then.
 
 - [x] Schema model built from struct metadata
 - [x] Schema snapshot file: `migrations/versions/schema.snapshot.json`
@@ -598,14 +483,68 @@ The model is defined in [decision 11](DECISIONS.md#11-migration-model).
 - [x] Replaceable SQL generation: `migrate.Config{Render: fn}`
 - [x] Automatic index on foreign keys, removed with `.NoIndex()`
 
-The guide is [migrations](https://skudra.net/migrations/overview). Everything here works on PostgreSQL. Other dialects implement `schema.Dialect`, and return `schema.ErrUnsupported` until then, so the exit criterion for all five databases waits on v0.4.
+## Database support
 
-**Exit criteria:** a model change produces SQL with no database connection, and that SQL applies cleanly on all five databases. `check` fails CI on drift between models and the snapshot. Replacing `migrate.Source` is covered by a test.
+- [x] `Dialect` interface
+- [x] PostgreSQL dialect
+- [x] MySQL dialect
+  - Queries, writes, relations, tracking, and transactions, tested on 8.4 by the conformance suite. No migrations, so it stays behind PostgreSQL. See [databases](databases.md).
+- [x] MariaDB dialect
+  - Queries, writes, relations, tracking, and transactions, tested on 11.8 by the conformance suite. No migrations, so it stays behind PostgreSQL. See [databases](databases.md).
+- [x] SQLite dialect
+  - Same scope, tested through modernc.org/sqlite.
+- [x] SQL Server dialect
+  - Same scope, tested on 2022. Upserts are refused: use `ant.Merge`.
+- [x] `LastInsertId` key retrieval where `RETURNING` is missing
+- [x] SQL Server `OUTPUT` key retrieval
+- [x] Dialect-specific paging: `LIMIT`, `OFFSET FETCH`
+- [ ] Dialect type mapping
+  - Skipped: Go values reach these databases through their drivers without it. Mapping Go types to column types only matters for generating DDL, which is `schema.Dialect`, and the owner chose to do migrations on PostgreSQL first. `EnsureCreated` and `SchemaOf` report `schema.ErrUnsupported` on the others.
+- [x] Database error classification: `ant.IsUniqueViolation`, `IsForeignKeyViolation`, `IsNotNullViolation`, `IsCheckViolation`, `IsRetryable`
+- [x] Dialect capability flags with clear errors: `dialect.Supports`, `ant.ErrUnsupported`
+- [x] Third-party dialects: public `Dialect` and statement AST
+  - The AST moved from `internal/qb` to the public `qb` package, so a dialect outside this module can render it. The [compatibility policy](https://skudra.net/reference/compatibility) keeps it outside the stability promise until such a dialect exists.
 
-## v0.9 Tooling
+## Performance
 
-### Developer tooling
+- [x] Streaming: `q.Each(ctx)`
+- [x] Batched reads: `q.Chunk(ctx, 500, fn)`
+- [x] Keyed batches: `q.ChunkByKey(ctx, 500, fn)`
+- [x] Offset paging helper: `q.Page(ctx, n, size)` returning items and total
+- [x] Simple paging without a total: `q.Limit(n).Offset(m)`
+- [x] Keyset paging: `q.After(ctx, cursor, size)`
+- [x] Encoded cursors: `page.Next`
+- [x] Prepared statement cache: pgx caches statements per connection
+- [ ] Reuse of rendered SQL for repeated query shapes
+  - Skipped: Measured, and not worth it. Rendering a typical query takes about 7 µs, against hundreds for the round trip, and a cache key built from the same AST would cost about what it saves. pgx already caches prepared statements per connection. See [benchmarks](https://skudra.net/reference/benchmarks).
+- [x] Benchmarks against GORM, Bun, and `database/sql`: [benchmarks](https://skudra.net/reference/benchmarks)
+  - Plain `database/sql` stands in for sqlc, whose generated code is the same query string and `Scan`. Adding sqlc itself would need a code generation step in this repository to measure the same thing.
+- [x] Allocation budget for query building and scanning
+- [x] Probe resolution benchmark
 
+## Developer tooling
+
+- [x] Multi-database test harness: `internal/testdb`
+- [x] Docker Compose database matrix
+- [x] CI with unit and integration jobs: `.github/workflows/pr-ci.yml` runs lint, the PostgreSQL suite under the race detector, and the other databases on every pull request
+- [x] Logging through `log/slog`: `ant.WithLogger(l)`
+- [x] Log levels and slow query threshold: `ant.SlowThreshold(d)`
+- [x] Sensitive value redaction by default: `ant.LogValues()` opts in
+- [x] Debug one query: `q.Debug()`
+- [x] SQL inspection: `q.ToSQL()`
+- [x] Dry run: `ant.DryRun(ctx, db, fn)`
+  - It runs real statements in a transaction that rolls back, so sequences advance, and side effects outside the database still happen.
+- [x] Last executed SQL through an interceptor
+- [x] OpenTelemetry tracing: module `contrib/otel`
+- [x] Metrics sub-package with a Prometheus exporter: package `metrics`
+  - No OpenTelemetry exporter, because importing it would pull its SDK into the root module. `Snapshot` returns the numbers, and a few lines in your own code can publish them through any meter.
+- [x] Cumulative query time alert: `ant.WithDiagnostics` with `Budget`
+- [x] Warn on cartesian explosion
+  - Through `ant.WithDiagnostics`.
+- [x] Warn on N+1 patterns from repeated statements
+  - `RepeatLimit` in `ant.WithDiagnostics`.
+- [x] Detailed query errors with SQL context: `ant.WithDetailedErrors`, `ant.FailedSQL`
+- [x] Execution plan helper: `q.Explain(ctx)`
 - [x] `go vet` analyzer that flags non-probe field pointers: module `tools/antvet`
 - [x] Analyzer check for probes from the wrong model
 - [x] Analyzer check for mismatched `Find` key types
@@ -629,28 +568,12 @@ The guide is [migrations](https://skudra.net/migrations/overview). Everything he
   - Skipped: Partly done, and left open on purpose. `example_test.go` has runnable examples for the core calls, and `tests/features/` shows every feature against a real database, but most calls need a server, which `go test` examples cannot assume. An example for each of the 900 lines in `docs/api.txt` would mostly repeat those tests.
 - [x] Recipe guides: [recipes](https://skudra.net/recipes/auditing)
   - Also partitioning, several databases, and commit failures.
-
-**Exit criteria:** the analyzer runs under `go vet -vettool`. Every exported identifier has an example or a guide link. Fixtures and factories are used by ant's own integration suite.
-
-## v1.0 Stability
-
-### Performance
-
-- [x] Benchmarks against GORM, Bun, and `database/sql`: [benchmarks](https://skudra.net/reference/benchmarks)
-  - Plain `database/sql` stands in for sqlc, whose generated code is the same query string and `Scan`. Adding sqlc itself would need a code generation step in this repository to measure the same thing.
-- [x] Allocation budget for query building and scanning
-- [x] Probe resolution benchmark
-
-### Developer tooling
-
 - [ ] Public API freeze
   - Skipped: Left to the owner. `docs/api.txt` records the candidate, and `tests/api` fails on any change to it, so freezing is a matter of declaring it. The call should come after using it for real, since `Session` options, `exec.Wrap`, and `anttest.Isolate` all changed in this work.
 - [x] Security review: [security](https://skudra.net/reference/security)
   - Done in-house, with known limits listed on that page. An outside review is still worth having before 1.0.
 - [x] Upgrade guide: each GitHub release lists its breaking changes
 - [x] Compatibility policy: [compatibility](https://skudra.net/reference/compatibility)
-
-**Exit criteria:** benchmarks are published and reproducible. The security review has no open high-severity findings. The API has no breaking change for one release candidate.
 
 ## Not planned
 
