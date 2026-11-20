@@ -2,11 +2,11 @@
 id: 52
 title: "New NOT NULL columns fill existing rows"
 area: migrations
-status: active
+status: amended
 tags: [not-null, add-column, default, zero-value, gen_random_uuid, now, warning]
 issues: []
 related: [51]
-changed_by: []
+changed_by: [131]
 code: [schema/diff.go, dialect/postgres/ddl.go]
 tests: [schema/diff_test.go, schema/probes_test.go]
 ---
@@ -14,6 +14,8 @@ tests: [schema/diff_test.go, schema/probes_test.go]
 # 52. New NOT NULL columns fill existing rows
 
 **In short:** Diff adds a new NOT NULL column with its Go zero value as default then drops the default, using now() for timestamptz and gen_random_uuid() for uuid, warning when no sensible value exists.
+
+> **Amended.** Decision 131: a new NOT NULL column with a foreign key is not filled with its zero value, which no row's key is; it is added NULL and made NOT NULL after, for its rows to be filled in between.
 
 ## Decision
 
