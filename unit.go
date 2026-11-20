@@ -48,6 +48,9 @@ type node struct {
 	generated []*meta.Field // filled by the database in this unit
 	stamped   []*meta.Field // filled in Go in this unit
 	restore   []prior       // values the unit replaced, put back if it fails
+
+	// written is what the row was given, taken before an After hook ran.
+	written track.Copy
 }
 
 // prior is a value a unit replaced in an entity, such as the version it moved on.
@@ -1938,6 +1941,7 @@ func (u *unit) commit() {
 		case n.remove || entry != nil && n.entity != entry.Entity:
 		case entry != nil && wrote:
 			undo = append(undo, tracker.Saved(entry, track.Unchanged, u.undoing(n)))
+			entry.Stored(n.written)
 
 			if n.insert {
 				tracker.Rekey(entry)
@@ -1945,8 +1949,13 @@ func (u *unit) commit() {
 		case entry == nil && wrote && u.s.settings.tracking && len(n.model.Keys) > 0:
 			undo = append(undo, tracker.Added(n.model, n.entity, u.undoing(n)))
 
+			added := tracker.Get(n.entity)
+			if added != nil {
+				added.Stored(n.written)
+			}
+
 			// Its relations are remembered below, as a loaded entity's are.
-			if added := tracker.Get(n.entity); added != nil && n.insert {
+			if added != nil && n.insert {
 				n.entry = added
 			}
 		}

@@ -83,6 +83,23 @@ func (e *Entry) Unsettled() bool { return e.pending != nil && len(e.pending.link
 // Refresh makes the current values the snapshot.
 func (e *Entry) Refresh() { e.snapshot = snapshotOf(e.Model, e.Entity) }
 
+// Copy holds the stored values of an entity as they were when it was taken.
+type Copy struct{ snapshot unsafe.Pointer }
+
+// CopyOf copies the stored values of the model value at entity.
+func CopyOf(m *meta.Model, entity unsafe.Pointer) Copy { return Copy{snapshotOf(m, entity)} }
+
+// Taken reports whether c holds a copy.
+func (c Copy) Taken() bool { return c.snapshot != nil }
+
+// Stored makes c the snapshot: the values the row holds, where the entity may
+// hold others since, as an After hook's edit after the write.
+func (e *Entry) Stored(c Copy) {
+	if c.snapshot != nil {
+		e.snapshot = c.snapshot
+	}
+}
+
 // Changed returns the stored fields that differ from the snapshot. The key is
 // never included.
 func (e *Entry) Changed() []*meta.Field {

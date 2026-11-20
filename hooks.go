@@ -28,7 +28,9 @@ type (
 	BeforeInserter interface {
 		BeforeInsert(ctx context.Context) error
 	}
-	// AfterInserter runs after an entity is inserted.
+	// AfterInserter runs after an entity is inserted. Changes it makes to the
+	// entity are not written by that insert: a tracking context holds them as
+	// changes, which the next SaveChanges writes.
 	AfterInserter interface {
 		AfterInsert(ctx context.Context) error
 	}
@@ -37,7 +39,8 @@ type (
 	BeforeUpdater interface {
 		BeforeUpdate(ctx context.Context) error
 	}
-	// AfterUpdater runs after an entity is updated.
+	// AfterUpdater runs after an entity is updated. Changes it makes to the
+	// entity are left for the next SaveChanges, as AfterInsert's are.
 	AfterUpdater interface {
 		AfterUpdate(ctx context.Context) error
 	}
@@ -147,10 +150,24 @@ func (n *node) beforeInsert(ctx context.Context) error {
 
 func (n *node) afterInsert(ctx context.Context) error {
 	if hooksOf(n.model).afterInsert {
-		return n.hook(ctx, func(e any) error { return e.(AfterInserter).AfterInsert(ctx) })
+		return n.after(ctx, func(e any) error { return e.(AfterInserter).AfterInsert(ctx) })
 	}
 
 	return nil
+}
+
+// after runs an After hook on a row just written. What was written is copied
+// first, for the tracker to take as stored: a change the hook makes to its
+// entity, such as a slug built from the new key, is one still to save, where
+// taking the entity as stored after the hook lost it (#108).
+func (n *node) after(ctx context.Context, run func(any) error) error {
+	if ctx.Value(skipHooks{}) != nil {
+		return nil
+	}
+
+	n.written = track.CopyOf(n.model, n.entity)
+
+	return n.hook(ctx, run)
 }
 
 func (n *node) beforeUpdate(ctx context.Context) error {
@@ -177,7 +194,7 @@ func (n *node) beforeUpdate(ctx context.Context) error {
 
 func (n *node) afterUpdate(ctx context.Context) error {
 	if hooksOf(n.model).afterUpdate {
-		return n.hook(ctx, func(e any) error { return e.(AfterUpdater).AfterUpdate(ctx) })
+		return n.after(ctx, func(e any) error { return e.(AfterUpdater).AfterUpdate(ctx) })
 	}
 
 	return nil

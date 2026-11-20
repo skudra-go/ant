@@ -366,9 +366,14 @@ func (t *Table[T]) Upsert(ctx context.Context, e *T, conflict *Conflict) (bool, 
 
 		if entry := tracker.Get(unsafe.Pointer(e)); entry != nil {
 			t.state.record(tracker.Saved(entry, track.Unchanged, u.undoing(n)))
+			entry.Stored(n.written)
 			tracker.Rekey(entry)
 		} else {
 			t.state.record(tracker.Added(model, unsafe.Pointer(e), u.undoing(n)))
+
+			if added := tracker.Get(unsafe.Pointer(e)); added != nil {
+				added.Stored(n.written)
+			}
 		}
 	}
 
