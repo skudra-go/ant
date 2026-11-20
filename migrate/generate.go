@@ -349,7 +349,7 @@ func (t *tool) adopt(ctx context.Context, file, name string) error {
 		return err
 	}
 
-	body, roles := withoutRoles(withoutMetaCommands(string(data)))
+	body, roles := withoutRoles(t.d, withoutMetaCommands(string(data)))
 	text := fmt.Sprintf(
 		"-- The schema as it was when this project adopted ant, from %s.\n\n%s",
 		schema.Comment(filepath.Base(file)),
@@ -404,26 +404,44 @@ func (t *tool) adopt(ctx context.Context, file, name string) error {
 // withoutRoles removes the statements of a dump that name roles: ownership and
 // privileges. They hold the roles of the database dumped, so the baseline failed
 // on any database owned by another, as in CI or on a managed service (#191).
-// pg_dump writes each on one line. It returns how many it removed.
-func withoutRoles(text string) (string, int) {
+// pg_dump writes each on a line of its own. Only a line that is a whole
+// statement of the script goes, so one inside a function's body stays. It
+// returns how many it removed.
+func withoutRoles(d schema.Dialect, text string) (string, int) {
+	names := func(statement string) bool {
+		upper := strings.ToUpper(statement)
+
+		return strings.HasPrefix(upper, "ALTER ") && strings.Contains(upper, " OWNER TO ") ||
+			strings.HasPrefix(upper, "GRANT ") ||
+			strings.HasPrefix(upper, "REVOKE ") ||
+			strings.HasPrefix(upper, "ALTER DEFAULT PRIVILEGES ")
+	}
+
+	roles := map[string]bool{}
+
+	for _, statement := range d.Split(text) {
+		// Split keeps the comments before a statement with it.
+		lines := strings.Split(statement, "\n")
+		last := strings.TrimSpace(lines[len(lines)-1])
+
+		if names(last) {
+			roles[last] = true
+		}
+	}
+
 	var (
 		b       strings.Builder
 		removed int
 	)
 
 	for line := range strings.Lines(text) {
-		statement := strings.ToUpper(strings.TrimSpace(line))
-		whole := strings.HasSuffix(statement, ";")
-
-		switch {
-		case whole && strings.HasPrefix(statement, "ALTER ") && strings.Contains(statement, " OWNER TO "),
-			whole && strings.HasPrefix(statement, "GRANT "),
-			whole && strings.HasPrefix(statement, "REVOKE "),
-			whole && strings.HasPrefix(statement, "ALTER DEFAULT PRIVILEGES "):
+		if statement, ok := strings.CutSuffix(strings.TrimSpace(line), ";"); ok && roles[statement] {
 			removed++
-		default:
-			b.WriteString(line)
+
+			continue
 		}
+
+		b.WriteString(line)
 	}
 
 	return b.String(), removed
