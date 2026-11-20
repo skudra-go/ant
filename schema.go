@@ -830,6 +830,8 @@ func (b *schemaBuilder) foreignKeys() error {
 			)
 		}
 
+		typeAsTarget(column, key.column, key.ref, parent)
+
 		name := key.name
 		if name == "" {
 			name = schema.ForeignKeyName(b.d, t.Name, column.Name)
@@ -885,6 +887,10 @@ func (b *schemaBuilder) constraints(models []*meta.Model) error {
 			for i := range key.Columns {
 				columns[i], refs[i] = key.Columns[i].Column, key.Refs[i].Column
 				parts[i] = schema.IndexPart{Column: columns[i]}
+
+				if column := t.Column(columns[i]); column != nil {
+					typeAsTarget(column, key.Columns[i], key.Refs[i], b.owner[key.Target])
+				}
 			}
 
 			name := key.Name
@@ -912,6 +918,32 @@ func (b *schemaBuilder) constraints(models []*meta.Model) error {
 	}
 
 	return nil
+}
+
+// typeAsTarget gives a foreign key column with no type of its own the type its
+// target was given, as a join table's columns take theirs. A string key typed
+// uuid left a string foreign key text, which PostgreSQL cannot join to uuid,
+// so the migration failed on its first run (#187). A serial target is the
+// integer it draws from a sequence, which the referring column holds.
+func typeAsTarget(column *schema.Column, field, ref *meta.Field, target *schema.Table) {
+	if target == nil || field.Storage.Type != "" || field.Storage.Enum != nil || ref.Storage.Type == "" {
+		return
+	}
+
+	to := target.Column(ref.Column)
+	if to == nil {
+		return
+	}
+
+	column.Type = to.Type
+
+	if plain, ok := map[string]string{
+		"smallserial": "smallint",
+		"serial":      "integer",
+		"bigserial":   "bigint",
+	}[strings.ToLower(to.Type)]; ok {
+		column.Type = plain
+	}
 }
 
 func isUnique(t *schema.Table, column string) bool {
