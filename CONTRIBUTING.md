@@ -73,6 +73,14 @@ Database tests run in parallel, eight at a time per package (`PARALLEL=8`). Each
 - User docs live in [ant-docs](https://github.com/skudra-go/ant-docs). Update them there when behaviour changes.
 - The skill for coding agents, [`skills/ant/SKILL.md`](skills/ant/SKILL.md), states the API's rules in brief. Update it when a change makes it wrong. `tests/api` fails if it names something the API no longer has. To type-check its samples, run ant-docs' doccheck on it, from `ant-docs/tools/doccheck` with a `go.work` that points at your ant checkout: `go run ./cmd/doccheck ../../../ant/skills`.
 
+## Releases
+
+A tag `vX.Y.Z` on `main` releases ant: the release workflow drafts the GitHub release and asks the module proxy for the version. The nested modules are released with tags of their own, `contrib/otel/vX.Y.Z`, `tools/antvet/vX.Y.Z` and `tools/antfmt/vX.Y.Z`. A program that adds `contrib/otel` ignores its `replace` directive, so the ant it requires must be a release:
+
+1. Tag and push ant's `vX.Y.Z`.
+2. In a pull request, set the `github.com/skudra-go/ant` require of `contrib/otel/go.mod` to `vX.Y.Z` (the `replace` stays, for working in this repository), and run its tests.
+3. Once that is merged, tag and push `contrib/otel/vX.Y.Z` on it. The workflow refuses a nested tag whose `go.mod` requires a version that is not a release. `tools/antvet` and `tools/antfmt` do not import ant, so they can be tagged at once.
+
 ## Conduct and security
 
 Everyone taking part follows the [code of conduct](CODE_OF_CONDUCT.md). Report vulnerabilities privately, as [SECURITY.md](SECURITY.md) describes, not in an issue.

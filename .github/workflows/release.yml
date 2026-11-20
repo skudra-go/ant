@@ -1,8 +1,11 @@
 name: Release
 
+# A root tag, such as v1.2.0, releases ant. A nested module has tags of its
+# own, such as contrib/otel/v1.2.0, pushed once its go.mod requires the ant
+# release it was tested with (see CONTRIBUTING.md).
 on:
   push:
-    tags: ["v*"]
+    tags: ["v*", "contrib/otel/v*", "tools/antvet/v*", "tools/antfmt/v*"]
 
 permissions:
   contents: write
@@ -16,6 +19,7 @@ jobs:
       # A draft, so the notes can be edited before publishing. A tag with a
       # suffix, such as v1.2.0-rc.1, is marked as a pre-release.
       - name: Draft the release
+        if: ${{ !contains(github.ref_name, '/') }}
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
@@ -26,11 +30,30 @@ jobs:
           fi
           gh release create "$TAG" "${flags[@]}"
 
+      # A program that adds a nested module ignores its replace directive, so
+      # the ant it requires must be a release the proxy has.
+      - name: Check the nested module requires a released ant
+        if: ${{ contains(github.ref_name, '/') }}
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          required=$(sed -nE 's#^[[:space:]]*(require[[:space:]]+)?github\.com/skudra-go/ant[[:space:]]+([^[:space:]]+).*#\2#p' "${TAG%/*}/go.mod")
+          if [[ -n "$required" && ! "$required" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "${TAG%/*}/go.mod requires github.com/skudra-go/ant $required, which is not a release" >&2
+            exit 1
+          fi
+
       # Asks the module proxy for the new version, so go get and pkg.go.dev see
-      # it straight away.
+      # it straight away. A nested module's tag is its folder and its version.
       - name: Refresh the Go module proxy
         env:
           TAG: ${{ github.ref_name }}
         run: |
+          module="github.com/${GITHUB_REPOSITORY,,}"
+          version="$TAG"
+          if [[ "$TAG" == */* ]]; then
+            module="$module/${TAG%/*}"
+            version="${TAG##*/}"
+          fi
           curl -fsS --retry 5 --retry-delay 10 --retry-all-errors \
-            "https://proxy.golang.org/github.com/${GITHUB_REPOSITORY,,}/@v/${TAG}.info"
+            "https://proxy.golang.org/${module}/@v/${version}.info"
