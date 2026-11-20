@@ -8,6 +8,7 @@ import (
 
 	"github.com/skudra-go/ant"
 	"github.com/skudra-go/ant/dialect/postgres"
+	"github.com/skudra-go/ant/migrate"
 )
 
 // Ticket uses a native enum, a sequence, and comments.
@@ -362,6 +363,95 @@ func TestEnumAndSequenceNamesAreQuoted(t *testing.T) {
 			must[Shout2DB](p, "up")
 			require.Contains(t, must[Shout2DB](p, "drift"), "No drift")
 			require.Contains(t, must[Shout2DB](p, "check"), "OK")
+		})
+	})
+}
+
+// Reading2 is Reading partitioned another way, and Reading3 not at all.
+type Reading2 struct {
+	ID    int64
+	At    time.Time
+	Value float64
+}
+
+func (Reading2) Configure(b *ant.ModelBuilder[Reading2]) {
+	b.Table("readings")
+	b.Key(&Reading2s.ID).NotGenerated()
+	b.CompositeKey(ant.F(&Reading2s.ID), ant.F(&Reading2s.At))
+	b.PartitionByList(ant.F(&Reading2s.At))
+}
+
+var Reading2s = ant.Fields[Reading2]()
+
+type Partition2DB struct {
+	ant.Context
+	Readings ant.Table[Reading2]
+}
+
+type Reading3 struct {
+	ID    int64
+	At    time.Time
+	Value float64
+}
+
+func (Reading3) Configure(b *ant.ModelBuilder[Reading3]) {
+	b.Table("readings")
+	b.Key(&Reading3s.ID).NotGenerated()
+	b.CompositeKey(ant.F(&Reading3s.ID), ant.F(&Reading3s.At))
+}
+
+var Reading3s = ant.Fields[Reading3]()
+
+type Partition3DB struct {
+	ant.Context
+	Readings ant.Table[Reading3]
+}
+
+// How a table is partitioned can't change in place, and it was never compared,
+// so check, diff and drift said the database matched the models (#96). Each now
+// names the change, and the file diff writes says to make it by hand.
+func TestRepartitioningIsAChange(t *testing.T) {
+	each(t, func(t *testing.T, p *project) {
+		must[PartitionDB](p, "diff", "start")
+		must[PartitionDB](p, "up")
+
+		for _, c := range []struct {
+			name string
+			run  func(args ...string) (string, error)
+			want string
+		}{
+			{
+				"by another method",
+				func(args ...string) (string, error) { return run[Partition2DB](p, args...) },
+				`repartition readings: partitioned by RANGE (at) to partitioned by LIST (at)`,
+			},
+			{
+				"no longer",
+				func(args ...string) (string, error) { return run[Partition3DB](p, args...) },
+				`repartition readings: partitioned by RANGE (at) to not partitioned`,
+			},
+		} {
+			t.Run(c.name, func(t *testing.T) {
+				_, err := c.run("check")
+				require.ErrorIs(t, err, migrate.ErrPendingChanges)
+				require.ErrorContains(t, err, c.want)
+
+				out, err := c.run("diff", "repartition", "--dry-run")
+				require.NoError(t, err)
+				require.Contains(t, out, "PostgreSQL cannot change how readings is partitioned")
+			})
+		}
+
+		require.Contains(t, must[PartitionDB](p, "drift"), "No drift", "the same partitioning is no change")
+
+		t.Run("drift sees a table partitioned otherwise than the migrations say", func(t *testing.T) {
+			p.sql("DROP TABLE readings")
+			p.sql(`CREATE TABLE readings (id bigint NOT NULL, at timestamptz NOT NULL,
+				value double precision NOT NULL, PRIMARY KEY (id, at))`)
+
+			out, err := run[PartitionDB](p, "drift")
+			require.ErrorIs(t, err, migrate.ErrDrift)
+			require.Contains(t, out, "repartition readings: not partitioned to partitioned by RANGE (at)")
 		})
 	})
 }
