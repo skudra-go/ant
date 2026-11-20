@@ -305,3 +305,44 @@ func TestEnsureCreated(t *testing.T) {
 		})
 	})
 }
+
+// Org's key is a string typed uuid. A foreign key to it with no type of its own
+// was text, which PostgreSQL cannot join to uuid, so the first up failed though
+// Open, check and diff had passed (#187). It takes the key's type now.
+type Org struct {
+	ID   string
+	Name string
+}
+
+func (Org) Configure(b *ant.ModelBuilder[Org]) {
+	b.Key(&Orgs.ID).NotGenerated()
+	b.Column(&Orgs.ID).Type("uuid").Default("gen_random_uuid()")
+}
+
+type Seat struct {
+	ID    int64
+	OrgID string
+	Org   *Org
+}
+
+var Orgs = ant.Fields[Org]()
+
+type OrgDB struct {
+	ant.Context
+	Orgs  ant.Table[Org]
+	Seats ant.Table[Seat]
+}
+
+func TestForeignKeyTakesItsTargetsType(t *testing.T) {
+	each(t, func(t *testing.T, p *project) {
+		must[OrgDB](p, "diff", "start")
+		require.Contains(t, p.read("versions/0001_start.up.sql"), `"org_id" uuid NOT NULL`)
+		must[OrgDB](p, "up")
+
+		db := open[OrgDB](p)
+		org := &Org{Name: "a"}
+		require.NoError(t, db.Orgs.Insert(t.Context(), org))
+		require.NoError(t, db.Seats.Insert(t.Context(), &Seat{OrgID: org.ID}))
+		require.Contains(t, must[OrgDB](p, "drift"), "No drift")
+	})
+}
