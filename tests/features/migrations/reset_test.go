@@ -87,3 +87,59 @@ func TestCommandErrors(t *testing.T) {
 		})
 	})
 }
+
+// A file runs as it says, or not at all. A directive after the first statement
+// is not read, so a file that put a SET first ran in a transaction (#182). And
+// ant runs each file in a transaction, which a COMMIT in the file ends, so the
+// statements before it stayed when a later one failed (#181).
+func TestFileBodyIsChecked(t *testing.T) {
+	each(t, func(t *testing.T, p *project) {
+		refused := func(t *testing.T, file, body, want string) {
+			t.Helper()
+
+			p.write("versions/"+file, body)
+			t.Cleanup(func() { require.NoError(t, removeFile(p, "versions/"+file)) })
+
+			_, err := run[V1DB](p, "up")
+			require.ErrorIs(t, err, migrate.ErrBadMigration)
+			require.ErrorContains(t, err, want)
+			require.Empty(t, p.columns("audit_a"), "nothing of it ran")
+		}
+
+		t.Run("a directive after the first statement", func(t *testing.T) {
+			refused(
+				t,
+				"0001_late.up.sql",
+				"SET lock_timeout = '5s';\n-- ant:no-transaction\nCREATE TABLE audit_a (id int);\n",
+				"-- ant:no-transaction at line 2 comes after the first statement",
+			)
+		})
+
+		for _, c := range []struct{ name, body, word string }{
+			{"BEGIN and COMMIT", "BEGIN;\nCREATE TABLE audit_a (id int);\nCOMMIT;\n", "BEGIN"},
+			{"START TRANSACTION", "START TRANSACTION;\nCREATE TABLE audit_a (id int);\n", "START"},
+			{"a COMMIT halfway", "CREATE TABLE audit_a (id int);\n/* done */ commit;\nSELECT 1;\n", "COMMIT"},
+			{"END", "CREATE TABLE audit_a (id int);\nEND;\n", "END"},
+			{"ROLLBACK", "CREATE TABLE audit_a (id int);\n-- undo\nROLLBACK;\n", "ROLLBACK"},
+		} {
+			t.Run(c.name, func(t *testing.T) {
+				refused(t, "0001_wrapped.up.sql", c.body, "has a "+c.word+" of its own")
+			})
+		}
+
+		t.Run("savepoints stay inside the transaction", func(t *testing.T) {
+			p.write("versions/0001_savepoint.up.sql", "SAVEPOINT s;\nCREATE TABLE audit_a (id int);\n"+
+				"ROLLBACK TO SAVEPOINT s;\nRELEASE s;\nCREATE TABLE audit_b (id int);\n"+
+				"-- BEGIN; in a comment, and 'COMMIT' in a string, are no statements\nSELECT 'COMMIT';\n")
+			must[V1DB](p, "up")
+			require.Empty(t, p.columns("audit_a"))
+			require.NotEmpty(t, p.columns("audit_b"))
+		})
+
+		t.Run("a file without a transaction may hold its own", func(t *testing.T) {
+			p.write("versions/0002_own.up.sql", "-- ant:no-transaction\nBEGIN;\nCREATE TABLE audit_c (id int);\nCOMMIT;\n")
+			must[V1DB](p, "up")
+			require.NotEmpty(t, p.columns("audit_c"))
+		})
+	})
+}
