@@ -2,7 +2,10 @@ package postgres
 
 import (
 	"cmp"
+	"encoding/json"
 	"fmt"
+	"net"
+	"net/netip"
 	"reflect"
 	"strconv"
 	"strings"
@@ -30,6 +33,14 @@ func (impl) ColumnType(t reflect.Type, f schema.Facets) (string, bool) {
 	switch {
 	case t == reflect.TypeFor[time.Time]():
 		return "timestamptz", true
+	case t == reflect.TypeFor[json.RawMessage]():
+		return "jsonb", true
+	case t == reflect.TypeFor[net.IP](), t == reflect.TypeFor[netip.Addr]():
+		return "inet", true
+	case t == reflect.TypeFor[netip.Prefix]():
+		return "cidr", true
+	case t == reflect.TypeFor[time.Duration]():
+		return "interval", true
 	case t.Kind() == reflect.Array && t.Len() == 16 && t.Elem().Kind() == reflect.Uint8:
 		return "uuid", true // the shape of github.com/google/uuid.UUID
 	case t.Kind() == reflect.Slice && t.Elem().Kind() == reflect.Uint8:
