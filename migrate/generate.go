@@ -349,10 +349,11 @@ func (t *tool) adopt(ctx context.Context, file, name string) error {
 		return err
 	}
 
+	body, roles := withoutRoles(withoutMetaCommands(string(data)))
 	text := fmt.Sprintf(
 		"-- The schema as it was when this project adopted ant, from %s.\n\n%s",
 		schema.Comment(filepath.Base(file)),
-		withoutMetaCommands(string(data)),
+		body,
 	)
 
 	m, err := t.compose(c, name, text)
@@ -382,11 +383,50 @@ func (t *tool) adopt(ctx context.Context, file, name string) error {
 
 	t.say("Wrote %s, and the snapshot from your models.", t.location(m))
 
+	if roles > 0 {
+		t.say(
+			"Left out %d statements that give tables to roles or grant to them (OWNER TO, GRANT, REVOKE): "+
+				"a database owned by another role could not run them. Grants the application needs "+
+				"belong in a migration of their own. A dump made with pg_dump --no-owner --no-privileges "+
+				"has none.",
+			roles,
+		)
+	}
+
 	t.say(
-		"New databases run that file. On each database that already has this schema, run: baseline",
+		"New databases run that file. On each database that already has this schema, run: baseline %s",
+		m.Version,
 	)
 
 	return nil
+}
+
+// withoutRoles removes the statements of a dump that name roles: ownership and
+// privileges. They hold the roles of the database dumped, so the baseline failed
+// on any database owned by another, as in CI or on a managed service (#191).
+// pg_dump writes each on one line. It returns how many it removed.
+func withoutRoles(text string) (string, int) {
+	var (
+		b       strings.Builder
+		removed int
+	)
+
+	for line := range strings.Lines(text) {
+		statement := strings.ToUpper(strings.TrimSpace(line))
+		whole := strings.HasSuffix(statement, ";")
+
+		switch {
+		case whole && strings.HasPrefix(statement, "ALTER ") && strings.Contains(statement, " OWNER TO "),
+			whole && strings.HasPrefix(statement, "GRANT "),
+			whole && strings.HasPrefix(statement, "REVOKE "),
+			whole && strings.HasPrefix(statement, "ALTER DEFAULT PRIVILEGES "):
+			removed++
+		default:
+			b.WriteString(line)
+		}
+	}
+
+	return b.String(), removed
 }
 
 // withoutMetaCommands removes psql commands, such as the \\restrict lines recent
