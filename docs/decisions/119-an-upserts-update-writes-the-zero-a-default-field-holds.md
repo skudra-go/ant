@@ -2,21 +2,18 @@
 id: 119
 title: "An upsert's update writes the zero a default field holds"
 area: writes
-status: pending
-pr: 275
+status: active
 tags: [upsert, default, InsertMany, WithConflict, drift, zero-value]
 issues: [142, 192]
 related: [90, 103]
-changes: []
+changed_by: []
 code: [upsert.go, migrate/operate.go, config.go]
-tests: [tests/conformance_test.go, tests/features/migrations/drift_test.go]
+tests: [tests/conformance_test.go, tests/features/migrations/drift_test.go, tests/features/value_handling/probes/rows/probes_test.go]
 ---
 
 # 119. An upsert's update writes the zero a default field holds
 
 **In short:** An upsert's update writes the entity's value where the insert left a default field's zero to the database; drift notes that a model default sends zero as DEFAULT.
-
-> **Pending.** Added by pull request #275, not merged yet. When it merges, set `status: active`.
 
 ## Decision
 

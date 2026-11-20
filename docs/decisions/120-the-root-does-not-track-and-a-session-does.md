@@ -2,12 +2,11 @@
 id: 120
 title: "The root does not track, and a session does"
 area: tracking
-status: pending
-pr: 276
+status: active
 tags: [WithTracking, Session, ErrNoTracking, root-context, unit-of-work]
 issues: [147, 148]
 related: [29, 61, 79]
-changes: [29, 61, 79]
+changed_by: []
 code: [ant.go, options.go, entry.go, graph.go, unit.go, errors.go]
 tests: [tests/features/change_tracking/sessions_test.go, tests/features/change_tracking/concurrent_use_test.go]
 ---
@@ -15,8 +14,6 @@ tests: [tests/features/change_tracking/sessions_test.go, tests/features/change_t
 # 120. The root does not track, and a session does
 
 **In short:** The context Open returns does not track and a Session does; SaveChanges and the helpers that give it work return ErrNoTracking on a context that does not track.
-
-> **Pending.** Added by pull request #276, not merged yet. When it merges, set `status: active`, and mark 29, 61, 79 as amended by 120.
 
 ## Decision
 

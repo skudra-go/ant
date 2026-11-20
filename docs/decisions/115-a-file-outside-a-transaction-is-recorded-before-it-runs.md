@@ -2,12 +2,11 @@
 id: 115
 title: "A file outside a transaction is recorded before it runs"
 area: migrations
-status: pending
-pr: 274
+status: active
 tags: [no-transaction, migrate-up, history, crash, ErrFailed]
 issues: [180]
 related: [56]
-changes: []
+changed_by: []
 code: [migrate/engine.go, migrate/history.go]
 tests: [tests/features/migrations/up_test.go]
 ---
@@ -15,8 +14,6 @@ tests: [tests/features/migrations/up_test.go]
 # 115. A file outside a transaction is recorded before it runs
 
 **In short:** A no-transaction migration is recorded as failed before its first statement, so a process killed partway leaves it failed rather than pending.
-
-> **Pending.** Added by pull request #274, not merged yet. When it merges, set `status: active`.
 
 ## Decision
 

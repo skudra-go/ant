@@ -6,7 +6,7 @@ status: amended
 tags: [ErrConcurrentUse, tracker-claim, SaveChanges, WithTracking, rollback-reversal, UseTx, UseConn, hooks, concurrency]
 issues: []
 related: [29, 98]
-changed_by: []
+changed_by: [120, 121]
 code: [ant.go, internal/track/track.go, tx.go, entry.go, unit.go, upsert.go]
 tests: [tests/features/change_tracking/concurrent_use_test.go, tests/concurrency/tracking_test.go, internal/track/track_test.go, tests/concurrency/tx_test.go, tests/concurrency/callbacks_test.go]
 ---
@@ -15,7 +15,7 @@ tests: [tests/features/change_tracking/concurrent_use_test.go, tests/concurrency
 
 **In short:** A tracking context is one unit of work: a second concurrent operation gets ErrConcurrentUse, helpers take a context, and rollbacks reverse tracker changes in order.
 
-> **Amended.** One detail no longer holds: since #256 the re-read in `FirstOrCreate` inside a transaction takes `FOR UPDATE` on every database with row locks, not `FOR SHARE`, because two transactions that each hold a share lock on the row deadlock when both then change it (`upsert.go`, in `FirstOrCreate`). The rest holds. Pull request #276 would change it, in decision 120, which is pending. Pull request #276 would change it, in decision 121, which is pending.
+> **Amended.** Three details no longer hold. Since #256 the re-read in `FirstOrCreate` inside a transaction takes `FOR UPDATE` on every database with row locks, not `FOR SHARE`, because two transactions that each hold a share lock on the row deadlock when both then change it (`upsert.go`, in `FirstOrCreate`). Decision 120 makes the context `Open` returns not track and a session track, so `ant.Session(db)` is the unit of work, and `Add` and `Attach` on a context with tracking off return `ErrNoTracking`, so the exception for them there, and the claims it needed, are gone. Decision 121 makes every rollback, after it reverses what was saved, forget the entities its transaction began tracking rather than leave them pending. The rest holds.
 
 ## Decision
 

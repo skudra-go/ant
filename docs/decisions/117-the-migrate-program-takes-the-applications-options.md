@@ -2,12 +2,11 @@
 id: 117
 title: "The migrate program takes the application's options"
 area: migrations
-status: pending
-pr: 274
+status: active
 tags: [WithNaming, WithConvention, migrate-config, SchemaOf, naming]
 issues: [81]
 related: [67]
-changes: []
+changed_by: []
 code: [migrate/config.go, migrate/cli.go, schema.go, conventions.go]
 tests: [tests/features/migrations, tests/features/model_definition/inheritance_test.go]
 ---
@@ -15,8 +14,6 @@ tests: [tests/features/migrations, tests/features/model_definition/inheritance_t
 # 117. The migrate program takes the application's options
 
 **In short:** migrate.Config.Options carries the application's Open options to SchemaOf and Open, and one WithConvention option given twice adds one rule.
-
-> **Pending.** Added by pull request #274, not merged yet. When it merges, set `status: active`.
 
 ## Decision
 

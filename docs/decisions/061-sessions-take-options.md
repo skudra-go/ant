@@ -2,11 +2,11 @@
 id: 61
 title: "Sessions take options"
 area: tracking
-status: active
+status: amended
 tags: [Session, WithTracking, SaveChanges, WithReplicas, WithLogger, savepoint, unit-of-work]
 issues: [210]
 related: [46, 48]
-changed_by: []
+changed_by: [120]
 code: [ant.go, options.go, tx.go]
 tests: [tests/concurrency/sessions_test.go, tests/features/change_tracking/sessions_test.go, tests/features/transactions/replicas_test.go]
 ---
@@ -15,7 +15,7 @@ tests: [tests/concurrency/sessions_test.go, tests/features/change_tracking/sessi
 
 **In short:** ant.Session accepts options, so Session(db, WithTracking(true)) is the unit of work, and logger, interceptor, diagnostics, detailed-errors and replica options on a session wrap its executors again.
 
-> **Note.** Pull request #276 would change it, in decision 120, which is pending.
+> **Amended.** Decision 120 makes the context `Open` returns not track and a session track unless given `WithTracking(false)`, so `ant.Session(db)` is the unit of work, and `SaveChanges` on a context with tracking off returns `ErrNoTracking` rather than nil. The rest, that a session takes options and wraps its executors and replicas again, holds.
 
 ## Decision
 

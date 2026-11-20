@@ -6,7 +6,7 @@ status: amended
 tags: [Session, WithTracking, tracker, unit-of-work, DbContext]
 issues: []
 related: [61, 79]
-changed_by: [61, 79]
+changed_by: [61, 79, 120]
 code: [ant.go, options.go]
 tests: [tests/features/change_tracking/sessions_test.go, tests/concurrency/sessions_test.go]
 ---
@@ -15,7 +15,7 @@ tests: [tests/features/change_tracking/sessions_test.go, tests/concurrency/sessi
 
 **In short:** ant.Session returns a context with its own tracker on the same pool, as the unit of work; WithTracking(false) suits shared contexts.
 
-> **Amended.** Decision 61 makes Session take options (Session(db, WithTracking(true))) and decision 79 limits a tracking context to one operation at a time. Pull request #276 would change it, in decision 120, which is pending.
+> **Amended.** Decision 61 makes Session take options (Session(db, WithTracking(true))) and decision 79 limits a tracking context to one operation at a time. Decision 120 makes the context `Open` returns not track and a session track unless given `WithTracking(false)`, so `ant.Session(db)` is the unit of work and a shared root needs no `WithTracking(false)`.
 
 ## Decision
 

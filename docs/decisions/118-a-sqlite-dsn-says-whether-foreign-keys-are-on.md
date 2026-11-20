@@ -2,21 +2,18 @@
 id: 118
 title: "A SQLite DSN says whether foreign keys are on"
 area: dialects
-status: pending
-pr: 274
+status: active
 tags: [sqlite, foreign-keys, dsn, CheckDSN]
 issues: [214]
 related: [74]
-changes: []
+changed_by: []
 code: [dialect/sqlite/sqlite.go]
-tests: []
+tests: [dialect/sqlite/sqlite_test.go]
 ---
 
 # 118. A SQLite DSN says whether foreign keys are on
 
 **In short:** Open refuses a SQLite DSN that does not set foreign_keys, in any of the driver's forms; foreign_keys(0) keeps them off on purpose.
-
-> **Pending.** Added by pull request #274, not merged yet. When it merges, set `status: active`.
 
 ## Decision
 

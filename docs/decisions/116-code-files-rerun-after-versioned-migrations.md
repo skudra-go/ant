@@ -2,12 +2,11 @@
 id: 116
 title: "Code files rerun after versioned migrations"
 area: migrations
-status: pending
-pr: 274
+status: active
 tags: [repeatable, code-files, views, migrate-up, outdated]
 issues: [175]
 related: [11, 78, 94]
-changes: []
+changed_by: []
 code: [migrate/engine.go, migrate/cli.go, migrate/migration.go]
 tests: [tests/features/migrations/repeatable_test.go]
 ---
@@ -15,8 +14,6 @@ tests: [tests/features/migrations/repeatable_test.go]
 # 116. Code files rerun after versioned migrations
 
 **In short:** Files in code/ rerun after any versioned migration in the same up, and are outdated when a versioned migration was applied after them.
-
-> **Pending.** Added by pull request #274, not merged yet. When it merges, set `status: active`.
 
 ## Decision
 

@@ -2,11 +2,11 @@
 id: 31
 title: "Failed saves"
 area: transactions
-status: active
+status: amended
 tags: [SaveChanges, savepoint, ErrTxDone, ErrConcurrency, ErrKeyChanged, WithoutAutoTx, WithRetry, RetryEndsTx]
 issues: [71, 90]
 related: [71, 90]
-changed_by: []
+changed_by: [121]
 code: [tx.go, unit.go, dialect/syntax.go, errors.go]
 tests: [tests/tx_test.go, tests/features/transactions/retry_test.go, tests/features/change_tracking/save_changes_test.go]
 ---
@@ -15,7 +15,7 @@ tests: [tests/tx_test.go, tests/features/transactions/retry_test.go, tests/featu
 
 **In short:** SaveChanges runs in a transaction or savepoint, clears generated keys on failure, and marks a transaction lost when the database ends it, so later statements return ErrTxDone.
 
-> **Note.** Pull request #276 would change it, in decision 121, which is pending.
+> **Amended.** Decision 121 changes what a rollback of an enclosing transaction leaves: it still reverses what the tracker recorded as saved, and then forgets the entities the transaction began tracking, so only those tracked before it stay pending. Entities tracked before a failed `SaveChanges` began stay pending, so the call can still be repeated.
 
 ## Decision
 

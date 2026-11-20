@@ -138,7 +138,7 @@ On 2026-11-20 the decisions moved from one file, `docs/DECISIONS.md`, to a file 
 | [98](098-an-explicit-write-refuses-the-columns-ant-keeps.md) | An explicit write refuses the columns ant keeps | active | `immutable` `readonly` `computed` `Update` `Set` `DoUpdate` `UpdateMany` `WhenMatched` |
 | [102](102-updatemany-keeps-what-a-bulk-update-keeps.md) | UpdateMany keeps what a bulk Update keeps | active | `UpdateMany` `version` `UpdatedAt` `global-filter` `soft-delete` `tenant-filter` |
 | [103](103-an-upserts-update-stamps-updatedat.md) | An upsert's update stamps UpdatedAt | active | `Upsert` `InsertMany` `DoUpdate` `UpdatedAt` `on-conflict` `excluded` |
-| [119](119-an-upserts-update-writes-the-zero-a-default-field-holds.md) | An upsert's update writes the zero a default field holds | pending in #275 | `upsert` `default` `InsertMany` `WithConflict` `drift` `zero-value` |
+| [119](119-an-upserts-update-writes-the-zero-a-default-field-holds.md) | An upsert's update writes the zero a default field holds | active | `upsert` `default` `InsertMany` `WithConflict` `drift` `zero-value` |
 
 #### Change tracking
 
@@ -147,29 +147,29 @@ On 2026-11-20 the decisions moved from one file, `docs/DECISIONS.md`, to a file 
 | [6](006-return-shapes-and-tracking.md) | Return shapes and tracking | superseded by [27](027-all-returns-t.md) | `Find` `First` `Each` `All` `tracking` `return-shape` |
 | [27](027-all-returns-t.md) | `All` returns `[]*T` | active | `All` `[]*T` `identity-map` `Each` `Raw` |
 | [28](028-identity-and-relation-slices.md) | Identity and relation slices | amended by [112](112-a-locking-read-puts-the-row-into-the-tracked-instance.md) | `identity-map` `relation-slice` `SaveChanges` `Find` `Snapshot` |
-| [29](029-sessions.md) | Sessions | amended by [61](061-sessions-take-options.md), [79](079-a-tracking-context-serves-one-operation-at-a-time.md) | `Session` `WithTracking` `tracker` `unit-of-work` `DbContext` |
+| [29](029-sessions.md) | Sessions | amended by [61](061-sessions-take-options.md), [79](079-a-tracking-context-serves-one-operation-at-a-time.md), [120](120-the-root-does-not-track-and-a-session-does.md) | `Session` `WithTracking` `tracker` `unit-of-work` `DbContext` |
 | [30](030-tracking-follows-keys-not-addresses.md) | Tracking follows keys, not addresses | active | `SaveChanges` `relation-reconcile` `unlink` `orphan` `foreign-key` `null` |
 | [32](032-navigation-and-foreign-key-changes.md) | Navigation and foreign key changes | active | `foreign-key` `navigation` `move-child` `unlink` `SaveChanges` |
-| [61](061-sessions-take-options.md) | Sessions take options | active | `Session` `WithTracking` `SaveChanges` `WithReplicas` `WithLogger` `savepoint` `unit-of-work` |
-| [79](079-a-tracking-context-serves-one-operation-at-a-time.md) | A tracking context serves one operation at a time | amended | `ErrConcurrentUse` `tracker-claim` `SaveChanges` `WithTracking` `rollback-reversal` `UseTx` `UseConn` `hooks` `concurrency` |
+| [61](061-sessions-take-options.md) | Sessions take options | amended by [120](120-the-root-does-not-track-and-a-session-does.md) | `Session` `WithTracking` `SaveChanges` `WithReplicas` `WithLogger` `savepoint` `unit-of-work` |
+| [79](079-a-tracking-context-serves-one-operation-at-a-time.md) | A tracking context serves one operation at a time | amended by [120](120-the-root-does-not-track-and-a-session-does.md), [121](121-a-rollback-forgets-what-its-transaction-began-tracking.md) | `ErrConcurrentUse` `tracker-claim` `SaveChanges` `WithTracking` `rollback-reversal` `UseTx` `UseConn` `hooks` `concurrency` |
 | [92](092-tracked-values-compare-as-stored.md) | Tracked values compare as stored | active | `change-tracking` `Snapshot` `nan` `time` `deepequal` `valuer` `UnixTime` `SaveChanges` |
 | [93](093-tracking-follows-what-a-save-wrote.md) | Tracking follows what a save wrote | active | `change-tracking` `relations` `many-to-many` `Include` `SaveChanges` `InsertOnly` `Remove` `version` |
 | [96](096-a-forced-update-stamps-updatedat.md) | A forced update stamps UpdatedAt | active | `MarkModified` `TrackGraph` `UpdatedAt` `forced-update` `SaveChanges` |
 | [110](110-a-version-the-application-sets-is-the-one-checked.md) | A version the application sets is the one checked | active | `version` `optimistic-concurrency` `ErrConcurrency` `SaveChanges` `ConcurrencyError` `Attach` |
 | [111](111-a-replaced-entity-keeps-what-the-body-could-not-give.md) | A replaced entity keeps what the body could not give | active | `UpdatedAt` `foreign-key` `SaveChanges` `PUT` `relation` `replaced-entity` |
-| [120](120-the-root-does-not-track-and-a-session-does.md) | The root does not track, and a session does | pending in #276 | `WithTracking` `Session` `ErrNoTracking` `root-context` `unit-of-work` |
+| [120](120-the-root-does-not-track-and-a-session-does.md) | The root does not track, and a session does | active | `WithTracking` `Session` `ErrNoTracking` `root-context` `unit-of-work` |
 
 #### Transactions
 
 | # | Decision | Status | Tags |
 |---|---|---|---|
 | [2](002-tx-is-a-generic-method-on-context.md) | `Tx` is a generic method on `Context` | active | `Tx` `generic-method` `Context` `ErrTxType` |
-| [31](031-failed-saves.md) | Failed saves | active | `SaveChanges` `savepoint` `ErrTxDone` `ErrConcurrency` `ErrKeyChanged` `WithoutAutoTx` `WithRetry` `RetryEndsTx` |
+| [31](031-failed-saves.md) | Failed saves | amended by [121](121-a-rollback-forgets-what-its-transaction-began-tracking.md) | `SaveChanges` `savepoint` `ErrTxDone` `ErrConcurrency` `ErrKeyChanged` `WithoutAutoTx` `WithRetry` `RetryEndsTx` |
 | [48](048-replicas.md) | Replicas | active | `WithReplicas` `replica` `OnPrimary` `WithStickyWrites` `read-write-split` |
 | [70](070-dryrun-really-runs.md) | DryRun really runs | active | `DryRun` `Rollback` `diagnostics` `Statement` `sequences` |
-| [99](099-a-retried-attempt-leaves-nothing-in-the-tracker.md) | A retried attempt leaves nothing in the tracker | active | `Attempts` `retry` `deadlock` `tracker` `Rollback` `serialization-failure` |
+| [99](099-a-retried-attempt-leaves-nothing-in-the-tracker.md) | A retried attempt leaves nothing in the tracker | amended by [121](121-a-rollback-forgets-what-its-transaction-began-tracking.md) | `Attempts` `retry` `deadlock` `tracker` `Rollback` `serialization-failure` |
 | [106](106-begin-inside-a-transaction-opens-a-savepoint.md) | Begin inside a transaction opens a savepoint | active | `Begin` `savepoint` `Commit` `Rollback` `nested-tx` `Tx` |
-| [121](121-a-rollback-forgets-what-its-transaction-began-tracking.md) | A rollback forgets what its transaction began tracking | pending in #276 | `rollback` `tracker` `savepoint` `Attempts` `anttest-isolate` `claims` |
+| [121](121-a-rollback-forgets-what-its-transaction-began-tracking.md) | A rollback forgets what its transaction began tracking | active | `rollback` `tracker` `savepoint` `Attempts` `anttest-isolate` `claims` |
 
 #### Hooks and events
 
@@ -198,7 +198,7 @@ On 2026-11-20 the decisions moved from one file, `docs/DECISIONS.md`, to a file 
 | [76](076-one-clock-for-times-without-a-zone.md) | One clock for times without a zone | active | `utc` `UTCTimes` `sqlite` `sqlserver` `datetime2` `time-zone` |
 | [85](085-mysql-reads-the-table-it-writes-through-a-derived-table.md) | MySQL reads the table it writes through a derived table | active | `mysql` `error-1093` `derived-table` `no-merge` `self-read` `Upsert` `on-duplicate-key` `lazy` |
 | [88](088-sql-server-recurses-with-union-all-and-a-path-of-keys.md) | SQL Server recurses with UNION ALL and a path of keys | active | `sqlserver` `Recursive` `CTE` `union-all` `maxrecursion` `count` `exists` |
-| [118](118-a-sqlite-dsn-says-whether-foreign-keys-are-on.md) | A SQLite DSN says whether foreign keys are on | pending in #274 | `sqlite` `foreign-keys` `dsn` `CheckDSN` |
+| [118](118-a-sqlite-dsn-says-whether-foreign-keys-are-on.md) | A SQLite DSN says whether foreign keys are on | active | `sqlite` `foreign-keys` `dsn` `CheckDSN` |
 
 #### Migrations and schema
 
@@ -223,9 +223,9 @@ On 2026-11-20 the decisions moved from one file, `docs/DECISIONS.md`, to a file 
 | [94](094-migrations-keep-a-columns-dependents-working-while-it.md) | Migrations keep a column's dependents working while it changes | active | `postgres` `migrations` `generated-column` `enum` `rename` `foreign-key` `identity` `NullsFirst` `NullsLast` `IndexBuilder` |
 | [113](113-a-missing-versions-folder-is-an-error.md) | A missing versions folder is an error | active | `migrate` `fs.ErrNotExist` `versions-folder` `Config.FS` `embed` `history-table` |
 | [114](114-an-identity-columns-default-is-not-ants-to-change.md) | An identity column's default is not ant's to change | active | `identity` `serial` `nextval` `diff` `DROP-DEFAULT` `drift` `postgres` |
-| [115](115-a-file-outside-a-transaction-is-recorded-before-it-runs.md) | A file outside a transaction is recorded before it runs | pending in #274 | `no-transaction` `migrate-up` `history` `crash` `ErrFailed` |
-| [116](116-code-files-rerun-after-versioned-migrations.md) | Code files rerun after versioned migrations | pending in #274 | `repeatable` `code-files` `views` `migrate-up` `outdated` |
-| [117](117-the-migrate-program-takes-the-applications-options.md) | The migrate program takes the application's options | pending in #274 | `WithNaming` `WithConvention` `migrate-config` `SchemaOf` `naming` |
+| [115](115-a-file-outside-a-transaction-is-recorded-before-it-runs.md) | A file outside a transaction is recorded before it runs | active | `no-transaction` `migrate-up` `history` `crash` `ErrFailed` |
+| [116](116-code-files-rerun-after-versioned-migrations.md) | Code files rerun after versioned migrations | active | `repeatable` `code-files` `views` `migrate-up` `outdated` |
+| [117](117-the-migrate-program-takes-the-applications-options.md) | The migrate program takes the application's options | active | `WithNaming` `WithConvention` `migrate-config` `SchemaOf` `naming` |
 
 #### Performance
 
@@ -288,6 +288,7 @@ Before changing a file, read the decisions about it.
 | `Makefile` | [77](077-layout-is-enforced-by-tools.md) [83](083-antvet-judges-only-what-it-can-see.md) |
 | `ant.go` | [12](012-additions-to-the-dialect-contract.md) [21](021-configuration-runs-when-a-context-opens.md) [29](029-sessions.md) [40](040-soft-deletes-are-a-filter.md) [61](061-sessions-take-options.md) [66](066-several-models-can-share-a-table.md) [67](067-naming-and-conventions-are-global.md) [79](079-a-tracking-context-serves-one-operation-at-a-time.md) [120](120-the-root-does-not-track-and-a-session-does.md) [121](121-a-rollback-forgets-what-its-transaction-began-tracking.md) |
 | `ant_test.go` | [1](001-ant-ordered-replaces-cmp-ordered.md) [4](004-conditions-are-not-tied-to-a-model.md) [17](017-implemented-ahead-of-the-skeleton.md) [18](018-wrong-model-detection.md) [100](100-probes-are-named-after-their-model-in-the-plural.md) |
+| `anttest/anttest.go` | [121](121-a-rollback-forgets-what-its-transaction-began-tracking.md) |
 | `assign.go` | [89](089-one-column-one-value.md) |
 | `builder.go` | [4](004-conditions-are-not-tied-to-a-model.md) [18](018-wrong-model-detection.md) [20](020-queries-are-immutable.md) [34](034-self-joins.md) [37](037-references-to-outer-queries.md) |
 | `cond.go` | [1](001-ant-ordered-replaces-cmp-ordered.md) [4](004-conditions-are-not-tied-to-a-model.md) [7](007-eq-with-a-nil-pointer.md) [23](023-guarding-bulk-writes.md) [68](068-sensitive-values-are-wrapped-when-bound.md) [95](095-in-means-eq-and-other-value-rules.md) |
@@ -318,6 +319,7 @@ Before changing a file, read the decisions about it.
 | `dialect/render_test.go` | [49](049-postgresql-first.md) [74](074-dialects-state-their-differences.md) |
 | `dialect/self_reads_test.go` | [38](038-bulk-writes.md) [85](085-mysql-reads-the-table-it-writes-through-a-derived-table.md) |
 | `dialect/sqlite/sqlite.go` | [74](074-dialects-state-their-differences.md) [76](076-one-clock-for-times-without-a-zone.md) [118](118-a-sqlite-dsn-says-whether-foreign-keys-are-on.md) |
+| `dialect/sqlite/sqlite_test.go` | [118](118-a-sqlite-dsn-says-whether-foreign-keys-are-on.md) |
 | `dialect/sqlserver/sqlserver.go` | [74](074-dialects-state-their-differences.md) [76](076-one-clock-for-times-without-a-zone.md) [88](088-sql-server-recurses-with-union-all-and-a-path-of-keys.md) |
 | `dialect/syntax.go` | [31](031-failed-saves.md) [45](045-errors-are-classified-not-wrapped.md) [74](074-dialects-state-their-differences.md) [76](076-one-clock-for-times-without-a-zone.md) [85](085-mysql-reads-the-table-it-writes-through-a-derived-table.md) [88](088-sql-server-recurses-with-union-all-and-a-path-of-keys.md) [91](091-an-upsert-checks-a-copys-version-on-mysql-and-mariadb.md) |
 | `dialect/syntax_test.go` | [74](074-dialects-state-their-differences.md) [88](088-sql-server-recurses-with-union-all-and-a-path-of-keys.md) |
@@ -345,7 +347,7 @@ Before changing a file, read the decisions about it.
 | `internal/testdb/testdb.go` | [16](016-test-schema-is-hand-written.md) [26](026-feature-examples-run-on-postgresql-only.md) |
 | `internal/track/snapshot.go` | [92](092-tracked-values-compare-as-stored.md) |
 | `internal/track/track.go` | [27](027-all-returns-t.md) [28](028-identity-and-relation-slices.md) [30](030-tracking-follows-keys-not-addresses.md) [32](032-navigation-and-foreign-key-changes.md) [79](079-a-tracking-context-serves-one-operation-at-a-time.md) [92](092-tracked-values-compare-as-stored.md) [93](093-tracking-follows-what-a-save-wrote.md) [99](099-a-retried-attempt-leaves-nothing-in-the-tracker.md) [107](107-hot-paths-allocate-for-the-operation-not-for-each-row.md) [108](108-kept-sql-by-shape-unboxed-keys-compact-snapshots-and.md) [121](121-a-rollback-forgets-what-its-transaction-began-tracking.md) |
-| `internal/track/track_test.go` | [79](079-a-tracking-context-serves-one-operation-at-a-time.md) [92](092-tracked-values-compare-as-stored.md) |
+| `internal/track/track_test.go` | [79](079-a-tracking-context-serves-one-operation-at-a-time.md) [92](092-tracked-values-compare-as-stored.md) [121](121-a-rollback-forgets-what-its-transaction-began-tracking.md) |
 | `join.go` | [5](005-select-closures-run-client-side.md) [9](009-owner-review-of-step-1.md) [34](034-self-joins.md) |
 | `json.go` | [42](042-converters-are-scanner-and-valuer.md) [95](095-in-means-eq-and-other-value-rules.md) [109](109-numbers-inside-an-interface-read-as-json-number.md) |
 | `json_test.go` | [42](042-converters-are-scanner-and-valuer.md) [95](095-in-means-eq-and-other-value-rules.md) [109](109-numbers-inside-an-interface-read-as-json-number.md) |
@@ -480,7 +482,7 @@ Before changing a file, read the decisions about it.
 | `tests/features/transactions/tx_test.go` | [2](002-tx-is-a-generic-method-on-context.md) [106](106-begin-inside-a-transaction-opens-a-savepoint.md) |
 | `tests/features/value_handling/json_test.go` | [42](042-converters-are-scanner-and-valuer.md) [109](109-numbers-inside-an-interface-read-as-json-number.md) |
 | `tests/features/value_handling/postgres_test.go` | [43](043-database-specific-helpers.md) |
-| `tests/features/value_handling/probes/rows/probes_test.go` | [25](025-scanning.md) |
+| `tests/features/value_handling/probes/rows/probes_test.go` | [25](025-scanning.md) [119](119-an-upserts-update-writes-the-zero-a-default-field-holds.md) |
 | `tests/features/writing` | [80](080-every-write-moves-the-version-on.md) |
 | `tests/features/writing/bulk_changes_test.go` | [23](023-guarding-bulk-writes.md) [38](038-bulk-writes.md) [98](098-an-explicit-write-refuses-the-columns-ant-keeps.md) [102](102-updatemany-keeps-what-a-bulk-update-keeps.md) |
 | `tests/features/writing/bulk_test.go` | [22](022-inserts-run-one-statement-per-row.md) [63](063-savechanges-batches-inserts.md) |

@@ -2,21 +2,18 @@
 id: 121
 title: "A rollback forgets what its transaction began tracking"
 area: transactions
-status: pending
-pr: 276
+status: active
 tags: [rollback, tracker, savepoint, Attempts, anttest-isolate, claims]
 issues: [145, 224]
 related: [31, 79, 99, 106]
-changes: [31, 79, 99]
-code: [tx.go, ant.go, internal/track/track.go]
-tests: [tests/features/transactions, tests/features/testing/anttest_test.go]
+changed_by: []
+code: [tx.go, ant.go, internal/track/track.go, anttest/anttest.go]
+tests: [tests/features/transactions, tests/features/testing/anttest_test.go, internal/track/track_test.go]
 ---
 
 # 121. A rollback forgets what its transaction began tracking
 
 **In short:** Every rollback forgets the entities its transaction's operations began tracking, attributed through tracker claims; entities tracked before keep their changes.
-
-> **Pending.** Added by pull request #276, not merged yet. When it merges, set `status: active`, and mark 31, 79, 99 as amended by 121.
 
 ## Decision
 
