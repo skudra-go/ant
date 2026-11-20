@@ -598,7 +598,8 @@ func (e *engine) applyPlain(ctx context.Context, conn *sql.Conn, m Migration, r 
 		)
 	}
 
-	return e.history.writeAlone(ctx, conn, *r)
+	// The file has run, so the context ending now must not leave it unfinished.
+	return e.history.writeAlone(calm, conn, *r)
 }
 
 func (e *engine) resetSession(ctx context.Context, x execer) error {
