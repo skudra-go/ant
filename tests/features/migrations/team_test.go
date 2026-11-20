@@ -151,3 +151,36 @@ func TestRenumberedMigration(t *testing.T) {
 		})
 	})
 }
+
+// A file deleted to write it again under a better name takes its change with it,
+// while the snapshot still holds the change. diff found nothing to write, and the
+// advice to run snapshot made check pass with the change in no migration (#179).
+func TestDeletedNewestFile(t *testing.T) {
+	each(t, func(t *testing.T, p *project) {
+		must[V1DB](p, "diff", "start")
+		before := p.read("versions/schema.snapshot.json")
+		must[V2DB](p, "diff", "add_bio")
+		require.Len(t, listFiles(p, "versions"), 2)
+
+		for _, f := range listFiles(p, "versions") {
+			if f != listFiles(p, "versions")[0] {
+				require.NoError(t, removeFile(p, "versions/"+f))
+			}
+		}
+
+		for _, args := range [][]string{{"diff", "add_bio_column"}, {"diff", "by_hand", "--empty"}, {"check"}} {
+			_, err := run[V2DB](p, args...)
+			require.ErrorIs(t, err, migrate.ErrStaleSnapshot, args)
+			require.ErrorContains(t, err, "which has no file", args)
+			require.ErrorContains(t, err, "put back the snapshot it replaced", args)
+		}
+
+		require.Len(t, listFiles(p, "versions"), 1, "nothing was written")
+
+		t.Run("with the snapshot put back, diff writes the change again", func(t *testing.T) {
+			p.write("versions/schema.snapshot.json", before)
+			require.Contains(t, must[V2DB](p, "diff", "add_bio_column"), "add_bio_column")
+			require.Contains(t, must[V2DB](p, "check"), "OK")
+		})
+	})
+}
