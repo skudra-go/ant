@@ -118,7 +118,11 @@ func (c *Conflict) Set(assignments ...Assignment) *Conflict {
 // the insert leaves the column to the database: a zero field with a default,
 // whose offered value is the database's default. There it writes what e holds,
 // zero or not, as Update would (#142). E is nil when the clause is only checked.
-func (c *Conflict) clause(model *meta.Model, now time.Time, e unsafe.Pointer) (*qb.Conflict, error) {
+func (c *Conflict) clause(
+	model *meta.Model,
+	now time.Time,
+	e unsafe.Pointer,
+) (*qb.Conflict, error) {
 	out := &qb.Conflict{Columns: c.columns}
 
 	if c.nothing {
@@ -645,6 +649,7 @@ func defaultGroups[T any](model *meta.Model, groups [][]*T) [][]*T {
 			if !ok {
 				i = len(out) - first
 				index[string(pattern)] = i
+
 				out = append(out, nil)
 			}
 
@@ -694,7 +699,11 @@ func (t *Table[T]) insertBatch(
 	if conflict != nil {
 		// The rows of a batch leave the same columns to their defaults, so the
 		// first one's values there are every row's.
-		clause, err := conflict.clause(model, t.state.settings.timestamp(), unsafe.Pointer(batch[0]))
+		clause, err := conflict.clause(
+			model,
+			t.state.settings.timestamp(),
+			unsafe.Pointer(batch[0]),
+		)
 		if err != nil {
 			return 0, err
 		}

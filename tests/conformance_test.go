@@ -419,6 +419,7 @@ func TestConformanceUpsertZeroDefault(t *testing.T) {
 		t.Cleanup(func() { db.Close() })
 
 		five := 5
+
 		stored := func(email string) (int, *int) {
 			t.Helper()
 
@@ -429,7 +430,12 @@ func TestConformanceUpsertZeroDefault(t *testing.T) {
 		}
 
 		for i, email := range []string{"a@x", "b@x", "c@x", "d@x", "e@x"} {
-			require.NoError(t, db.Rows.Insert(ctx, &Defaulted{ID: int64(i + 1), Email: email, Score: 5, Tier: &five}))
+			require.NoError(t, db.Rows.Insert(ctx, &Defaulted{
+				ID:    int64(i + 1),
+				Email: email,
+				Score: 5,
+				Tier:  &five,
+			}))
 		}
 
 		t.Run("the update writes the zero it was given", func(t *testing.T) {
@@ -447,7 +453,11 @@ func TestConformanceUpsertZeroDefault(t *testing.T) {
 
 		t.Run("a column named in DoUpdate too", func(t *testing.T) {
 			e := &Defaulted{ID: 100, Email: "b@x"}
-			_, err := db.Rows.Upsert(ctx, e, ant.OnConflict(&Defaulteds.Email).DoUpdate(ant.F(&Defaulteds.Score)))
+			_, err := db.Rows.Upsert(
+				ctx,
+				e,
+				ant.OnConflict(&Defaulteds.Email).DoUpdate(ant.F(&Defaulteds.Score)),
+			)
 			require.NoError(t, err)
 
 			score, tier := stored("b@x")
@@ -472,12 +482,21 @@ func TestConformanceUpsertZeroDefault(t *testing.T) {
 			seven := 7
 			rows := []*Defaulted{
 				{ID: 200, Email: "c@x"},
-				{ID: 201, Email: "d@x", Score: 7, Tier: &seven},
+				{
+					ID:    201,
+					Email: "d@x",
+					Score: 7,
+					Tier:  &seven,
+				},
 				{ID: 202, Email: "e@x", Score: 7},
 				{ID: 203, Email: "many@x"},
 			}
 
-			_, err := db.Rows.InsertMany(ctx, rows, ant.WithConflict(ant.OnConflict(&Defaulteds.Email)))
+			_, err := db.Rows.InsertMany(
+				ctx,
+				rows,
+				ant.WithConflict(ant.OnConflict(&Defaulteds.Email)),
+			)
 			require.NoError(t, err)
 
 			score, tier := stored("c@x")

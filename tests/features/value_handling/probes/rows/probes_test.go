@@ -830,7 +830,11 @@ func TestProbeDefaults(t *testing.T) {
 
 		got = read("many2")
 		if got.Score != 0 || got.Label != nil || over.Score != 0 || over.Label != nil {
-			t.Errorf("Upsert{Name only} over {Score:3, Label:\"\"}: stored %+v, entity %+v (want the zeros)", got, over)
+			t.Errorf(
+				"Upsert{Name only} over {Score:3, Label:\"\"}: stored %+v, entity %+v (want the zeros)",
+				got,
+				over,
+			)
 		}
 	})
 }
