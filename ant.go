@@ -120,7 +120,23 @@ func (s *state) claim(ctx context.Context, on bool) (context.Context, func(), er
 		return ctx, nil, ErrConcurrentUse
 	}
 
-	return context.WithValue(ctx, claimed{s.tracker}, c), func() { s.tracker.Release(c) }, nil
+	release := func() { s.tracker.Release(c) }
+
+	// In a transaction whose end ant sees, the entries this operation begins
+	// tracking are noted, for its rollback to forget.
+	if t := s.tx; t != nil && t.sees() {
+		from := s.tracker.Mark()
+
+		release = func() {
+			if to := s.tracker.Mark(); to > from {
+				t.tracked = append(t.tracked, trackedRange{s.tracker, from, to})
+			}
+
+			s.tracker.Release(c)
+		}
+	}
+
+	return context.WithValue(ctx, claimed{s.tracker}, c), release, nil
 }
 
 // touchesTracker reports whether a write on s may change tracked entities: with
@@ -142,7 +158,9 @@ type tableBinder interface {
 }
 
 // Open connects to a database and returns a populated context. DB must be a
-// struct that embeds Context. The application imports the database driver.
+// struct that embeds Context. The application imports the database driver. The
+// context does not track changes, so it is safe to share; a Session is a unit
+// of work that does, and WithTracking(true) makes this one track.
 func Open[DB any](
 	ctx context.Context,
 	d dialect.Dialect,
@@ -245,15 +263,13 @@ func bindState[DB any](s *state) (*DB, error) {
 }
 
 // Session returns a new context on the same connections with its own tracker,
-// which suits one unit of work, such as one web request. Tracking on a long-lived
-// context grows without end, so prefer a session per request.
+// which suits one unit of work, such as one web request. A session tracks, even
+// on a context with tracking off such as the one Open returns, so SaveChanges
+// saves what it loaded and changed; WithTracking(false) turns that off.
 //
-// A session takes its settings from db, and options change them for the session.
-// Interceptors, a logger and replicas it is given add to db's, for every statement
-// the session runs, in a transaction or not. An application that keeps tracking off
-// on its shared context passes
-// WithTracking(true) to the sessions that use SaveChanges, which otherwise has
-// nothing to save.
+// A session takes its other settings from db, and options change them for the
+// session. Interceptors, a logger and replicas it is given add to db's, for every
+// statement the session runs, in a transaction or not.
 func Session[DB any](db *DB, options ...Option) *DB {
 	h := any(db).(Handle)
 
@@ -265,6 +281,9 @@ func Session[DB any](db *DB, options ...Option) *DB {
 	s := *parent
 	s.tracker, s.saving = track.New(), new(sync.Mutex)
 	s.lastWrite = new(atomic.Int64)
+
+	// A session is a unit of work, whatever db does (#148).
+	s.settings.tracking = true
 
 	// The options append to these lists, which the copy shares with db and with
 	// its other sessions: clipped, an append makes a list of the session's own.

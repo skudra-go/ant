@@ -595,6 +595,7 @@ ant: var ErrNoContext
 ant: var ErrNoForeignKey
 ant: var ErrNoKey
 ant: var ErrNoRows
+ant: var ErrNoTracking
 ant: var ErrNotColumn
 ant: var ErrNotFound
 ant: var ErrNotImplemented

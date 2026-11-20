@@ -76,7 +76,9 @@ func TestSessions(t *testing.T) {
 	})
 }
 
-// With tracking off for a context, nothing grows and SaveChanges has no work.
+// The context Open returns does not track, so handlers can share it: nothing
+// grows, and no request sees another's edits. Saving from it is a mistake, so
+// SaveChanges and the helpers that give it work say so rather than save nothing.
 func TestTrackingOff(t *testing.T) {
 	fixture.Run(t, func(t *testing.T, db *AppDB) {
 		alice, _, _ := fixture.Seed(t, db)
@@ -88,45 +90,45 @@ func TestTrackingOff(t *testing.T) {
 
 		require.False(t, fixture.HasChanges(t, db))
 		require.Empty(t, fixture.Tracked[User](t, db))
-		require.NoError(t, db.SaveChanges(ctx))
+		require.ErrorIs(t, db.SaveChanges(ctx), ant.ErrNoTracking)
+		require.ErrorIs(t, ant.Add(ctx, db, &User{Name: "new"}), ant.ErrNoTracking)
+		require.ErrorIs(t, ant.Remove(ctx, db, user), ant.ErrNoTracking)
 		require.Equal(t, 30, stored(t, db, alice.ID).Age)
+
+		// Direct writes need no tracker.
+		_, err = db.Users.Where(ant.Eq(&Users.ID, alice.ID)).Update(ctx, ant.Set(&Users.Age, 99))
+		require.NoError(t, err)
+		require.Equal(t, 99, stored(t, db, alice.ID).Age)
 	})
 }
 
-// An application can keep tracking off on its shared context, so that it never
-// grows, and turn it on only for the sessions that save.
+// A session is the unit of work: it tracks, whatever the context it came from
+// does, so a service handed the shared context can always save through one.
 func TestSessionWithItsOwnTracking(t *testing.T) {
 	fixture.Run(t, func(t *testing.T, db *fixture.AppDB) {
 		ctx := t.Context()
 		alice, _, _ := fixture.Seed(t, db)
 
-		t.Run(
-			"a session inherits tracking off, so SaveChanges has nothing to save",
-			func(t *testing.T) {
-				session := ant.Session(db)
-				user, err := session.Users.Find(ctx, alice.ID)
-				require.NoError(t, err)
-
-				user.Age = 99
-
-				require.NoError(t, session.SaveChanges(ctx))
-				stored, err := db.Users.Find(ctx, alice.ID)
-				require.NoError(t, err)
-				require.Equal(t, 30, stored.Age)
-			},
-		)
-
-		t.Run("WithTracking(true) turns it on for this session alone", func(t *testing.T) {
-			session := ant.Session(db, ant.WithTracking(true))
+		t.Run("a session tracks on a context that does not", func(t *testing.T) {
+			session := ant.Session(db)
 			user, err := session.Users.Find(ctx, alice.ID)
 			require.NoError(t, err)
 
 			user.Age = 31
 
 			require.NoError(t, session.SaveChanges(ctx))
-			stored, err := db.Users.Find(ctx, alice.ID)
+			require.Equal(t, 31, stored(t, db, alice.ID).Age)
+		})
+
+		t.Run("WithTracking(false) turns it off for this session alone", func(t *testing.T) {
+			session := ant.Session(db, ant.WithTracking(false))
+			user, err := session.Users.Find(ctx, alice.ID)
 			require.NoError(t, err)
-			require.Equal(t, 31, stored.Age)
+
+			user.Age = 50
+
+			require.ErrorIs(t, session.SaveChanges(ctx), ant.ErrNoTracking)
+			require.Equal(t, 31, stored(t, db, alice.ID).Age)
 		})
 	})
 }

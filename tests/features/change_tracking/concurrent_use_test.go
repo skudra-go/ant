@@ -333,11 +333,11 @@ func TestConcurrentUse(t *testing.T) {
 				done := make(chan error, 1)
 				dan := &User{Name: "Dan", Email: "dan.tx@example.com"}
 
-				err := one.Tx(ctx, func(tx *AppDB) error {
-					if err := ant.Add(ctx, tx, dan); err != nil {
-						return err
-					}
+				// Added before the transaction, so its rollback makes the insert
+				// pending again rather than forgetting Dan.
+				require.NoError(t, ant.Add(ctx, one, dan))
 
+				err := one.Tx(ctx, func(tx *AppDB) error {
 					if err := tx.SaveChanges(ctx); err != nil {
 						return err
 					}
@@ -710,13 +710,15 @@ func TestConcurrentUse(t *testing.T) {
 		})
 
 		// Loading a relation reads, and writes nothing, so a rollback after it
-		// still reverses the insert before it.
+		// still reverses the insert before it. Fay is added before the
+		// transaction, so the rollback makes her insert pending again; Gus,
+		// whom the transaction began tracking, is forgotten.
 		t.Run("a load after a save does not stop the rollback", func(t *testing.T) {
 			fay := &User{Name: "Fay", Email: "fay.load@example.com"}
 			gus := &User{Name: "Gus", Email: "gus.load@example.com"}
+			require.NoError(t, ant.Add(ctx, db, fay))
 
 			err := db.Tx(ctx, func(tx *AppDB) error {
-				require.NoError(t, ant.Add(ctx, tx, fay))
 				require.NoError(t, tx.SaveChanges(ctx))
 				require.NoError(t, tx.Users.Load(ctx, &Users.Posts, fay))
 
@@ -956,7 +958,12 @@ func TestConcurrentUse(t *testing.T) {
 				},
 			)
 
-			require.Equal(t, ant.Modified, fixture.Entry(t, o.session, o.bob).State())
+			require.Equal(
+				t,
+				ant.Detached,
+				fixture.Entry(t, o.session, o.bob).State(),
+				"once the load let go, the session forgot what the transaction loaded",
+			)
 		})
 
 		t.Run("a transaction from UseTx reverses the tracker", func(t *testing.T) {
@@ -969,9 +976,9 @@ func TestConcurrentUse(t *testing.T) {
 			require.NoError(t, err)
 
 			eve := &User{Name: "Eve", Email: "eve.tx@example.com"}
+			require.NoError(t, ant.Add(ctx, db, eve))
 
 			err = tx.Tx(ctx, func(inner *AppDB) error {
-				require.NoError(t, ant.Add(ctx, inner, eve))
 				require.NoError(t, inner.SaveChanges(ctx))
 
 				return errors.New("roll back to the savepoint")
@@ -1110,8 +1117,9 @@ func (k keeper) Before(ctx context.Context, _ *ant.Statement) (context.Context, 
 
 func (keeper) After(context.Context, *ant.Statement, ant.Outcome) {}
 
-// With tracking off, Add and Attach still put entities in the tracker, so a
-// write that may change one of them claims the tracker while it holds any.
+// With tracking off, nothing puts an entity in the tracker: Add, Attach and the
+// other helpers that give SaveChanges work refuse, so a write never claims the
+// tracker, and the context is safe to share.
 func TestConcurrentUseWithTrackingOff(t *testing.T) {
 	fixture.Each(t, func(t *testing.T, target fixture.Target) {
 		h := new(holder)
@@ -1142,7 +1150,15 @@ func TestConcurrentUseWithTrackingOff(t *testing.T) {
 			require.NoError(t, err)
 		})
 
-		require.NoError(t, ant.Attach(ctx, db, alice))
+		require.ErrorIs(t, ant.Attach(ctx, db, alice), ant.ErrNoTracking)
+		require.ErrorIs(t, ant.Add(ctx, db, &User{Name: "Hal"}), ant.ErrNoTracking)
+		require.ErrorIs(t, ant.MarkModified(ctx, db, alice), ant.ErrNoTracking)
+		require.ErrorIs(t, ant.Remove(ctx, db, alice), ant.ErrNoTracking)
+		require.ErrorIs(
+			t,
+			ant.TrackGraph(ctx, db, alice, func(ant.GraphNode) ant.State { return ant.Modified }),
+			ant.ErrNoTracking,
+		)
 
 		ops := []struct {
 			name string
@@ -1164,21 +1180,15 @@ func TestConcurrentUseWithTrackingOff(t *testing.T) {
 			{"Load", func(ctx context.Context) error {
 				return db.Users.Load(ctx, &Users.Posts, alice)
 			}},
-			{"SaveChanges", db.SaveChanges},
 		}
 
-		for _, tt := range ops {
-			t.Run("with an attached entity: "+tt.name, func(t *testing.T) {
-				alice.Age++
+		for i, tt := range ops {
+			t.Run("while another write runs: "+tt.name, func(t *testing.T) {
+				held := func(ctx context.Context) error {
+					return db.Users.Insert(ctx, &User{Name: "Ivy", Email: fmt.Sprint("ivy", i, "@example.com")})
+				}
 
-				err := h.while(t, db.SaveChanges, func() {
-					require.ErrorIs(t, tt.op(ctx), ant.ErrConcurrentUse)
-
-					users, err := db.Users.All(ctx)
-					require.NoError(t, err, "an untracked read claims nothing")
-					require.Len(t, users, 5)
-				})
-				require.NoError(t, err)
+				require.NoError(t, h.while(t, held, func() { require.NoError(t, tt.op(ctx)) }))
 			})
 		}
 	})

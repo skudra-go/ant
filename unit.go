@@ -2033,11 +2033,16 @@ func (u *unit) remember(n *node) track.Change {
 // updates only the columns that changed. If anything fails, nothing is saved
 // and the tracker keeps its pending changes, so the call can be retried. With
 // WithoutAutoTx, what was written before the failure stays saved, and only the
-// rest is pending.
+// rest is pending. On a context with tracking off, such as the one Open
+// returns, it returns ErrNoTracking: use a Session.
 func (c *Context) SaveChanges(ctx context.Context) error {
 	s := c.state
-	if s == nil {
+
+	switch {
+	case s == nil:
 		return ErrNotOpen
+	case !s.settings.tracking:
+		return ErrNoTracking
 	}
 
 	ctx, release, err := s.claim(ctx, true)

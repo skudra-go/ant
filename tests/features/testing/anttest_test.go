@@ -48,6 +48,49 @@ func TestIsolate(t *testing.T) {
 	})
 }
 
+// A test that tracks shares nothing with the next one, even on one tracking
+// context: what a test's transaction began tracking goes with its rollback, so
+// the next test's SaveChanges does not write rows the rollback took back.
+func TestIsolateTracked(t *testing.T) {
+	fixture.RunTracked(t, func(t *testing.T, shared *fixture.AppDB) {
+		ctx := t.Context()
+
+		t.Run("one test saves inside a transaction of its own", func(t *testing.T) {
+			db := anttest.Isolate(t, shared)
+
+			// Rows a fixture or another layer wrote, which this context did not
+			// track, so its transaction is the one that loads them.
+			author := Users.Build()
+			author.Posts = []fixture.Post{*Posts.Build()}
+			require.NoError(t, ant.Session(db, ant.WithTracking(false)).Users.Insert(ctx, author))
+
+			require.NoError(t, db.Tx(ctx, func(tx *fixture.AppDB) error {
+				u, err := tx.Users.Include(&fixture.Users.Posts).
+					Where(ant.Eq(&fixture.Users.ID, author.ID)).
+					First(ctx)
+				if err != nil {
+					return err
+				}
+
+				u.Age = 5
+
+				return tx.SaveChanges(ctx)
+			}))
+		})
+
+		t.Run("the next one finds nothing to save", func(t *testing.T) {
+			db := anttest.Isolate(t, shared)
+			require.Empty(t, fixture.Tracked[fixture.User](t, db))
+			require.False(t, fixture.HasChanges(t, db))
+			require.NoError(t, db.SaveChanges(ctx))
+
+			count, err := db.Users.Count(ctx)
+			require.NoError(t, err)
+			require.Zero(t, count)
+		})
+	})
+}
+
 // Load inserts rows from JSON files named after their tables, parents first.
 func TestFixtures(t *testing.T) {
 	fixture.Run(t, func(t *testing.T, db *fixture.AppDB) {

@@ -133,6 +133,7 @@ func TestRetryCutShortKeepsTheFailure(t *testing.T) {
 		db := fixture.Open[AppDB](
 			t,
 			target,
+			ant.WithTracking(true),
 			ant.WithRetry(ant.Retry{Attempts: 5}),
 			ant.WithInterceptor(conflicting{cancel}),
 		)

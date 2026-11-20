@@ -2586,9 +2586,13 @@ func openEmps(t *testing.T, target testdb.Target, now *time.Time) *EmpDB {
 		_, _ = target.DB.ExecContext(context.Background(), "DROP TABLE conf_emps")
 	})
 
-	db, err := ant.Open[EmpDB](ctx, target.Dialect, target.DSN, ant.WithNow(func() time.Time {
-		return *now
-	}))
+	db, err := ant.Open[EmpDB](
+		ctx,
+		target.Dialect,
+		target.DSN,
+		ant.WithTracking(true),
+		ant.WithNow(func() time.Time { return *now }),
+	)
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
 
@@ -2878,7 +2882,7 @@ func TestConformanceManyToMany(t *testing.T) {
 			}
 		})
 
-		db, err := ant.Open[ShelfDB](ctx, target.Dialect, target.DSN)
+		db, err := ant.Open[ShelfDB](ctx, target.Dialect, target.DSN, ant.WithTracking(true))
 		require.NoError(t, err)
 		t.Cleanup(func() { db.Close() })
 

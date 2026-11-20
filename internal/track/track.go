@@ -1186,7 +1186,7 @@ func (t *Tracker) undoDeletion(id identity, gone []*Entry) Change {
 	return Change{undo: settle(c.Undo), keep: settle(c.Keep)}
 }
 
-// Mark returns how far the tracker has counted its entries, for ForgetSince.
+// Mark returns how far the tracker has counted its entries, for ForgetBetween.
 func (t *Tracker) Mark() uint64 {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -1194,30 +1194,33 @@ func (t *Tracker) Mark() uint64 {
 	return t.seq
 }
 
-// ForgetSince stops tracking every entry that began after mark, as a retried
-// transaction needs: its failed attempt loaded and added them, and the next
-// attempt does so again.
-func (t *Tracker) ForgetSince(mark uint64) {
+// ForgetBetween stops tracking every entry that began after mark and by end, two
+// values of Mark, as a rolled back transaction needs: it loaded and added them,
+// and its rows are gone, so a retry loads and adds them again, and the next save
+// must not write them again.
+func (t *Tracker) ForgetBetween(mark, end uint64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	var gone []*Entry
 
+	began := func(e *Entry) bool { return e.seq > mark && e.seq <= end }
+
 	for _, e := range t.entries {
-		if e.seq > mark {
+		if began(e) {
 			gone = append(gone, e)
 		}
 	}
 
 	for _, known := range t.first {
 		for _, e := range known.ints {
-			if e.seq > mark && !slices.Contains(gone, e) {
+			if began(e) && !slices.Contains(gone, e) {
 				gone = append(gone, e)
 			}
 		}
 
 		for _, e := range known.other {
-			if e.seq > mark && !slices.Contains(gone, e) {
+			if began(e) && !slices.Contains(gone, e) {
 				gone = append(gone, e)
 			}
 		}

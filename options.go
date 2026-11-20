@@ -23,7 +23,7 @@ type settings struct {
 }
 
 func defaultSettings() settings {
-	return settings{tracking: true, autoTx: true, now: time.Now}
+	return settings{autoTx: true, now: time.Now}
 }
 
 // timestamp returns the time for automatic columns, in UTC at the database's
@@ -74,8 +74,12 @@ func WithRetry(policy Retry) Option { return func(s *settings) { s.retry = polic
 // Option configures a context in Open.
 type Option func(*settings)
 
-// WithTracking sets whether queries track what they load. It is on by default.
-// Turn it off for contexts that only read, or that use explicit updates.
+// WithTracking sets whether a context tracks what it loads, adds, and saves. It
+// is off on the context Open and Wrap return, which an application shares, and
+// on in a Session, which is one unit of work. With it off, queries return
+// entities nothing tracks, and SaveChanges, Add, Attach, MarkModified, Remove,
+// and TrackGraph return ErrNoTracking. Open a shared context with it on only if
+// one operation at a time uses it, such as a script.
 func WithTracking(on bool) Option { return func(s *settings) { s.tracking = on } }
 
 // WithoutAutoTx stops SaveChanges and Insert from opening a transaction of

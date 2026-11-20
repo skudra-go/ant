@@ -47,9 +47,11 @@ var (
 
 var _ ant.Entity[User] = User{}
 
+// openApp opens a context that tracks, as a session does, since most of these
+// tests save what they load. The context Open returns by default does not.
 func openApp(t *testing.T, target testdb.Target) *AppDB {
 	t.Helper()
-	app, err := ant.Open[AppDB](t.Context(), target.Dialect, target.DSN)
+	app, err := ant.Open[AppDB](t.Context(), target.Dialect, target.DSN, ant.WithTracking(true))
 	require.NoError(t, err)
 	t.Cleanup(func() { app.Close() })
 

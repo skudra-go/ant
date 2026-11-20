@@ -430,7 +430,8 @@ func TestReplicasOnManyGoroutines(t *testing.T) {
 
 		errs := workers(n, func(w int) error {
 			ctx := context.WithValue(t.Context(), workerKey{}, w)
-			session := ant.Session(db)
+			// Untracked, so each Find reads, and the test sees where it goes.
+			session := ant.Session(db, ant.WithTracking(false))
 
 			for i := range 6 {
 				if w%3 == 0 && i == 3 {

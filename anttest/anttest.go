@@ -25,8 +25,11 @@ import (
 
 // Isolate returns a context bound to a transaction that rolls back when t ends, so
 // a test leaves nothing behind and tests can share a database. It is the same type
-// as db. Code that commits for real, such as through a second connection, does not
-// see its rows, so a test of concurrency needs a database of its own.
+// as db, and tracks as db does: wrap it in ant.Session for a test that saves
+// through SaveChanges. The rollback forgets what the test began tracking, so the
+// next test on a tracking db finds nothing to save. Code that commits for real,
+// such as through a second connection, does not see its rows, so a test of
+// concurrency needs a database of its own.
 func Isolate[DB any](t testing.TB, db *DB) *DB {
 	t.Helper()
 	// Detached, because the test's context ends before its cleanups run.

@@ -41,6 +41,53 @@ type txState struct {
 	stopped chan struct{}
 	waited  bool
 	taken   *sql.Conn
+	// tracked lists the entries the transaction's operations began tracking,
+	// which a rollback forgets.
+	tracked []trackedRange
+}
+
+// trackedRange is the entries one operation in a transaction began tracking:
+// those numbered after from and by to. An operation that tracks holds its
+// tracker's claim while it runs, so no other operation's entries fall between.
+type trackedRange struct {
+	tracker  *track.Tracker
+	from, to uint64
+}
+
+// forgetTracked forgets the entries the transaction's operations began tracking
+// since its range at index from: what they loaded, added, or reached through a
+// relation, whose rows the rollback took back, so the next SaveChanges does not
+// write them again (#145, #224). What was tracked before stays, with its
+// changes, since the tracker cannot tell an edit made inside the transaction
+// from one made before it. It writes to tracked entries, so it runs as settle
+// does, after the reversal of the rollback.
+func (t *txState) forgetTracked(ctx context.Context, from int) {
+	ranges := slices.Clone(t.tracked[min(from, len(t.tracked)):])
+	t.tracked = t.tracked[:min(from, len(t.tracked))]
+
+	var trackers []*track.Tracker
+
+	for _, r := range ranges {
+		if !slices.Contains(trackers, r.tracker) {
+			trackers = append(trackers, r.tracker)
+		}
+	}
+
+	for _, tracker := range trackers {
+		do := func() {
+			for _, r := range ranges {
+				if r.tracker == tracker {
+					tracker.ForgetBetween(r.from, r.to)
+				}
+			}
+		}
+
+		if holding(ctx, tracker) {
+			do()
+		} else {
+			tracker.Settle(do)
+		}
+	}
 }
 
 // sees reports whether ant will learn how the changes made in t now end: in a
@@ -76,7 +123,7 @@ func (s *state) record(changes ...track.Change) {
 // waiting for the commit.
 func (t *txState) committed(ctx context.Context) {
 	steps := t.undo
-	t.undo = nil
+	t.undo, t.tracked = nil, nil
 
 	settle(ctx, steps, track.Change.Keep)
 
@@ -349,12 +396,14 @@ func (s *state) savepoint(ctx context.Context, body func() error) error {
 
 // savepointState is a savepoint ant opened in a transaction: by a nested Tx or
 // a write, which ends it when its body returns, or by Begin, whose context ends
-// it with Commit or Rollback. mark and waiting are where the transaction's
-// tracker changes and observers stood when it opened.
+// it with Commit or Rollback. mark, waiting, and tracked are where the
+// transaction's tracker changes, observers, and tracked entries stood when it
+// opened.
 type savepointState struct {
 	name    string
 	mark    int
 	waiting int
+	tracked int
 	done    bool
 }
 
@@ -375,11 +424,12 @@ func (s *state) openSavepoint(ctx context.Context) (*savepointState, error) {
 		name:    name,
 		mark:    len(root.undo),
 		waiting: len(root.pending),
+		tracked: len(root.tracked),
 	}, nil
 }
 
 // rollbackSavepoint returns the transaction to sp, and takes back the tracker
-// changes and observers since it opened.
+// changes and observers since it opened, and forgets what it began tracking.
 func (s *state) rollbackSavepoint(ctx context.Context, sp *savepointState) error {
 	root := s.tx
 	root.open--
@@ -387,6 +437,7 @@ func (s *state) rollbackSavepoint(ctx context.Context, sp *savepointState) error
 	// A savepoint opened before this one and ended first has taken these back
 	// already.
 	root.rollbackTo(ctx, min(sp.mark, len(root.undo)))
+	root.forgetTracked(ctx, sp.tracked)
 	root.pending = root.pending[:min(sp.waiting, len(root.pending))]
 
 	// The caller's context may be cancelled, and the transaction must still
@@ -467,6 +518,7 @@ func (s *state) releaseSavepoint(ctx context.Context, sp *savepointState) error 
 		steps := slices.Clone(root.undo[mark:])
 		root.undo = root.undo[:mark]
 		root.pending = root.pending[:min(sp.waiting, len(root.pending))]
+		root.tracked = root.tracked[:min(sp.tracked, len(root.tracked))]
 
 		settle(ctx, steps, track.Change.Keep)
 	}
@@ -525,19 +577,21 @@ func (t *txState) rollbackTo(ctx context.Context, mark int) {
 	settle(ctx, steps, track.Change.Undo)
 }
 
-// abort forgets everything the transaction did.
+// abort forgets everything the transaction did, and what it began tracking.
 func (t *txState) abort(ctx context.Context) {
 	t.rollbackTo(ctx, 0)
+	t.forgetTracked(ctx, 0)
 	t.pending = nil
 	t.done = true
 }
 
 // Attempts retries a transaction that fails from a deadlock or serialization
 // conflict, up to n runs in all, waiting a little longer each time. f must be safe
-// to run again, so it should not change anything outside the database. Before a
-// retry, the tracker forgets what the failed attempt loaded or added, so the next
-// attempt reads its rows afresh; what was tracked before the transaction stays,
-// with any change made to it, so f should load what it changes. For this call
+// to run again, so it should not change anything outside the database. The
+// rollback of a failed attempt forgets what it loaded or added, as every
+// rollback does, so the next attempt reads its rows afresh; what was tracked
+// before the transaction stays, with any change made to it, so f should load
+// what it changes. For this call
 // it replaces the policy of WithRetry, which the other options leave in force,
 // and f runs once for an n below 2.
 func Attempts(n int) TxOption { return func(o *txOptions) { o.attempts = max(n, 1) } }
@@ -547,10 +601,15 @@ func Attempts(n int) TxOption { return func(o *txOptions) { o.attempts = max(n, 
 // error or panics. Inside a transaction, Tx uses a savepoint instead, so only
 // the inner part rolls back. There ReadOnly holds until the savepoint ends, and
 // returns ErrUnsupported on a database that cannot change it once a
-// transaction has begun; Isolation returns ErrNestedIsolation. The context shares this one's tracker, and a
-// rollback restores the tracker's view of what was saved, and takes back the
-// keys, timestamps, and versions the saves wrote into tracked entities, so the
-// next SaveChanges writes them again.
+// transaction has begun; Isolation returns ErrNestedIsolation.
+//
+// The context shares this one's tracker. A rollback, or a panic, forgets every
+// entity the transaction began tracking, by a load, an Add, or a relation, so
+// the next SaveChanges does not write again what the rollback took back. An
+// entity tracked before the transaction stays: the rollback restores the
+// tracker's view of what was saved, and takes back the keys, timestamps, and
+// versions the saves wrote into it, so its changes, including those made inside
+// f, are pending again. Load inside f what f changes.
 //
 // A transaction is one connection, which runs one statement at a time, so use
 // tx from one goroutine at a time, as with a *sql.Tx: goroutines that share it
@@ -576,17 +635,14 @@ func (c *Context) Tx[DB any](ctx context.Context, f func(tx *DB) error, options 
 	}
 
 	for attempt := 1; ; attempt++ {
-		mark := s.tracker.Mark()
-
+		// The rollback of a failed attempt forgets what it brought into the
+		// tracker, so f, run again, loads and adds afresh: kept, the next
+		// attempt would read the instances it changed, and insert what it
+		// added twice.
 		err := runTx(ctx, s, o, f)
 		if err == nil || attempt >= o.attempts || !IsRetryable(err) {
 			return err
 		}
-
-		// f runs again, and loads and adds what it needs again, so what this
-		// attempt brought into the tracker goes: kept, the next attempt would
-		// read the instances it changed, and insert what it added twice.
-		s.tracker.ForgetSince(mark)
 
 		if waited := backoff(ctx, attempt); waited != nil {
 			return errors.Join(err, waited)
@@ -811,9 +867,10 @@ func (c *Context) Commit() error {
 	return nil
 }
 
-// Rollback ends a transaction from Begin, discarding its changes. On a context
-// from Begin inside a transaction, it rolls back to Begin's savepoint, and the
-// outer transaction goes on.
+// Rollback ends a transaction from Begin, discarding its changes, and forgets the
+// entities it began tracking, as a rollback of Tx does. On a context from Begin
+// inside a transaction, it rolls back to Begin's savepoint, and the outer
+// transaction goes on.
 func (c *Context) Rollback() error {
 	t, err := c.current()
 	if err != nil {

@@ -31,7 +31,8 @@ const (
 // The helpers below read or mark the tracker, as an operation does, so each one
 // claims it: another operation on the context at the same time makes it return
 // ErrConcurrentUse. Called from a hook with the hook's context, a helper shares
-// the operation's claim.
+// the operation's claim. Those that give SaveChanges work, Add, Attach,
+// MarkModified, and Remove, return ErrNoTracking on a context with tracking off.
 
 // Add schedules a new entity for insertion by the next SaveChanges.
 func Add[T any](ctx context.Context, h Handle, entity *T) error {
@@ -57,11 +58,13 @@ func Remove[T any](ctx context.Context, h Handle, entity *T) error {
 
 func mark[T any](ctx context.Context, h Handle, entity *T, state track.State) error {
 	s, model, err := handleModel[T](h)
-	if err != nil {
-		return err
-	}
 
-	if entity == nil {
+	switch {
+	case err != nil:
+		return err
+	case !s.settings.tracking:
+		return ErrNoTracking
+	case entity == nil:
 		return ErrNilEntity
 	}
 

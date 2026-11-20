@@ -63,12 +63,13 @@ var (
 	ErrConcurrency = errors.New("ant: row was changed or removed since it was loaded")
 	// ErrConcurrentUse reports a context with change tracking used by two
 	// operations at once. A tracking context is one unit of work: give each
-	// request its own with Session, and share only a context opened with
-	// WithTracking(false). A hook that queries must pass on the context.Context
-	// it was given, which marks its query as part of the operation that ran it.
+	// request its own with Session, and share only a context with tracking
+	// off, such as the one Open returns. A hook that queries must pass on the
+	// context.Context it was given, which marks its query as part of the
+	// operation that ran it.
 	ErrConcurrentUse = errors.New(
 		"ant: a tracking context was used by two operations at once; give each " +
-			"goroutine its own ant.Session, share only contexts WithTracking(false), " +
+			"goroutine its own ant.Session, share only contexts with tracking off, " +
 			"and query from hooks with the context.Context they are given",
 	)
 	// ErrKeyChanged reports a tracked entity whose primary key was modified. A
@@ -80,6 +81,13 @@ var (
 	// ErrNotTracked reports an operation on an entity the context is not
 	// tracking.
 	ErrNotTracked = errors.New("ant: entity is not tracked")
+	// ErrNoTracking reports SaveChanges, or a helper that gives it work such as
+	// Add, on a context with tracking off, such as the one Open returns, where
+	// it would save nothing. A Session is a unit of work that tracks.
+	ErrNoTracking = errors.New(
+		"ant: this context does not track changes, so there is nothing to save; " +
+			"use a session, ant.Session(db), for a unit of work",
+	)
 	// ErrNotInTx reports Commit, Rollback, or a savepoint outside a transaction.
 	ErrNotInTx = errors.New("ant: not in a transaction")
 	// ErrTxDone reports use of a transaction after it ended.

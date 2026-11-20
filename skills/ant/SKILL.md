@@ -248,9 +248,11 @@ wrote, err := db.Users.Upsert(ctx, alice, ant.OnConflict(&Users.Email))
 
 ## Change tracking and sessions
 
-Entities returned by `All`, `First`, `Single`, `Find`, `Include` and `Insert` are
-tracked. Change the struct and call `SaveChanges`, which writes only the changed
-columns, in one transaction:
+The context from `ant.Open` does not track: share it between requests, and read
+and write through it directly. A session, `ant.Session(db)`, tracks: entities its
+`All`, `First`, `Single`, `Find`, `Include` and `Insert` return are tracked.
+Change the struct and call `SaveChanges`, which writes only the changed columns,
+in one transaction:
 
 ```go
 session := ant.Session(db) // one per request, job or goroutine
@@ -267,12 +269,14 @@ err = session.SaveChanges(ctx)
 ```
 
 - A tracking context serves **one operation at a time**. Two goroutines or two
-  requests on it get `ant.ErrConcurrentUse`. Call `ant.Session(db)` per request, or
-  open the shared root with `ant.WithTracking(false)` and use
-  `ant.Session(db, ant.WithTracking(true))` where you save.
+  requests on it get `ant.ErrConcurrentUse`. Call `ant.Session(db)` per request.
+- On a context that does not track, such as the root, `SaveChanges`, `ant.Add`,
+  `ant.Attach`, `ant.MarkModified`, `ant.Remove` and `ant.TrackGraph` return
+  `ant.ErrNoTracking`. `ant.WithTracking(true)` on `Open` makes the root track,
+  for a script that does one thing at a time.
 - Close only the root from `Open`. A session needs no closing; closing it closes the
   shared pool.
-- `ant.Add(ctx, db, entity)` queues an insert and `ant.Remove(ctx, db, entity)` a
+- `ant.Add(ctx, session, entity)` queues an insert and `ant.Remove(ctx, session, entity)` a
   delete, for the next `SaveChanges`.
 - **On a loaded relation, the slice is the truth.** Removing a post from
   `user.Posts` and calling `SaveChanges` deletes that post (or clears its foreign key
@@ -309,7 +313,9 @@ err := db.Tx(ctx, func(tx *AppDB) error {
   `tx` is your own `*AppDB` type.
 - It commits on `nil` and rolls back on an error or panic. A `Tx` inside a `Tx` is a
   savepoint. `SaveChanges` inside one uses a savepoint, and a rollback undoes the
-  tracker's view of the save too.
+  tracker's view of the save too: it forgets what the transaction began tracking,
+  and an entity loaded before it keeps its changes, pending. Load inside the
+  transaction what it changes.
 - Options go after the function: `ant.Isolation(sql.LevelSerializable)`,
   `ant.ReadOnly()`, `ant.Attempts(3)` to rerun after a deadlock or serialization
   failure.

@@ -1635,11 +1635,15 @@ func TestEntriesFollowEveryChange(t *testing.T) {
 	tr.LoadAll(m, pointers(late))
 	check("more loaded")
 
-	tr.ForgetSince(mark)
-	check("forgotten since the mark")
+	end := tr.Mark()
+	after := numbered(2000, 10)
+	tr.LoadAll(m, pointers(after))
 
-	if tr.Len() != 200 {
-		t.Fatalf("%d tracked after ForgetSince, want 200", tr.Len())
+	tr.ForgetBetween(mark, end)
+	check("forgotten between the marks")
+
+	if tr.Len() != 210 {
+		t.Fatalf("%d tracked after ForgetBetween, want 210: those after the end stay", tr.Len())
 	}
 
 	tr.Clear()

@@ -65,7 +65,7 @@ func TestUseTxHoldsNothingItCannotSettle(t *testing.T) {
 	}
 
 	state := tx.state.tx
-	held := func() int { return len(state.undo) + len(state.pending) }
+	held := func() int { return len(state.undo) + len(state.pending) + len(state.tracked) }
 
 	for i := range 3 {
 		u := &externalUser{Name: fmt.Sprint("outside ", i)}
@@ -130,7 +130,9 @@ func TestUseTxHoldsNothingItCannotSettle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := entry.State(); got != Added || failed.ID != 0 {
+	// The savepoint began tracking it, so its rollback forgets it, and takes
+	// back the key its insert gave it.
+	if got := entry.State(); got != Detached || failed.ID != 0 {
 		t.Errorf("the savepoint's rollback left the insert %s, with key %d", got, failed.ID)
 	}
 

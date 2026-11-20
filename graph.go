@@ -40,11 +40,13 @@ func TrackGraph[T any](
 	decide func(GraphNode) State,
 ) error {
 	s, model, err := handleModel[T](h)
-	if err != nil {
-		return err
-	}
 
-	if root == nil {
+	switch {
+	case err != nil:
+		return err
+	case !s.settings.tracking:
+		return ErrNoTracking
+	case root == nil:
 		return ErrNilEntity
 	}
 
