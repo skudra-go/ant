@@ -35,6 +35,22 @@ func (e *engine) repair(ctx context.Context) error {
 			return err
 		}
 
+		entries := e.entries(c, rows)
+
+		// A file that is another migration than the one applied is no edit to
+		// accept: it never ran here.
+		var others []error
+
+		for _, entry := range entries {
+			if entry.State == Changed && entry.appliedAs != "" {
+				others = append(others, renumbered(entry))
+			}
+		}
+
+		if len(others) > 0 {
+			return errors.Join(others...)
+		}
+
 		count := 0
 
 		byKey := func(key string) *record {
@@ -47,7 +63,7 @@ func (e *engine) repair(ctx context.Context) error {
 			return nil
 		}
 
-		for _, entry := range e.entries(c, rows) {
+		for _, entry := range entries {
 			switch {
 			case entry.State == Failed:
 				e.say(

@@ -43,6 +43,10 @@ type Entry struct {
 	Error     string
 
 	migration *Migration
+	// appliedAs is the name the version was applied under, when it differs
+	// from the file's and so do the contents: another migration took the
+	// number, as when two branches both wrote it.
+	appliedAs string
 }
 
 // engine applies migrations to one database.
@@ -206,6 +210,10 @@ func (e *engine) entries(c *catalog, rows []record) []Entry {
 			entry.AppliedAt, entry.Duration, entry.Error = r.AppliedAt, r.Duration, r.Error
 		}
 
+		if entry.State == Changed && r.Name != m.Name {
+			entry.appliedAs = r.Key + "_" + r.Name
+		}
+
 		out = append(out, entry)
 	}
 
@@ -333,6 +341,12 @@ func (e *engine) validate(entries []Entry, rows []record) error {
 				),
 			)
 		case Changed:
+			if entry.appliedAs != "" {
+				problems = append(problems, renumbered(entry))
+
+				continue
+			}
+
 			problems = append(
 				problems,
 				fmt.Errorf(
@@ -381,6 +395,20 @@ func (e *engine) validate(entries []Entry, rows []record) error {
 	}
 
 	return errors.Join(problems...)
+}
+
+// renumbered is the error for a version applied as another migration than its
+// file. Read as an edit, it led to repair, which recorded the file as applied
+// without running it (#178).
+func renumbered(entry Entry) error {
+	return fmt.Errorf(
+		"%w: %s was applied as %s, a different migration. If it was renumbered after a "+
+			"merge, give the file the next free number; if it is the same migration, name it %s again",
+		ErrChecksum,
+		entry.ID,
+		entry.appliedAs,
+		entry.appliedAs,
+	)
 }
 
 // up applies what is pending, through version to if it is set.
