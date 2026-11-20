@@ -41,7 +41,7 @@ var (
 	// from its Go type. Set it with Column(...).Type(...).
 	ErrNoColumnType = errors.New("ant: no database type for field")
 	// ErrBadSchema reports models that cannot become a valid schema.
-	ErrBadSchema = errors.New("ant: invalid schema")
+	ErrBadSchema = errs.ErrBadSchema
 	// ErrUnknownColumn reports a result column with no field, under WithStrict.
 	ErrUnknownColumn = errors.New("ant: result column has no field")
 	// ErrNoRows reports an operation given no rows to work on.

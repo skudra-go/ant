@@ -12,3 +12,6 @@ var ErrUnsupported = errors.New("ant: not supported by this database")
 
 // ErrNoForeignKey reports a relation whose foreign key cannot be determined.
 var ErrNoForeignKey = errors.New("ant: relation has no foreign key")
+
+// ErrBadSchema reports models that cannot become a valid schema.
+var ErrBadSchema = errors.New("ant: invalid schema")

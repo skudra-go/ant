@@ -436,6 +436,9 @@ type Relation struct {
 	Type   reflect.Type
 	Offset uintptr
 	Owner  *Model
+	// Declarer is the struct the field is declared in: the owner's type, or a
+	// struct it embeds, whose relations it inherits.
+	Declarer reflect.Type
 
 	ForeignKey *Field // set by configuration, on either side
 	References *Field // set by configuration
@@ -517,6 +520,28 @@ func (r *Relation) resolve() (Link, error) {
 			p.Foreign = ColumnName(target.Type.Name()) + "_id"
 		}
 
+		// Checked once the defaults are in: a join table with no name joined
+		// "", and a model linked to itself took one column for both sides, so
+		// only its links to itself matched (#203).
+		switch {
+		case p.ReadOnly: // a through relation's table, a model of its own
+		case p.Table.Name == "":
+			return Link{}, fmt.Errorf(
+				"%w: %s.%s is many-to-many with no join table: name it with Through",
+				errs.ErrBadSchema,
+				r.Owner.Type.Name(),
+				r.Name,
+			)
+		case p.Local == p.Foreign:
+			return Link{}, fmt.Errorf(
+				"%w: %s.%s uses %s for both sides of its join table: name them with PivotColumns",
+				errs.ErrBadSchema,
+				r.Owner.Type.Name(),
+				r.Name,
+				p.Local,
+			)
+		}
+
 		if r.ThroughKey != nil {
 			foreign = r.ThroughKey
 		}
@@ -569,21 +594,32 @@ func (r *Relation) resolve() (Link, error) {
 		}
 	}
 
-	if fk := target.field(r.Owner.Type.Name() + "ID"); fk != nil {
-		if err := r.shared(target, fk, false); err != nil {
-			return Link{}, err
-		}
-
-		return child(fk)
+	// A relation inherited from an embedded model, as User.Posts in a model that
+	// embeds User, keeps the key its own model's conventions give it.
+	owners := []reflect.Type{r.Owner.Type}
+	if r.Declarer != nil && r.Declarer != r.Owner.Type {
+		owners = append(owners, r.Declarer)
 	}
 
-	if r.Kind == Many {
-		if fk := target.backReference(r.Owner); fk != nil {
-			if err := r.shared(target, fk, true); err != nil {
+	for _, owner := range owners {
+		if fk := target.field(owner.Name() + "ID"); fk != nil {
+			if err := r.shared(target, fk, false); err != nil {
 				return Link{}, err
 			}
 
 			return child(fk)
+		}
+	}
+
+	if r.Kind == Many {
+		for _, owner := range owners {
+			if fk := target.backReference(owner); fk != nil {
+				if err := r.shared(target, fk, true); err != nil {
+					return Link{}, err
+				}
+
+				return child(fk)
+			}
 		}
 	}
 
@@ -629,11 +665,11 @@ func (r *Relation) guessed() bool {
 }
 
 // backReference returns the foreign key of the only relation from m to owner.
-func (m *Model) backReference(owner *Model) *Field {
+func (m *Model) backReference(owner reflect.Type) *Field {
 	var found *Field
 
 	for _, other := range m.Relations {
-		if other.Kind != One || other.Target != owner.Type {
+		if other.Kind != One || other.Target != owner {
 			continue
 		}
 
@@ -947,8 +983,41 @@ func (m *Model) Configure(f func() error) {
 			m.err = f()
 		}
 
+		if m.err == nil {
+			m.err = m.distinctColumns()
+		}
+
 		m.frozen.Store(true)
 	})
+}
+
+// distinctColumns refuses two fields that map to one column, which kept the
+// last one and never read or wrote the other (#99). It runs once the names are
+// final: tags, naming conventions and configuration all give them.
+func (m *Model) distinctColumns() error {
+	seen := make(map[string]*Field, len(m.Fields))
+
+	for _, f := range m.Fields {
+		if f.Computed {
+			continue
+		}
+
+		if other, ok := seen[f.Column]; ok {
+			return fmt.Errorf(
+				"%w: %s.%s and %s.%s both map to column %s: name one with ant:\"column=...\"",
+				errs.ErrBadSchema,
+				m.Type.Name(),
+				other.Name,
+				m.Type.Name(),
+				f.Name,
+				f.Column,
+			)
+		}
+
+		seen[f.Column] = f
+	}
+
+	return nil
 }
 
 // derived returns the model's field lists. They are built once configuration is
@@ -1392,7 +1461,7 @@ func signedInt(k reflect.Kind) bool {
 
 func walk(m *Model, t reflect.Type, offset uintptr, prefix, columnPrefix string) error {
 	for sf := range t.Fields() {
-		tag := parseTag(sf.Tag.Get("ant"))
+		tag, tagErr := parseTag(sf.Tag.Get("ant"))
 		if !sf.IsExported() || tag.skip {
 			continue
 		}
@@ -1401,9 +1470,15 @@ func walk(m *Model, t reflect.Type, offset uintptr, prefix, columnPrefix string)
 
 		name := prefix + sf.Name
 
+		// A tag ant can't read whole would leave the schema silently wrong:
+		// a misspelled unique is no constraint (#98).
+		if err := fieldError(m, name, sf, tag, tagErr); err != nil {
+			return err
+		}
+
 		switch {
 		case sf.Anonymous && sf.Type.Kind() == reflect.Struct && !IsValue(sf.Type):
-			if err := walk(m, sf.Type, off, name+".", columnPrefix); err != nil {
+			if err := walk(m, sf.Type, off, name+".", columnPrefix+tag.prefix); err != nil {
 				return err
 			}
 
@@ -1427,12 +1502,13 @@ func walk(m *Model, t reflect.Type, offset uintptr, prefix, columnPrefix string)
 
 		if target, kind, ok := relation(sf.Type); ok {
 			m.Relations = append(m.Relations, &Relation{
-				Name:   name,
-				Kind:   kind,
-				Target: target,
-				Type:   sf.Type,
-				Offset: off,
-				Owner:  m,
+				Name:     name,
+				Kind:     kind,
+				Target:   target,
+				Type:     sf.Type,
+				Offset:   off,
+				Owner:    m,
+				Declarer: t,
 			})
 
 			continue
@@ -1483,6 +1559,48 @@ func walk(m *Model, t reflect.Type, offset uintptr, prefix, columnPrefix string)
 	return nil
 }
 
+// fieldError refuses a field ant would otherwise misread without a word: a tag
+// it can't read, a struct embedded by pointer, which became a relation and lost
+// its columns, a slice of pointers to a model, which became a column, and a
+// kind no database stores (#98, #203, #204).
+func fieldError(m *Model, name string, sf reflect.StructField, tag tag, tagErr error) error {
+	fail := func(format string, args ...any) error {
+		return fmt.Errorf(
+			"%w: %s.%s: %s",
+			errs.ErrBadSchema,
+			m.Type.Name(),
+			name,
+			fmt.Sprintf(format, args...),
+		)
+	}
+
+	t := sf.Type
+
+	switch {
+	case tagErr != nil:
+		return fail("%v", tagErr)
+	case tag.prefix != "" && !tag.embedded && !sf.Anonymous:
+		return fail("prefix= goes with embedded, as ant:\"embedded,prefix=%s\"", tag.prefix)
+	}
+
+	if _, kind, ok := relation(t); ok && kind == One && sf.Anonymous {
+		return fail("an embedded struct must be a value: embed %s, not %s", t.Elem().Name(), t)
+	}
+
+	switch t.Kind() {
+	case reflect.Slice:
+		if _, _, ok := relation(t); !ok && t.Elem().Kind() == reflect.Pointer &&
+			!t.Implements(valuerType) && !reflect.PointerTo(t).Implements(scannerType) &&
+			isModel(t.Elem().Elem()) {
+			return fail("a relation slice holds values, as []%s, not pointers", t.Elem().Elem().Name())
+		}
+	case reflect.Func, reflect.Chan, reflect.UnsafePointer:
+		return fail("a %s is no column: tag it ant:\"-\"", t.Kind())
+	}
+
+	return nil
+}
+
 var (
 	timeType      = reflect.TypeFor[time.Time]()
 	deletedAtType = reflect.TypeFor[DeletedAt]()
@@ -1514,7 +1632,22 @@ func relation(t reflect.Type) (reflect.Type, RelationKind, bool) {
 	return nil, 0, false
 }
 
-func isModel(t reflect.Type) bool { return !IsValue(t) }
+// isModel reports whether t can be a relation's target: a struct that is no
+// value, with a field to map. One with no exported field, such as netip.Addr,
+// is a value the driver converts, so *netip.Addr is a nullable column.
+func isModel(t reflect.Type) bool {
+	if IsValue(t) {
+		return false
+	}
+
+	for sf := range t.Fields() {
+		if sf.IsExported() {
+			return true
+		}
+	}
+
+	return false
+}
 
 // IsValue reports whether t holds a single column's value rather than a row:
 // anything that is not a struct, plus time.Time and types that convert
@@ -1577,40 +1710,50 @@ func tagParts(s string) []string {
 	return append(parts, s[start:])
 }
 
-func parseTag(s string) tag {
+func parseTag(s string) (tag, error) {
 	var out tag
 
 	for _, part := range tagParts(s) {
-		switch key, value, _ := strings.Cut(strings.TrimSpace(part), "="); key {
-		case "-":
-			out.skip = true
-		case "unique":
-			out.unique = true
-		case "computed":
-			out.computed = true
-		case "readonly":
-			out.readOnly = true
-		case "writeonly":
-			out.writeOnly = true
-		case "default":
+		key, value, valued := strings.Cut(strings.TrimSpace(part), "=")
+		key = strings.TrimSpace(key)
+
+		flag := map[string]*bool{
+			"-":         &out.skip,
+			"unique":    &out.unique,
+			"computed":  &out.computed,
+			"readonly":  &out.readOnly,
+			"writeonly": &out.writeOnly,
+			"immutable": &out.immutable,
+			"embedded":  &out.embedded,
+			"version":   &out.version,
+			"token":     &out.token,
+		}[key]
+
+		switch {
+		case key == "" && !valued: // an empty part, as after a trailing comma
+		case flag != nil && valued:
+			return out, fmt.Errorf("tag key %s takes no value, got %s=%s", key, key, value)
+		case flag != nil:
+			*flag = true
+		case key == "default":
 			out.defaulted = true
 			out.defaultSQL = value
-		case "immutable":
-			out.immutable = true
-		case "embedded":
-			out.embedded = true
-		case "version":
-			out.version = true
-		case "token":
-			out.token = true
-		case "prefix":
-			out.prefix = value
-		case "column":
-			out.column = value
+		case key == "prefix" || key == "column":
+			if strings.TrimSpace(value) == "" {
+				return out, fmt.Errorf("tag key %s needs a value, as %s=name", key, key)
+			}
+
+			if key == "prefix" {
+				out.prefix = value
+			} else {
+				out.column = value
+			}
+		default:
+			return out, fmt.Errorf("unknown tag key %q", key)
 		}
 	}
 
-	return out
+	return out, nil
 }
 
 // ColumnName converts a Go field name to snake_case, keeping initialisms
