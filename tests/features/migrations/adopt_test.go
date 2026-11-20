@@ -200,6 +200,11 @@ ALTER TABLE ONLY %[1]s.tbl_customer ADD CONSTRAINT pk_customer PRIMARY KEY (id);
 ALTER TABLE ONLY %[1]s.tbl_customer ADD CONSTRAINT uq_customer_name UNIQUE (full_name);
 CREATE INDEX ix_customer_status ON %[1]s.tbl_customer USING btree (status);
 
+ALTER TYPE %[1]s.mood OWNER TO ant_dumped_owner;
+ALTER TABLE %[1]s.tbl_customer OWNER TO ant_dumped_owner;
+GRANT SELECT ON TABLE %[1]s.tbl_customer TO ant_dumped_reader;
+REVOKE ALL ON TABLE %[1]s.tbl_customer FROM PUBLIC;
+
 --
 -- PostgreSQL database dump complete
 --
@@ -221,6 +226,18 @@ func TestAdoptFromADump(t *testing.T) {
 			text := p.read("versions/0001_baseline.up.sql")
 			require.NotContains(t, text, "restrict")
 			require.Contains(t, text, "CREATE TYPE")
+			require.Contains(t, text, "OWNED BY", "a sequence's column is no role")
+		})
+
+		// They name the roles of the database dumped, which another database
+		// need not have, so the baseline could not run there (#191).
+		t.Run("ownership and grants are gone, and adopt says so", func(t *testing.T) {
+			text := p.read("versions/0001_baseline.up.sql")
+			require.NotContains(t, text, "OWNER TO")
+			require.NotContains(t, text, "GRANT")
+			require.NotContains(t, text, "REVOKE")
+			require.Contains(t, out, "Left out 4 statements")
+			require.Contains(t, out, "run: baseline 0001")
 		})
 
 		t.Run("check passes straight away", func(t *testing.T) {
