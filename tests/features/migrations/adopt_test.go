@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/skudra-go/ant"
+	"github.com/skudra-go/ant/migrate"
 )
 
 // Legacy is the kind of model that adopts an existing table. Its names and types
@@ -247,7 +248,7 @@ func TestAdoptFromADump(t *testing.T) {
 }
 
 // Keeping an old folder: files from another tool work as they are, down files are
-// ignored, and baseline marks them done.
+// ignored, and baseline marks them done, through the version the database has.
 func TestAdoptingAnExistingMigrationFolder(t *testing.T) {
 	each(t, func(t *testing.T, p *project) {
 		p.write("versions/000001_create.up.sql", "CREATE TABLE tbl_old (id int);")
@@ -255,7 +256,7 @@ func TestAdoptingAnExistingMigrationFolder(t *testing.T) {
 		p.write("versions/000002_more.up.sql", "ALTER TABLE tbl_old ADD COLUMN extra int;")
 		p.sql("CREATE TABLE tbl_old (id int, extra int)")
 
-		must[V1DB](p, "baseline")
+		must[V1DB](p, "baseline", "000002")
 		require.Contains(t, must[V1DB](p, "up"), "Nothing to apply")
 
 		t.Run("new files continue the old numbering", func(t *testing.T) {
@@ -272,5 +273,35 @@ func TestUnreadableFileName(t *testing.T) {
 		p.write("versions/add_things.sql", "SELECT 1;")
 		_, err := run[V1DB](p, "up")
 		require.ErrorContains(t, err, "cannot read a version from versions/add_things.sql")
+	})
+}
+
+// A database adopted after more migrations were written has only some of them.
+// baseline with no version recorded every one as applied, so up skipped those it
+// never ran (#190). With more than one to record, it asks for the version.
+func TestBaselineNeedsAVersionForMoreThanOne(t *testing.T) {
+	each(t, func(t *testing.T, p *project) {
+		p.write("versions/0001_baseline.up.sql", "CREATE TABLE films (id int);")
+		p.write("versions/0002_add_imdb.up.sql", "ALTER TABLE films ADD COLUMN imdb text;")
+		p.sql("CREATE TABLE films (id int)")
+
+		_, err := run[V1DB](p, "baseline")
+		require.ErrorIs(t, err, migrate.ErrBadMigration)
+		require.ErrorContains(
+			t,
+			err,
+			"baseline would record 0001_baseline, 0002_add_imdb as applied without running them",
+		)
+		require.ErrorContains(t, err, "baseline 0001 records only the first, baseline 0002 all of them")
+		require.Zero(t, scalar[int](p, "SELECT count(*) FROM ant_migrations"), "nothing was recorded")
+
+		must[V1DB](p, "baseline", "0001")
+		require.Contains(t, must[V1DB](p, "up"), "Applied 0002_add_imdb")
+		require.Equal(t, []string{"id", "imdb"}, p.columns("films"))
+
+		t.Run("one left to record needs no version", func(t *testing.T) {
+			p.write("versions/0003_more.up.sql", "ALTER TABLE films ADD COLUMN more int;")
+			require.Contains(t, must[V1DB](p, "baseline"), "Recorded 0003_more as applied")
+		})
 	})
 }
