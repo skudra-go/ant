@@ -298,3 +298,70 @@ func TestPartitions(t *testing.T) {
 		})
 	})
 }
+
+// An enum and a sequence whose names have capitals are created quoted, so the
+// columns that use them quote them too: PostgreSQL folds a name without quotes
+// to lower case, and the CREATE TABLE looked for a type that was not there
+// (#100).
+type Shout struct {
+	ID     int64
+	Number int64
+	Status string
+}
+
+func (Shout) Configure(b *ant.ModelBuilder[Shout]) {
+	b.Column(&Shouts.Number).Sequence("ShoutNumbers", ant.StartAt(7))
+	b.Column(&Shouts.Status).Enum("Shout Status", "Loud", "quiet").Default("'Loud'")
+}
+
+var Shouts = ant.Fields[Shout]()
+
+type ShoutDB struct {
+	ant.Context
+	Shouts ant.Table[Shout]
+}
+
+type Shout2 struct {
+	ID     int64
+	Number int64
+	Status string
+	Mood   string
+}
+
+func (Shout2) Configure(b *ant.ModelBuilder[Shout2]) {
+	b.Table("shouts")
+	b.Column(&Shout2s.Number).Sequence("ShoutNumbers", ant.StartAt(7))
+	b.Column(&Shout2s.Status).Enum("Shout Status", "Loud", "quiet").Default("'Loud'")
+	b.Column(&Shout2s.Mood).Enum("Mood", "Calm", "angry")
+}
+
+var Shout2s = ant.Fields[Shout2]()
+
+type Shout2DB struct {
+	ant.Context
+	Shouts ant.Table[Shout2]
+}
+
+func TestEnumAndSequenceNamesAreQuoted(t *testing.T) {
+	each(t, func(t *testing.T, p *project) {
+		must[ShoutDB](p, "diff", "start")
+		text := p.read("versions/0001_start.up.sql")
+		require.Contains(t, text, `"status" "Shout Status" NOT NULL DEFAULT 'Loud'`)
+		require.Contains(t, text, `nextval('"ShoutNumbers"')`)
+		must[ShoutDB](p, "up")
+
+		shout := &Shout{}
+		require.NoError(t, open[ShoutDB](p).Shouts.Insert(t.Context(), shout))
+		require.EqualValues(t, 7, shout.Number)
+		require.Equal(t, "Loud", shout.Status)
+		require.Contains(t, must[ShoutDB](p, "drift"), "No drift")
+
+		t.Run("a new column of such an enum fills existing rows from it", func(t *testing.T) {
+			must[Shout2DB](p, "diff", "add_mood")
+			require.Contains(t, p.read("versions/0002_add_mood.up.sql"), `"mood" "Mood" NOT NULL DEFAULT 'Calm'`)
+			must[Shout2DB](p, "up")
+			require.Contains(t, must[Shout2DB](p, "drift"), "No drift")
+			require.Contains(t, must[Shout2DB](p, "check"), "OK")
+		})
+	})
+}
