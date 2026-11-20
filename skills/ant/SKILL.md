@@ -83,7 +83,8 @@ adults, err := db.Users.
   `sqlserver.Dialect`, from `github.com/skudra-go/ant/dialect/<name>`.
 - DSN settings that matter: MySQL and MariaDB need `parseTime=true`,
   and `ant.Open` refuses a DSN without it. SQLite wants
-  `_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_txlock=immediate`.
+  `_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_txlock=immediate`,
+  and `ant.Open` refuses a DSN that does not set `foreign_keys`.
 
 ## Columns are field pointers
 
