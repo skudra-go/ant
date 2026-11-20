@@ -245,6 +245,7 @@ func leadingWords(statement string, n int) []string {
 		end := strings.IndexFunc(rest, func(r rune) bool {
 			return !(r == '_' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z')
 		})
+
 		if end == 0 {
 			return out
 		}

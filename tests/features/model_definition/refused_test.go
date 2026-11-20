@@ -324,6 +324,7 @@ func TestDefaultNamesThatCollideAreRefused(t *testing.T) {
 		Pairs ant.Table[Pair]
 	}](postgres.Dialect)
 	require.ErrorIs(t, err, ant.ErrBadSchema)
+
 	require.ErrorContains(
 		t,
 		err,

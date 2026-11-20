@@ -446,6 +446,7 @@ func TestMigrationWithItsOwnTransaction(t *testing.T) {
 			"versions/0001_own.up.sql",
 			"-- ant:no-transaction\nBEGIN;\nCREATE TABLE own (id int);\nCOMMIT;\n",
 		)
+
 		p.write("versions/0002_next.up.sql", "CREATE TABLE after_own (id int);")
 		must[V1DB](p, "up")
 		require.NotEmpty(t, p.columns("after_own"))

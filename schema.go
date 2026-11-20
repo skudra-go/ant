@@ -993,7 +993,8 @@ func distinctNames(s *schema.Schema) error {
 // so the migration failed on its first run (#187). A serial target is the
 // integer it draws from a sequence, which the referring column holds.
 func typeAsTarget(column *schema.Column, field, ref *meta.Field, target *schema.Table) {
-	if target == nil || field.Storage.Type != "" || field.Storage.Enum != nil || ref.Storage.Type == "" {
+	if target == nil || field.Storage.Type != "" || field.Storage.Enum != nil ||
+		ref.Storage.Type == "" {
 		return
 	}
 

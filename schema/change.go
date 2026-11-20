@@ -610,7 +610,12 @@ type Repartition struct {
 
 // String implements Change.
 func (c Repartition) String() string {
-	return fmt.Sprintf("repartition %s: %s to %s", c.Table, partitioning(c.From), partitioning(c.To))
+	return fmt.Sprintf(
+		"repartition %s: %s to %s",
+		c.Table,
+		partitioning(c.From),
+		partitioning(c.To),
+	)
 }
 
 // Warning implements Change.

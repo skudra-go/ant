@@ -188,8 +188,8 @@ func TestProbeOtherNative(t *testing.T) {
 		Vals: []netip.Addr{
 			netip.MustParseAddr("10.0.0.1"), netip.MustParseAddr("::1"),
 		},
-		Eq:    ant.Eq[netip.Addr],
-		In:    ant.In[netip.Addr],
+		Eq: ant.Eq[netip.Addr],
+		In: ant.In[netip.Addr],
 	})
 
 	probekit.Probe(t, probekit.Spec[net.IP]{

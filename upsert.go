@@ -184,9 +184,10 @@ func partialTarget(model *meta.Model, columns []string) []qb.Cond {
 	}
 
 	same := func(fields []*meta.Field) bool {
-		return len(fields) == len(columns) && !slices.ContainsFunc(fields, func(f *meta.Field) bool {
-			return f == nil || !slices.Contains(columns, f.Column)
-		})
+		return len(fields) == len(columns) &&
+			!slices.ContainsFunc(fields, func(f *meta.Field) bool {
+				return f == nil || !slices.Contains(columns, f.Column)
+			})
 	}
 
 	if same(model.Keys) {

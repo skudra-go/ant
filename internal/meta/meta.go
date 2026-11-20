@@ -597,6 +597,7 @@ func (r *Relation) resolve() (Link, error) {
 	// A relation inherited from an embedded model, as User.Posts in a model that
 	// embeds User, keeps the key its own model's conventions give it.
 	owners := []reflect.Type{r.Owner.Type}
+
 	if r.Declarer != nil && r.Declarer != r.Owner.Type {
 		owners = append(owners, r.Declarer)
 	}
@@ -1592,7 +1593,10 @@ func fieldError(m *Model, name string, sf reflect.StructField, tag tag, tagErr e
 		if _, _, ok := relation(t); !ok && t.Elem().Kind() == reflect.Pointer &&
 			!t.Implements(valuerType) && !reflect.PointerTo(t).Implements(scannerType) &&
 			isModel(t.Elem().Elem()) {
-			return fail("a relation slice holds values, as []%s, not pointers", t.Elem().Elem().Name())
+			return fail(
+				"a relation slice holds values, as []%s, not pointers",
+				t.Elem().Elem().Name(),
+			)
 		}
 	case reflect.Func, reflect.Chan, reflect.UnsafePointer:
 		return fail("a %s is no column: tag it ant:\"-\"", t.Kind())

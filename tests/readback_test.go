@@ -73,6 +73,7 @@ func openReadBack(t *testing.T, target testdb.Target, ddl ...string) *ReadBackDB
 func TestConformanceReadBackNeedsAKey(t *testing.T) {
 	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
 		ctx := t.Context()
+
 		db := openReadBack(
 			t,
 			target,
@@ -218,6 +219,7 @@ func TestConformanceUpdateReadsBackWhatTheDatabaseFills(t *testing.T) {
 		require.Zero(t, line.Touched)
 
 		line.Qty = 5
+
 		require.NoError(t, db.SaveChanges(ctx))
 		require.Equal(t, 15, line.Total)
 		require.Equal(t, 1, line.Touched)
@@ -227,6 +229,7 @@ func TestConformanceUpdateReadsBackWhatTheDatabaseFills(t *testing.T) {
 		require.False(t, changed, "what was read back is what the row holds")
 
 		line.Price = 4
+
 		require.NoError(t, db.SaveChanges(ctx), "the token is the one the row holds")
 		require.Equal(t, 20, line.Total)
 		require.Equal(t, 2, line.Touched)
@@ -241,6 +244,7 @@ func TestConformanceUpdateReadsBackWhatTheDatabaseFills(t *testing.T) {
 			require.NoError(t, err)
 
 			line.Qty = 8
+
 			require.ErrorIs(t, db.SaveChanges(ctx), ant.ErrConcurrency)
 			require.Equal(t, 20, line.Total, "a refused save reads nothing back")
 		})

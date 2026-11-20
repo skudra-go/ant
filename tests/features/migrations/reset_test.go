@@ -128,16 +128,24 @@ func TestFileBodyIsChecked(t *testing.T) {
 		}
 
 		t.Run("savepoints stay inside the transaction", func(t *testing.T) {
-			p.write("versions/0001_savepoint.up.sql", "SAVEPOINT s;\nCREATE TABLE audit_a (id int);\n"+
-				"ROLLBACK TO SAVEPOINT s;\nRELEASE s;\nCREATE TABLE audit_b (id int);\n"+
-				"-- BEGIN; in a comment, and 'COMMIT' in a string, are no statements\nSELECT 'COMMIT';\n")
+			p.write(
+				"versions/0001_savepoint.up.sql",
+				"SAVEPOINT s;\nCREATE TABLE audit_a (id int);\n"+
+					"ROLLBACK TO SAVEPOINT s;\nRELEASE s;\nCREATE TABLE audit_b (id int);\n"+
+					"-- BEGIN; in a comment, and 'COMMIT' in a string, are no statements\nSELECT 'COMMIT';\n",
+			)
+
 			must[V1DB](p, "up")
 			require.Empty(t, p.columns("audit_a"))
 			require.NotEmpty(t, p.columns("audit_b"))
 		})
 
 		t.Run("a file without a transaction may hold its own", func(t *testing.T) {
-			p.write("versions/0002_own.up.sql", "-- ant:no-transaction\nBEGIN;\nCREATE TABLE audit_c (id int);\nCOMMIT;\n")
+			p.write(
+				"versions/0002_own.up.sql",
+				"-- ant:no-transaction\nBEGIN;\nCREATE TABLE audit_c (id int);\nCOMMIT;\n",
+			)
+
 			must[V1DB](p, "up")
 			require.NotEmpty(t, p.columns("audit_c"))
 		})

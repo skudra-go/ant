@@ -359,7 +359,13 @@ func TestEnumAndSequenceNamesAreQuoted(t *testing.T) {
 
 		t.Run("a new column of such an enum fills existing rows from it", func(t *testing.T) {
 			must[Shout2DB](p, "diff", "add_mood")
-			require.Contains(t, p.read("versions/0002_add_mood.up.sql"), `"mood" "Mood" NOT NULL DEFAULT 'Calm'`)
+
+			require.Contains(
+				t,
+				p.read("versions/0002_add_mood.up.sql"),
+				`"mood" "Mood" NOT NULL DEFAULT 'Calm'`,
+			)
+
 			must[Shout2DB](p, "up")
 			require.Contains(t, must[Shout2DB](p, "drift"), "No drift")
 			require.Contains(t, must[Shout2DB](p, "check"), "OK")
@@ -442,16 +448,30 @@ func TestRepartitioningIsAChange(t *testing.T) {
 			})
 		}
 
-		require.Contains(t, must[PartitionDB](p, "drift"), "No drift", "the same partitioning is no change")
+		require.Contains(
+			t,
+			must[PartitionDB](p, "drift"),
+			"No drift",
+			"the same partitioning is no change",
+		)
 
-		t.Run("drift sees a table partitioned otherwise than the migrations say", func(t *testing.T) {
-			p.sql("DROP TABLE readings")
-			p.sql(`CREATE TABLE readings (id bigint NOT NULL, at timestamptz NOT NULL,
+		t.Run(
+			"drift sees a table partitioned otherwise than the migrations say",
+			func(t *testing.T) {
+				p.sql("DROP TABLE readings")
+
+				p.sql(`CREATE TABLE readings (id bigint NOT NULL, at timestamptz NOT NULL,
 				value double precision NOT NULL, PRIMARY KEY (id, at))`)
 
-			out, err := run[PartitionDB](p, "drift")
-			require.ErrorIs(t, err, migrate.ErrDrift)
-			require.Contains(t, out, "repartition readings: not partitioned to partitioned by RANGE (at)")
-		})
+				out, err := run[PartitionDB](p, "drift")
+				require.ErrorIs(t, err, migrate.ErrDrift)
+
+				require.Contains(
+					t,
+					out,
+					"repartition readings: not partitioned to partitioned by RANGE (at)",
+				)
+			},
+		)
 	})
 }

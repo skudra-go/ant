@@ -136,17 +136,31 @@ func TestRenumberedMigration(t *testing.T) {
 		t.Run("an edit that keeps the name is still one repair can accept", func(t *testing.T) {
 			require.NoError(t, removeFile(p, "versions/0002_add_ay.up.sql"))
 			require.NoError(t, removeFile(p, "versions/0003_add_bee.up.sql"))
-			p.write("versions/0002_add_bee.up.sql", "ALTER TABLE items ADD COLUMN bee int; -- edited")
+
+			p.write(
+				"versions/0002_add_bee.up.sql",
+				"ALTER TABLE items ADD COLUMN bee int; -- edited",
+			)
 
 			_, err := run[V1DB](p, "up")
 			require.ErrorIs(t, err, migrate.ErrChecksum)
 			require.NotContains(t, err.Error(), "a different migration")
-			require.Contains(t, must[V1DB](p, "repair"), "Accepted the current contents of 0002_add_bee")
+
+			require.Contains(
+				t,
+				must[V1DB](p, "repair"),
+				"Accepted the current contents of 0002_add_bee",
+			)
 		})
 
 		t.Run("a new name with the same contents is the same migration", func(t *testing.T) {
 			require.NoError(t, removeFile(p, "versions/0002_add_bee.up.sql"))
-			p.write("versions/0002_add_bee_column.up.sql", "ALTER TABLE items ADD COLUMN bee int; -- edited")
+
+			p.write(
+				"versions/0002_add_bee_column.up.sql",
+				"ALTER TABLE items ADD COLUMN bee int; -- edited",
+			)
+
 			require.Contains(t, must[V1DB](p, "up"), "Nothing to apply")
 		})
 	})

@@ -389,6 +389,7 @@ func TestNewRequiredForeignKeyColumn(t *testing.T) {
 		p.sql("INSERT INTO gadgets (name) VALUES ('g')")
 
 		must[MadeGadgetDB](p, "diff", "add_maker")
+
 		file := "versions/0002_add_maker.up.sql"
 		text := p.read(file)
 		require.Contains(t, text, `ALTER TABLE "gadgets" ADD COLUMN "maker_id" bigint;`)
@@ -407,6 +408,7 @@ func TestNewRequiredForeignKeyColumn(t *testing.T) {
 				`ALTER TABLE "gadgets" ALTER COLUMN "maker_id" SET NOT NULL;`,
 			1,
 		))
+
 		must[MadeGadgetDB](p, "up")
 		require.Contains(t, must[MadeGadgetDB](p, "drift"), "No drift")
 	})
