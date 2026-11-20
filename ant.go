@@ -128,10 +128,7 @@ func (s *state) claim(ctx context.Context, on bool) (context.Context, func(), er
 		from := s.tracker.Mark()
 
 		release = func() {
-			if to := s.tracker.Mark(); to > from {
-				t.tracked = append(t.tracked, trackedRange{s.tracker, from, to})
-			}
-
+			t.track(s.tracker, from, s.tracker.Mark())
 			s.tracker.Release(c)
 		}
 	}

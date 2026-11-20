@@ -54,6 +54,15 @@ type trackedRange struct {
 	from, to uint64
 }
 
+// track notes that an operation began tracking the entries of tracker numbered
+// after from and by to. Each operation keeps a range of its own, so a
+// savepoint's rollback forgets exactly the operations made since it opened.
+func (t *txState) track(tracker *track.Tracker, from, to uint64) {
+	if to > from {
+		t.tracked = append(t.tracked, trackedRange{tracker, from, to})
+	}
+}
+
 // forgetTracked forgets the entries the transaction's operations began tracking
 // since its range at index from: what they loaded, added, or reached through a
 // relation, whose rows the rollback took back, so the next SaveChanges does not
