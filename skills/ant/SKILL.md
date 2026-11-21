@@ -175,7 +175,7 @@ Builder methods never return errors; the terminal call returns everything collec
 | `Count(ctx)`, `Exists(ctx)` | `int64`, `bool` |
 | `Each(ctx)` | an `iter.Seq2[T, error]` that streams; no `Include`, not tracked; in a transaction, no other statement inside the loop (`ant.ErrQueryInEach`) |
 | `Page(ctx, page, size)`, `After(ctx, cursor, size)` | numbered pages, cursor pages |
-| `Chunk(ctx, size, fn)` | batches; `ChunkByKey` if `fn` changes the rows |
+| `Chunk(ctx, size, fn)` | batches; `ChunkByKey` if `fn` changes the rows; a session stops tracking each batch once `fn` leaves nothing to save, so save inside `fn` |
 | `ant.Pluck(ctx, query, &Users.Name)` | one column as `[]string` |
 
 Conditions: `ant.Eq`, `Ne`, `Gt`, `Gte`, `Lt`, `Lte`, `Between`, `In`, `NotIn`,
