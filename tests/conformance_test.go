@@ -1857,6 +1857,86 @@ func TestConformanceSaveOfUnchangedValuesInTx(t *testing.T) {
 	})
 }
 
+// Stamp is checked by a token the application keeps, which a save carries in
+// its WHERE but need not change.
+type Stamp struct {
+	ID    int64
+	Code  string
+	Token string `ant:"token"`
+}
+
+func (Stamp) Configure(b *ant.ModelBuilder[Stamp]) {
+	b.Table("stamps")
+}
+
+var Stamps = ant.Fields[Stamp]()
+
+type StampDB struct {
+	ant.Context
+	Stamps ant.Table[Stamp]
+}
+
+// Two requests that make the same edit both save, as on every database: the
+// second matches the row and changes nothing, which MySQL counts as zero (#215).
+// A copy whose token is stale is still a conflict, though its values are the
+// row's, since the check that the row is there carries the token too.
+func TestConformanceSameEditAndStaleToken(t *testing.T) {
+	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
+		ctx := t.Context()
+		_, err := target.DB.ExecContext(ctx, `CREATE TABLE stamps (
+			id BIGINT PRIMARY KEY,
+			code VARCHAR(20) NOT NULL,
+			token VARCHAR(20) NOT NULL)`)
+		require.NoError(t, err)
+
+		t.Cleanup(func() {
+			_, _ = target.DB.ExecContext(context.Background(), "DROP TABLE stamps")
+		})
+
+		db, err := ant.Open[StampDB](ctx, target.Dialect, target.DSN)
+		require.NoError(t, err)
+
+		t.Cleanup(func() { _ = db.Close() })
+
+		require.NoError(
+			t,
+			ant.Session(db).Stamps.Insert(ctx, &Stamp{ID: 1, Code: "a", Token: "t1"}),
+		)
+
+		session := ant.Session(db)
+		mine, err := session.Stamps.Find(ctx, int64(1))
+		require.NoError(t, err)
+
+		// Someone else makes the same edit first.
+		_, err = db.Stamps.Where(ant.Eq(&Stamps.ID, int64(1))).
+			Update(ctx, ant.Set(&Stamps.Code, "b"))
+		require.NoError(t, err)
+
+		mine.Code = "b"
+
+		require.NoError(t, session.SaveChanges(ctx), "the same edit twice")
+
+		stale := ant.Session(db)
+		copied, err := stale.Stamps.Find(ctx, int64(1))
+		require.NoError(t, err)
+
+		// Someone else moves the token on, and leaves the values as they were.
+		_, err = db.Stamps.Where(ant.Eq(&Stamps.ID, int64(1))).
+			Update(ctx, ant.Set(&Stamps.Token, "t2"))
+		require.NoError(t, err)
+
+		require.NoError(t, ant.MarkModified(ctx, stale, copied))
+
+		var conflict *ant.ConcurrencyError
+		require.ErrorAs(
+			t,
+			stale.SaveChanges(ctx),
+			&conflict,
+			"a stale token over the row's own values",
+		)
+	})
+}
+
 // A version the application copies into a loaded entity, as a PUT handler does
 // with the one its client sent, is the version it says it saw, so the save
 // checks that one: a stale copy is refused, on update and delete alike, and the
