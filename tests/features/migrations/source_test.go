@@ -181,6 +181,20 @@ func TestCommandsSayWhichMigrations(t *testing.T) {
 			require.ErrorContains(t, err, "the embedded files")
 			require.ErrorContains(t, err, q.config.Dir)
 		})
+
+		t.Run("a Source of its own, which wins over the rest", func(t *testing.T) {
+			q := *p
+			q.config.Source = migrate.FS(fstest.MapFS{
+				"versions/0001_listed.up.sql": {Data: []byte("CREATE TABLE listed (id int);")},
+			})
+
+			q.config.Embedded = fstest.MapFS{}
+			q.config.Dir = filepath.Join(p.dir, "not-here")
+			require.Contains(t, must[V1DB](&q, "status"), "Migrations: Config.Source")
+
+			q.config.Source = migrate.Dir(p.dir)
+			require.Contains(t, must[V1DB](&q, "status"), where)
+		})
 	})
 }
 
