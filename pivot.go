@@ -2,6 +2,7 @@ package ant
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"slices"
 	"unsafe"
@@ -133,16 +134,23 @@ func Toggle[T, R any](ctx context.Context, h Handle, owner *T, rel *[]R, targets
 		return err
 	}
 
+	_, link, err := linkOf[R](rel)
+	if err != nil {
+		return err
+	}
+
+	key := link.Foreign
+
 	return s.transact(ctx, true, func(to exec.Executor) error {
-		removed, err := removeLinked(ctx, s, to, pivot, local, foreign)
+		removed, err := removeLinked(ctx, s, to, pivot, key, local, foreign)
 		if err != nil {
 			return err
 		}
 
 		gone := make(map[any]struct{}, len(removed))
 
-		for _, key := range removed {
-			if k, ok := meta.KeyValue(key); ok {
+		for _, k := range removed {
+			if k != nil {
 				gone[k] = struct{}{}
 			}
 		}
@@ -164,15 +172,16 @@ func Toggle[T, R any](ctx context.Context, h Handle, owner *T, rel *[]R, targets
 }
 
 // removeLinked deletes the join rows of local to foreign that exist, and returns
-// the foreign keys they held. A row is removed in the same statement that finds
-// it, so two callers cannot both see it. With no DELETE ... RETURNING, as on
-// MySQL, the rows are read with a lock first, which a second caller waits on,
-// and then deleted.
+// the foreign keys they held, read as key reads them. A row is removed in the
+// same statement that finds it, so two callers cannot both see it. With no
+// DELETE ... RETURNING, as on MySQL, the rows are read with a lock first, which
+// a second caller waits on, and then deleted.
 func removeLinked(
 	ctx context.Context,
 	s *state,
 	to exec.Executor,
 	pivot *meta.Pivot,
+	key *meta.Field,
 	local any,
 	foreign []any,
 ) ([]any, error) {
@@ -187,7 +196,7 @@ func removeLinked(
 			return nil, err
 		}
 
-		return collect[any](rows)
+		return collectKey(rows, key)
 	}
 
 	read := &qb.Select{
@@ -205,7 +214,7 @@ func removeLinked(
 		return nil, err
 	}
 
-	found, err := collect[any](rows)
+	found, err := collectKey(rows, key)
 	if err != nil || len(found) == 0 {
 		return found, err
 	}
@@ -215,4 +224,17 @@ func removeLinked(
 	}
 
 	return found, nil
+}
+
+// collectKey reads one column of keys, as collectKeys does.
+func collectKey(rows *sql.Rows, key *meta.Field) ([]any, error) {
+	rowsOf, err := collectKeys(rows, key)
+
+	out := make([]any, len(rowsOf))
+
+	for i, row := range rowsOf {
+		out[i] = row[0]
+	}
+
+	return out, err
 }

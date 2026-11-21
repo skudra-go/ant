@@ -80,7 +80,7 @@ Error helpers mean the same everywhere. `ant.IsUniqueViolation` works on all fiv
 
 **Values the drivers cannot take.** These are limits of `database/sql` or of a driver, which ant does not work around:
 
-- An `sql.Null[uint64]` above `math.MaxInt64` is refused by `database/sql`, though a bare `uint64` field is not.
+- A `uint64` above `math.MaxInt64` is refused by the SQLite and SQL Server drivers, through `database/sql`: `uint64 values with high bit set are not supported`. pgx and the MySQL driver take one, into PostgreSQL's `numeric(20,0)`, which ant makes for a `uint64`, and MySQL's `BIGINT UNSIGNED`. pgx still refuses one in an `sql.Null[uint64]`; a `*uint64` or a bare `uint64` field takes it. A key the database generates stays `bigint` on PostgreSQL, as an identity must be an integer, and a foreign key takes the type of the key it refers to.
 - `ant.JSON` and `secure.Value` refuse text that is not valid UTF-8, as a text column does: `encoding/json` would store U+FFFD in its place.
 - pgx writes a pointer to a nil `json.RawMessage` as the JSON `null`, not as `NULL`.
 - pgx writes a 16-byte `net.IP` that holds an IPv4 address, as `net.ParseIP` returns, to an `inet` as `::ffff:10.0.0.1`, which `<<` against an IPv4 network does not match. Call `To4` on it, or use `netip.Addr`.
