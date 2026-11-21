@@ -184,7 +184,9 @@ func SumOf[T any, V Number](ctx context.Context, q *Query[T], field *V) (V, erro
 }
 
 // AvgOf averages a column over matching rows, giving zero if there are none.
-// Limit, Offset, and Distinct are honored, as with SumOf.
+// Limit, Offset, and Distinct are honored, as with SumOf. The average of a
+// time.Duration is in nanoseconds, from an interval column as from an integer
+// one.
 func AvgOf[T any, V Number](ctx context.Context, q *Query[T], field *V) (float64, error) {
 	return aggregateOf(ctx, q, Avg(field))
 }

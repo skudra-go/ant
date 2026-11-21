@@ -108,15 +108,20 @@ func (q *Query[T]) collectJoined(rows *sql.Rows) (out []*T, err error) {
 
 	dest := make([]any, total)
 	seen := make([]bool, len(q.inJoin))
+	drivers := make([][]*driverColumn, len(q.inJoin))
 	tracked := q.tracked()
 	out = []*T{}
+
+	for i, j := range q.inJoin {
+		drivers[i] = driverColumns(j.source.model.Stored())
+	}
 
 	for rows.Next() {
 		entity := new(T)
 		column := 0
 
 		for _, f := range root {
-			dest[column] = f.Addr(unsafe.Pointer(entity))
+			dest[column] = f.Dest(unsafe.Pointer(entity))
 			column++
 		}
 
@@ -126,8 +131,8 @@ func (q *Query[T]) collectJoined(rows *sql.Rows) (out []*T, err error) {
 			values[i] = j.source.alloc()
 			seen[i] = false
 
-			for _, f := range j.source.model.Stored() {
-				dest[column] = &nullableColumn{dst: f.Addr(values[i]), seen: &seen[i]}
+			for k, f := range j.source.model.Stored() {
+				dest[column] = outerDest(drivers[i], k, f, values[i], &seen[i])
 				column++
 			}
 		}
@@ -138,6 +143,10 @@ func (q *Query[T]) collectJoined(rows *sql.Rows) (out []*T, err error) {
 
 		for _, f := range root {
 			f.InUTC(unsafe.Pointer(entity))
+		}
+
+		for i := range q.inJoin {
+			settleOuter(drivers[i], values[i], &seen[i])
 		}
 
 		for i, j := range q.inJoin {

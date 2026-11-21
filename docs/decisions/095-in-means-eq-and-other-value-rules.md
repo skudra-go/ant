@@ -2,11 +2,11 @@
 id: 95
 title: "In means Eq, and other value rules"
 area: values
-status: active
+status: amended
 tags: [In, NotIn, Eq, null, any-array, secure.Value, UnixTime, utf8]
 issues: [94, 107]
 related: [89]
-changed_by: []
+changed_by: [134]
 code: [cond.go, dialect/render.go, json.go, secure/secure.go, internal/meta/meta.go]
 tests: [tests/features/querying/in_test.go, tests/features/querying/not_in_test.go, tests/features/querying/is_null_test.go, json_test.go, secure/secure_test.go]
 ---
@@ -14,6 +14,8 @@ tests: [tests/features/querying/in_test.go, tests/features/querying/not_in_test.
 # 95. In means Eq, and other value rules
 
 **In short:** In and NotIn fold Eq and Ne per value, so nil matches NULL; long PostgreSQL lists bind as one array; JSON and secure.Value refuse invalid UTF-8; UnixTime stores zero time as 0.
+
+> **Amended.** `NULL` into a named `[]byte` and an `INTERVAL` into a `time.Duration` are no longer limits left to the drivers: ant reads both (decision 134).
 
 ## Decision
 

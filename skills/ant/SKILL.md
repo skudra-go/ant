@@ -134,6 +134,11 @@ Calls that take columns of mixed types take `ant.FieldRef`, made with
 - A field of type `ant.DeletedAt` turns on soft deletes. `ant.JSON[T]`
   stores a value as JSON. A number read into an interface (`map[string]any`)
   is a `json.Number`, not a `float64`.
+- On PostgreSQL, a standard type takes PostgreSQL's own column: `time.Duration` is
+  `interval`, `net.IP` and `netip.Addr` are `inet`, `netip.Prefix` is `cidr`,
+  `json.RawMessage` and `map[string]any` are `jsonb`, `decimal.Decimal` is `numeric`, and a plain slice
+  is an array, as `[]string` is `text[]`. A type with no column type fails with
+  `ant.ErrNoColumnType` until `b.Column(&...).Type("...")` names one.
 - Everything else is configured in typed Go, with a `Configure` method on the model:
 
 ```go

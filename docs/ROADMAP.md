@@ -126,6 +126,8 @@ The work keeps to these. A change that breaks one needs a decision.
 - [x] JSON contains and length conditions: `postgres.JSONContains`, `JSONHasKey`, `JSONLength`
 - [x] Update inside a JSON column: `postgres.JSONSet`
 - [x] Array columns on PostgreSQL: `postgres.Array[T]`
+- [x] PostgreSQL's own column types for standard Go types: `time.Duration` as `interval`, `net.IP` and `netip` as `inet` and `cidr`, `json.RawMessage` and maps as `jsonb`, `decimal.Decimal` as `numeric`, and plain slices as arrays
+  - By [decision 134](decisions/134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md), with columns of the earlier defaults converted by [decision 135](decisions/135-a-column-ant-made-for-an-earlier-default-is-converted-as-ant-stored-it.md).
 - [x] Primitive collections stored as JSON: `ant.JSON[[]string]`
 - [x] Encrypted fields with key rotation: `secure.Value[T]`
   - A field type rather than `.Encrypt`, so a value cannot be read as plain text by mistake. See [encrypted fields](https://skudra.net/recipes/encrypted-fields).

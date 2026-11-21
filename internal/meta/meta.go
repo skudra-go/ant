@@ -74,6 +74,11 @@ type Field struct {
 	pointer func(unsafe.Pointer) any
 	// utc moves a scanned value of the field to UTC, nil if it holds no time.
 	utc func(unsafe.Pointer)
+	// read makes the Scanner the field is read through, nil for none (see
+	// ReaderFor).
+	read func(unsafe.Pointer) any
+	// driverOnly is DriverOnly.
+	driverOnly bool
 	// index is the field's position in its model's Fields.
 	index int
 	// key reads the field as Key returns it, for the types that need no
@@ -1530,30 +1535,34 @@ func walk(m *Model, t reflect.Type, offset uintptr, prefix, columnPrefix string)
 			)
 		}
 
+		read := ReaderFor(sf.Type)
+
 		m.Fields = append(m.Fields, &Field{
-			index:     len(m.Fields),
-			Name:      name,
-			Short:     sf.Name,
-			Column:    columnPrefix + column,
-			Type:      sf.Type,
-			Offset:    off,
-			Named:     tag.column != "",
-			Prefix:    columnPrefix,
-			Unique:    tag.unique,
-			Computed:  tag.computed,
-			ReadOnly:  tag.readOnly,
-			WriteOnly: tag.writeOnly,
-			Default:   tag.defaulted,
-			Immutable: tag.immutable,
-			Token:     tag.token || tag.version,
-			Version:   tag.version,
-			Storage:   Storage{Default: tag.defaultSQL},
-			Indirect:  Indirect(sf.Type),
-			pointer:   pointerTo(sf.Type),
-			key:       keyReader(sf.Type),
-			intKey:    intKeyReader(sf.Type),
-			copy:      copiers[sf.Type],
-			utc:       utcMovers[sf.Type],
+			index:      len(m.Fields),
+			Name:       name,
+			Short:      sf.Name,
+			Column:     columnPrefix + column,
+			Type:       sf.Type,
+			Offset:     off,
+			Named:      tag.column != "",
+			Prefix:     columnPrefix,
+			Unique:     tag.unique,
+			Computed:   tag.computed,
+			ReadOnly:   tag.readOnly,
+			WriteOnly:  tag.writeOnly,
+			Default:    tag.defaulted,
+			Immutable:  tag.immutable,
+			Token:      tag.token || tag.version,
+			Version:    tag.version,
+			Storage:    Storage{Default: tag.defaultSQL},
+			Indirect:   Indirect(sf.Type),
+			pointer:    pointerTo(sf.Type),
+			key:        keyReader(sf.Type),
+			intKey:     intKeyReader(sf.Type),
+			copy:       copiers[sf.Type],
+			utc:        utcMovers[sf.Type],
+			read:       read,
+			driverOnly: read == nil && !sqlConverts(sf.Type),
 		})
 	}
 

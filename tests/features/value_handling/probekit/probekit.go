@@ -1113,15 +1113,6 @@ var knownProbes = []struct {
 		regexp.MustCompile(`^TestProbeNullTypes/sql\.Null\[uint64\]_high_bit/`),
 		"a database/sql limit",
 	},
-	// database/sql cannot scan NULL into a named []byte.
-	{
-		regexp.MustCompile(`^TestProbeBytes/(named_\[\]byte|json\.RawMessage)_with_NULL/`),
-		"a database/sql limit",
-	},
-	// pgx hands an INTERVAL to database/sql as text, which is no time.Duration.
-	{regexp.MustCompile(`^TestProbeOtherNative/time\.Duration_in_INTERVAL/`), "a pgx limit"},
-	// database/sql cannot scan NULL into a net.IP, a named []byte.
-	{regexp.MustCompile(`^TestProbeOtherNative/net\.IP_in_INET/`), "a database/sql limit"},
 }
 
 // KnownHere skips the running test if it fails for a known reason, unless

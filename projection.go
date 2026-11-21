@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"reflect"
 	"unsafe"
 
 	"github.com/skudra-go/ant/internal/meta"
@@ -102,6 +103,9 @@ type rowReader struct {
 	rows    *sql.Rows
 	sources []source
 	fields  [][]*meta.Field
+	// drivers holds, for a source that may have no row, the columns only the
+	// driver converts, by field, nil for the others.
+	drivers [][]*driverColumn
 	dest    []any
 	values  []unsafe.Pointer
 	seen    []bool
@@ -112,6 +116,7 @@ func newRowReader(sources []source, rows *sql.Rows) *rowReader {
 		rows:    rows,
 		sources: sources,
 		fields:  make([][]*meta.Field, len(sources)),
+		drivers: make([][]*driverColumn, len(sources)),
 		values:  make([]unsafe.Pointer, len(sources)),
 		seen:    make([]bool, len(sources)),
 	}
@@ -121,6 +126,10 @@ func newRowReader(sources []source, rows *sql.Rows) *rowReader {
 	for i, s := range sources {
 		r.fields[i] = s.model.Stored()
 		columns += len(r.fields[i])
+
+		if s.nullable {
+			r.drivers[i] = driverColumns(r.fields[i])
+		}
 	}
 
 	r.dest = make([]any, columns)
@@ -146,6 +155,81 @@ func (c *nullableColumn) Scan(src any) error {
 	return sql.ConvertAssign(driver.ScanContext{}, c.dst, src)
 }
 
+// driverColumn holds a column of a source that may have no row, of a type only
+// the driver converts, as pgx does netip.Addr or []string: database/sql would
+// refuse it from the value nullableColumn is given. It is scanned into a pointer
+// to the field's type, which NULL leaves nil, and moved into the field after.
+type driverColumn struct {
+	field *meta.Field
+	ptr   reflect.Value // a **T, T the field's type
+}
+
+// driverColumns returns a driverColumn for each field only the driver converts,
+// by position, and nil if there is none.
+func driverColumns(fields []*meta.Field) []*driverColumn {
+	var out []*driverColumn
+
+	for i, f := range fields {
+		if !f.DriverOnly() {
+			continue
+		}
+
+		if out == nil {
+			out = make([]*driverColumn, len(fields))
+		}
+
+		out[i] = &driverColumn{field: f, ptr: reflect.New(reflect.PointerTo(f.Type))}
+	}
+
+	return out
+}
+
+// dest clears what the last row left and returns what to scan into.
+func (c *driverColumn) dest() any {
+	c.ptr.Elem().SetZero()
+
+	return c.ptr.Interface()
+}
+
+// settle moves a value the row held into the field of entity, and reports
+// whether there was one.
+func (c *driverColumn) settle(entity unsafe.Pointer) bool {
+	held := c.ptr.Elem()
+	if held.IsNil() {
+		return false
+	}
+
+	c.field.Value(entity).Set(held.Elem())
+
+	return true
+}
+
+// outerDest returns what the column of field j of a source that may have no row
+// is scanned into, for the entity at entity.
+func outerDest(
+	drivers []*driverColumn,
+	j int,
+	f *meta.Field,
+	entity unsafe.Pointer,
+	seen *bool,
+) any {
+	if drivers != nil && drivers[j] != nil {
+		return drivers[j].dest()
+	}
+
+	return &nullableColumn{dst: f.Dest(entity), seen: seen}
+}
+
+// settleOuter moves what the driver columns of a source read into entity, and
+// records in seen whether any of them held a value.
+func settleOuter(drivers []*driverColumn, entity unsafe.Pointer, seen *bool) {
+	for _, c := range drivers {
+		if c != nil && c.settle(entity) {
+			*seen = true
+		}
+	}
+}
+
 // read returns one pointer per source, nil for an unmatched outer join side.
 func (r *rowReader) read() ([]unsafe.Pointer, error) {
 	column := 0
@@ -155,14 +239,13 @@ func (r *rowReader) read() ([]unsafe.Pointer, error) {
 
 		r.seen[i] = false
 
-		for _, f := range r.fields[i] {
-			dst := f.Addr(r.values[i])
-
+		for j, f := range r.fields[i] {
 			if s.nullable {
-				dst = &nullableColumn{dst: dst, seen: &r.seen[i]}
+				r.dest[column] = outerDest(r.drivers[i], j, f, r.values[i], &r.seen[i])
+			} else {
+				r.dest[column] = f.Dest(r.values[i])
 			}
 
-			r.dest[column] = dst
 			column++
 		}
 	}
@@ -172,6 +255,10 @@ func (r *rowReader) read() ([]unsafe.Pointer, error) {
 	}
 
 	for i, s := range r.sources {
+		if s.nullable {
+			settleOuter(r.drivers[i], r.values[i], &r.seen[i])
+		}
+
 		if s.nullable && !r.seen[i] {
 			r.values[i] = nil
 

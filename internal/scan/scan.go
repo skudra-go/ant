@@ -15,12 +15,18 @@ import (
 // columns with no field are ignored, and fields with no column are left alone.
 // Two columns for one field are an error: SELECT * over a join returns an id
 // from each table, and taking the last would give the row the other's id.
-// A time is held in UTC, whatever zone the driver decoded it in.
+// A time is held in UTC, whatever zone the driver decoded it in, and a type
+// database/sql cannot fill by itself is read as meta.ReaderFor says.
 func For[T any](rows *sql.Rows) (func(*T) error, error) {
 	if meta.IsValue(reflect.TypeFor[T]()) {
 		utc := meta.InUTC(reflect.TypeFor[T]())
-		if utc == nil {
+		read := meta.ReaderFor(reflect.TypeFor[T]())
+
+		switch {
+		case utc == nil && read == nil:
 			return func(dst *T) error { return rows.Scan(dst) }, nil
+		case read != nil:
+			return func(dst *T) error { return rows.Scan(read(unsafe.Pointer(dst))) }, nil
 		}
 
 		return func(dst *T) error {
@@ -79,7 +85,7 @@ func For[T any](rows *sql.Rows) (func(*T) error, error) {
 			if f == nil {
 				dest[i] = new(any)
 			} else {
-				dest[i] = f.Addr(unsafe.Pointer(dst))
+				dest[i] = f.Dest(unsafe.Pointer(dst))
 			}
 		}
 

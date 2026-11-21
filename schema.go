@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/netip"
 	"reflect"
 	"slices"
 	"strings"
@@ -628,6 +629,10 @@ var nullWrappers = map[reflect.Type]reflect.Type{
 	reflect.TypeFor[sql.NullBool]():    reflect.TypeFor[bool](),
 	reflect.TypeFor[sql.NullTime]():    reflect.TypeFor[time.Time](),
 	reflect.TypeFor[DeletedAt]():       reflect.TypeFor[time.Time](),
+	// The zero address and prefix are no address, which pgx writes as NULL and
+	// reads NULL as.
+	reflect.TypeFor[netip.Addr]():   reflect.TypeFor[netip.Addr](),
+	reflect.TypeFor[netip.Prefix](): reflect.TypeFor[netip.Prefix](),
 }
 
 // canBeNull reports whether a field's column can hold NULL: its Go type can,

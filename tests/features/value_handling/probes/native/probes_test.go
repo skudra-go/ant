@@ -156,12 +156,11 @@ func TestProbeOtherNative(t *testing.T) {
 	})
 
 	probekit.Probe(t, probekit.Spec[time.Duration]{
-		Name:  "time.Duration in INTERVAL",
-		SQL:   "INTERVAL",
-		Vals:  []time.Duration{-time.Hour, 0, time.Microsecond, 36 * time.Hour},
-		Eq:    ant.Eq[time.Duration],
-		In:    ant.In[time.Duration],
-		NoPtr: true,
+		Name: "time.Duration in INTERVAL",
+		SQL:  "INTERVAL",
+		Vals: []time.Duration{-time.Hour, 0, time.Microsecond, 36 * time.Hour},
+		Eq:   ant.Eq[time.Duration],
+		In:   ant.In[time.Duration],
 	})
 
 	probekit.Probe(t, probekit.Spec[float32]{
@@ -199,14 +198,13 @@ func TestProbeOtherNative(t *testing.T) {
 		Vals:     []net.IP{nil, net.ParseIP("10.0.0.1").To4()},
 		Same:     func(a, b net.IP) bool { return a.Equal(b) },
 		IsNull:   func(ip net.IP) bool { return ip == nil },
-		NoPtr:    true,
 	})
 
 	probekit.Probe(t, probekit.Spec[map[string]any]{
 		Name:     "map[string]any in JSONB (no ant.JSON)",
 		SQL:      "JSONB",
 		Nullable: true,
-		Vals:     []map[string]any{nil, {}, {"a": 1.0, "b": []any{"x"}}},
+		Vals:     []map[string]any{nil, {}, {"a": json.Number("1.5"), "b": []any{"x"}}},
 		IsNull:   func(m map[string]any) bool { return m == nil },
 		NoPtr:    true,
 	})

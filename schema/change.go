@@ -237,11 +237,41 @@ func (c AlterColumn) String() string {
 	return fmt.Sprintf("change column %s.%s: %s", c.Table, c.To.Name, strings.Join(what, ", "))
 }
 
+// storedAs says what a value of a column ant made for an earlier default type
+// holds, when a change to the type ant maps that Go type to now converts it so,
+// and is "" for any other change. PostgreSQL's dialect writes the conversion.
+func storedAs(from, to string) string {
+	switch from, to = strings.ToLower(from), strings.ToLower(to); {
+	case from == "bigint" && to == "interval":
+		return "a time.Duration's nanoseconds"
+	case from == "bytea" && to == "inet":
+		return "a net.IP's bytes"
+	case from == "bytea" && (to == "jsonb" || to == "json"):
+		return "a json.RawMessage's UTF-8 text"
+	}
+
+	return ""
+}
+
 // Warning implements Change.
 func (c AlterColumn) Warning() string {
 	var out []string
 
-	if c.From.Type != c.To.Type {
+	switch stored := storedAs(c.From.Type, c.To.Type); {
+	case stored != "":
+		out = append(
+			out,
+			fmt.Sprintf(
+				"changing %s.%s from %s to %s reads each value as %s, as ant stored them before it mapped that type to %s: check that the column holds those.",
+				c.Table,
+				c.To.Name,
+				c.From.Type,
+				c.To.Type,
+				stored,
+				c.To.Type,
+			),
+		)
+	case c.From.Type != c.To.Type:
 		out = append(
 			out,
 			fmt.Sprintf(

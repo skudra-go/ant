@@ -1374,7 +1374,7 @@ func (u *unit) create(ctx context.Context, to exec.Executor, n *node) error {
 	dest := make([]any, len(returning))
 
 	for i, f := range returning {
-		dest[i] = f.Addr(n.entity)
+		dest[i] = f.Dest(n.entity)
 	}
 
 	if err := rows.Scan(dest...); err != nil {
@@ -1444,7 +1444,7 @@ func (u *unit) createThenRead(
 		}
 
 		rest = append(rest, qb.Selected{Value: qb.Column{Name: f.Column}})
-		dest = append(dest, f.Addr(n.entity))
+		dest = append(dest, f.Dest(n.entity))
 	}
 
 	if len(n.model.Keys) == 0 {
@@ -1813,7 +1813,7 @@ func (u *unit) writeBack(
 
 	for i, f := range back {
 		n.restore = append(n.restore, prior{f, copyOf(f, n.entity)})
-		dest[i] = f.Addr(n.entity)
+		dest[i] = f.Dest(n.entity)
 	}
 
 	if err := rows.Scan(dest...); err != nil {

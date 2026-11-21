@@ -81,10 +81,17 @@ Error helpers mean the same everywhere. `ant.IsUniqueViolation` works on all fiv
 **Values the drivers cannot take.** These are limits of `database/sql` or of a driver, which ant does not work around:
 
 - An `sql.Null[uint64]` above `math.MaxInt64` is refused by `database/sql`, though a bare `uint64` field is not.
-- `NULL` cannot be read into a named `[]byte` type, such as `json.RawMessage` or `net.IP`. Use a pointer to it for a column that allows `NULL`.
-- pgx hands an `INTERVAL` to `database/sql` as text, which does not convert to a `time.Duration`. So a `time.Duration` field is a `bigint` column, a count of nanoseconds, which reads back. Read an `INTERVAL` into `pgtype.Interval` if you have one.
-- pgx hands `INET` and `CIDR` to `database/sql` as text, which it cannot scan into `net.IP`, `netip.Addr`, or `netip.Prefix`. ant maps none of these to a column type, so `EnsureCreated` and migrations report `ErrNoColumnType` until the column is named with `ColumnBuilder.Type`, such as `Type("inet")`. Keep the value as a `string` to read it back.
 - `ant.JSON` and `secure.Value` refuse text that is not valid UTF-8, as a text column does: `encoding/json` would store U+FFFD in its place.
+- pgx writes a pointer to a nil `json.RawMessage` as the JSON `null`, not as `NULL`.
+- pgx writes a 16-byte `net.IP` that holds an IPv4 address, as `net.ParseIP` returns, to an `inet` as `::ffff:10.0.0.1`, which `<<` against an IPv4 network does not match. Call `To4` on it, or use `netip.Addr`.
+
+**Values ant converts.** `database/sql` cannot fill some types from what the drivers give, so ant reads them itself, wherever it scans a row:
+
+- A `time.Duration`, `*time.Duration` or `sql.Null[time.Duration]` reads an integer as nanoseconds, and PostgreSQL's text for an `interval`, which pgx hands over, in each `IntervalStyle`. A year counts 365.25 days, a month left over 30 and a day 24 hours, as `EXTRACT(EPOCH FROM ...)` counts them. An infinite interval, or one past about 292 years, is an error. An interval keeps microseconds, so the nanoseconds below one are cut toward zero when pgx writes it.
+- A `net.IP`, `*net.IP` or `sql.Null[net.IP]` reads bytes as they are, and the text of an `inet` or `cidr` as an address. One with a netmask, such as `10.0.0.1/24`, is an error: read it into a `netip.Prefix`.
+- A named byte slice, such as `json.RawMessage`, reads `NULL` as nil, as a `[]byte` does.
+- A `float64`, `*float64` or `sql.Null[float64]` reads an interval as its nanoseconds, so `Avg`, `AvgOf` and `AvgRelated` of a `time.Duration` give nanoseconds from an `interval` column, whose `AVG` is an interval, as they do from an integer one.
+- A map with string keys reads JSON with `json.Number` for the numbers in its interfaces, as `ant.JSON` does, so a large integer keeps its digits.
 
 **Times.** SQLite stores times as text, and SQL Server's `DATETIME2` has no zone, so ant binds UTC on both to keep one clock, whatever holds the time: `*time.Time`, `sql.NullTime`, an `sql.Null` of a time, a pointer to one, or an interface holding one, types built on them such as `ant.DeletedAt`, and arguments of raw queries, each element of an `IN` list included. A `driver.Valuer` of your own is passed as it is, so have it give a time in UTC. MySQL's driver does the same. A time read back is held in UTC on every database, in each of those shapes, though pgx decodes `TIMESTAMPTZ` in the process's zone. `ant.Past` and `ant.Future` compare with the server's own clock, so run the server in UTC. On SQLite and MySQL, `CURRENT_TIMESTAMP` has whole seconds.
 
@@ -92,7 +99,9 @@ Error helpers mean the same everywhere. `ant.IsUniqueViolation` works on all fiv
 
 **Types.** `postgres.Array`, `postgres.JSONSet`, `postgres.Vector`, and the rest of `dialect/postgres` need PostgreSQL. A `postgres.Array` holds plain values, so reading an array with a NULL element is an error, not the text `NULL`, `false`, or zero. `Collate` quotes its name, which SQL Server does not accept.
 
-A `json.RawMessage` field is `jsonb` on PostgreSQL. A column that an earlier migration made `bytea` for it is changed to `jsonb` by the next migration, which warns that the change may fail or lose data: write the conversion in a migration file of your own if the stored values need one.
+**Column types.** On PostgreSQL, `EnsureCreated` and migrations give a type PostgreSQL has a column for that column: `time.Duration` is `interval`, `net.IP` and `netip.Addr` are `inet`, `netip.Prefix` is `cidr`, `json.RawMessage` and a map with string keys are `jsonb`, and `github.com/shopspring/decimal`'s `Decimal` is `numeric`. A slice of a type that maps is an array of it, as `[]string` is `text[]`, unless the slice is a `Valuer` or a `Scanner`, which says itself how it is stored. A `netip.Addr` or `netip.Prefix` column allows `NULL`, which pgx writes for the zero value. A `cidr` refuses a prefix with bits set past its mask: call `Masked` on it, or name the column `inet`.
+
+Before ant mapped them, a `time.Duration` was `bigint` and a `net.IP` and a `json.RawMessage` were `bytea`. The next `diff` changes such a column, and converts its values as ant stored them: nanoseconds to an interval, the bytes of an address to `inet`, and JSON text to `jsonb`. To keep the column as it is, name its type, as `b.Column(&Hooks.Timeout).Type("bigint")`: the values read back from it as before.
 
 ## Drivers
 

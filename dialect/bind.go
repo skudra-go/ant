@@ -241,6 +241,8 @@ var (
 	nullTime   = reflect.TypeFor[sql.NullTime]()
 	secretType = reflect.TypeFor[qb.Secret]()
 	valuerType = reflect.TypeFor[driver.Valuer]()
+	// durationType is time.Duration, which pgx writes as an interval.
+	durationType = reflect.TypeFor[time.Duration]()
 )
 
 // maxSteps bounds the parts of a value one walk looks at. Parts that share
@@ -645,8 +647,11 @@ func unnameSlice(v any) any {
 	}
 
 	// An element that converts itself may store something other than its
-	// underlying value, so it is left for the driver to convert.
-	if elem.Implements(valuerType) || reflect.PointerTo(elem).Implements(valuerType) {
+	// underlying value, so it is left for the driver to convert. So is a
+	// time.Duration, which pgx writes to an interval as one, and to an integer
+	// as its nanoseconds.
+	if elem.Implements(valuerType) || reflect.PointerTo(elem).Implements(valuerType) ||
+		elem == durationType {
 		return v
 	}
 

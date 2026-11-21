@@ -2,8 +2,12 @@ package postgres
 
 import (
 	"cmp"
+	"database/sql"
+	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/netip"
 	"reflect"
 	"strconv"
 	"strings"
@@ -22,8 +26,20 @@ func (impl) MaxIdentifier() int { return maxIdentifier }
 
 // ColumnType maps a Go type to its column type. Strings are text unless a
 // length is set, which is the usual advice for PostgreSQL. A precision means
-// numeric, for any type.
-func (impl) ColumnType(t reflect.Type, f schema.Facets) (string, bool) {
+// numeric, for any type. A Go type made for a column type of PostgreSQL's own
+// takes that type, and ant reads it back from there (decision 134). A slice of
+// a type that maps is an array of it, unless the slice converts itself, as one
+// stored as JSON does.
+func (d impl) ColumnType(t reflect.Type, f schema.Facets) (string, bool) {
+	if element, ok := arrayElement(t); ok {
+		out, ok := d.ColumnType(element, f)
+		if !ok {
+			return "", false
+		}
+
+		return out + "[]", true
+	}
+
 	if f.Precision > 0 {
 		return fmt.Sprintf("numeric(%d,%d)", f.Precision, f.Scale), true
 	}
@@ -31,12 +47,19 @@ func (impl) ColumnType(t reflect.Type, f schema.Facets) (string, bool) {
 	switch {
 	case t == reflect.TypeFor[time.Time]():
 		return "timestamptz", true
-	// json.RawMessage is the one native type here that reads back: PostgreSQL
-	// sends jsonb as bytes. inet, cidr and interval reach database/sql as text,
-	// which it cannot scan into net.IP, netip, or time.Duration, so those types
-	// keep no native mapping (see docs/databases.md).
+	case t == reflect.TypeFor[time.Duration]():
+		return "interval", true
 	case t == reflect.TypeFor[json.RawMessage]():
 		return "jsonb", true
+	case t == reflect.TypeFor[net.IP](), t == reflect.TypeFor[netip.Addr]():
+		return "inet", true
+	case t == reflect.TypeFor[netip.Prefix]():
+		return "cidr", true
+	case t.Kind() == reflect.Map && t.Key().Kind() == reflect.String &&
+		!t.Implements(valuerType) && !reflect.PointerTo(t).Implements(scannerType):
+		return "jsonb", true // read with json.Number, as ant.JSON is
+	case t.PkgPath() == "github.com/shopspring/decimal" && t.Name() == "Decimal":
+		return "numeric", true // named, as dialect/postgres imports no driver or library
 	case t.Kind() == reflect.Array && t.Len() == 16 && t.Elem().Kind() == reflect.Uint8:
 		return "uuid", true // the shape of github.com/google/uuid.UUID
 	case t.Kind() == reflect.Slice && t.Elem().Kind() == reflect.Uint8:
@@ -69,6 +92,39 @@ func (impl) ColumnType(t reflect.Type, f schema.Facets) (string, bool) {
 
 	return "", false
 }
+
+// arrayElement returns the element type of a slice that is a PostgreSQL array:
+// one of anything but bytes, which are bytea, and slices, as a slice of slices
+// has no one type, and maps, which pgx would read without json.Number. A pointer element is the type it points to, as pgx reads a
+// NULL element into one. A slice that is a Valuer or a Scanner says itself what
+// it holds, often JSON, so it is not taken for an array.
+func arrayElement(t reflect.Type) (reflect.Type, bool) {
+	if t.Kind() != reflect.Slice || t.Elem().Kind() == reflect.Uint8 {
+		return nil, false
+	}
+
+	if t.Implements(valuerType) || reflect.PointerTo(t).Implements(scannerType) {
+		return nil, false
+	}
+
+	element := t.Elem()
+
+	for element.Kind() == reflect.Pointer {
+		element = element.Elem()
+	}
+
+	if element.Kind() == reflect.Slice && element.Elem().Kind() != reflect.Uint8 ||
+		element.Kind() == reflect.Map {
+		return nil, false
+	}
+
+	return element, true
+}
+
+var (
+	valuerType  = reflect.TypeFor[driver.Valuer]()
+	scannerType = reflect.TypeFor[sql.Scanner]()
+)
 
 // Zero returns the value a new NOT NULL column gets in existing rows.
 func (impl) Zero(columnType string) string {
@@ -339,8 +395,12 @@ func (d impl) alterColumn(c schema.AlterColumn) []string {
 			statement += " COLLATE " + d.Quote(c.To.Collation)
 		}
 
-		// An enum casts to another type only through text.
-		if retyped && needsUsing(c.From.Type, c.To.Type) {
+		// A column of a type ant gave an earlier default is converted as ant
+		// stored it, which no cast does. An enum casts to another type only
+		// through text.
+		if using := converted(c.From.Type, c.To.Type, d.Quote(c.To.Name)); retyped && using != "" {
+			statement += " USING " + using
+		} else if retyped && needsUsing(c.From.Type, c.To.Type) {
 			via := ""
 
 			if c.FromEnum {
@@ -386,6 +446,35 @@ func (d impl) alterColumn(c schema.AlterColumn) []string {
 	}
 
 	return out
+}
+
+// converted returns the USING expression that changes column, of type from, to
+// type to, where PostgreSQL has no cast and ant knows how it stored the values:
+// a time.Duration was a bigint of nanoseconds, a net.IP the 4 or 16 bytes of a
+// bytea, and a json.RawMessage its text in a bytea, until ant mapped them to
+// interval, inet and jsonb. It returns "" for any other change. An interval
+// keeps microseconds, so the nanoseconds below one go, toward zero, as they do
+// when pgx writes a time.Duration. A bytea that is no address becomes NULL.
+func converted(from, to, column string) string {
+	switch from, to = baseType(from), baseType(to); {
+	case from == "bigint" && to == "interval":
+		return "(" + column + " / 1000) * interval '1 microsecond'"
+	case from == "bytea" && to == "inet":
+		bytes := make([]string, 4)
+
+		for i := range bytes {
+			bytes[i] = "get_byte(" + column + ", " + strconv.Itoa(i) + ")"
+		}
+
+		return "CASE length(" + column + ")" +
+			" WHEN 4 THEN array_to_string(ARRAY[" + strings.Join(bytes, ", ") + "], '.')" +
+			" WHEN 16 THEN regexp_replace(encode(" + column + ", 'hex'), '(.{4})(?=.)', '\\1:', 'g')" +
+			" END::inet"
+	case from == "bytea" && (to == "jsonb" || to == "json"):
+		return "convert_from(" + column + ", 'UTF8')::" + to
+	}
+
+	return ""
 }
 
 // needsUsing reports whether a column changing type from one to the other

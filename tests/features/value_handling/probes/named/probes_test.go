@@ -229,10 +229,9 @@ func TestProbeBytes(t *testing.T) {
 	})
 
 	probekit.Probe(t, probekit.Spec[prBlob]{
-		Name:  "named []byte",
-		SQL:   "BYTEA",
-		Vals:  []prBlob{{}, {1}, {0, 255}},
-		NoPtr: true,
+		Name: "named []byte",
+		SQL:  "BYTEA",
+		Vals: []prBlob{{}, {1}, {0, 255}},
 	})
 
 	probekit.Probe(t, probekit.Spec[prBlob]{
@@ -241,7 +240,6 @@ func TestProbeBytes(t *testing.T) {
 		Nullable: true,
 		Vals:     []prBlob{nil, {}, {1}, {0, 255}},
 		IsNull:   func(b prBlob) bool { return b == nil },
-		NoPtr:    true,
 	})
 
 	probekit.Probe(t, probekit.Spec[json.RawMessage]{
@@ -254,7 +252,6 @@ func TestProbeBytes(t *testing.T) {
 			json.RawMessage(`{"a": [true, null]}`),
 			json.RawMessage(`null`),
 		},
-		NoPtr: true,
 	})
 
 	probekit.Probe(t, probekit.Spec[json.RawMessage]{
@@ -265,7 +262,9 @@ func TestProbeBytes(t *testing.T) {
 			nil, json.RawMessage(`{}`), json.RawMessage(`[1, 2]`),
 		},
 		IsNull: func(b json.RawMessage) bool { return b == nil },
-		NoPtr:  true,
+		// pgx writes a pointer to a nil json.RawMessage as the JSON null, not as
+		// NULL, so it reads back as the text null.
+		NoPtr: true,
 	})
 
 	probekit.Probe(t, probekit.Spec[string]{
