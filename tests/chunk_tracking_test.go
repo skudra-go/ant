@@ -171,6 +171,33 @@ func TestChunkKeepsWhatIsStillNeeded(t *testing.T) {
 				require.NoError(t, err)
 			})
 
+			t.Run(name+" an edit left unsaved before the read", func(t *testing.T) {
+				ctx := t.Context()
+				s := ant.Session(app)
+
+				post, err := s.Posts.OrderBy(&Posts.ID).First(ctx)
+				require.NoError(t, err)
+
+				title := post.Title
+				post.Title = "edited before"
+
+				require.NoError(t, chunk(s.Users.Query(), ctx, 3, func([]*User) error {
+					return nil
+				}))
+
+				require.Equal(t, 10, trackedCount[User](t, ctx, s), "the save may need them")
+
+				require.NoError(t, s.SaveChanges(ctx))
+
+				n, err := app.Posts.Where(ant.Eq(&Posts.Title, "edited before")).Count(ctx)
+				require.NoError(t, err)
+				require.EqualValues(t, 1, n)
+
+				post.Title = title
+
+				require.NoError(t, s.SaveChanges(ctx))
+			})
+
 			t.Run(name+" an entity added in the callback", func(t *testing.T) {
 				ctx := t.Context()
 				s := ant.Session(app)

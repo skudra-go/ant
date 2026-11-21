@@ -93,8 +93,9 @@ func (q *Query[T]) Page(ctx context.Context, number, size int) (*Page[T], error)
 //
 // On a context that tracks, a group stays tracked while f runs. Once f returns
 // with nothing left to save, as after SaveChanges, Chunk stops tracking what
-// the group began tracking, so one group is held at a time: edit a group's
-// entities, and save them, inside f. If f leaves changes unsaved, the group
+// the group began tracking, including what f loaded or added, so one group is
+// held at a time: edit a group's entities, and save them, inside f. While
+// anything on the context is left unsaved, by f or before Chunk, the group
 // stays tracked for the save that follows.
 func (q *Query[T]) Chunk(ctx context.Context, size int, f func([]*T) error) error {
 	if size < 1 {
