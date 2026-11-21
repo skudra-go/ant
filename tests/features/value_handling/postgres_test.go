@@ -135,3 +135,105 @@ func TestFullText(t *testing.T) {
 		require.Empty(t, search("unrelated"))
 	})
 }
+
+// Match writes its configuration into the statement, so an expression index on
+// to_tsvector serves the search. Bound as $1::regconfig, the configuration is
+// read only when the statement runs, and the planner never matched the index
+// (#173).
+func TestFullTextUsesAnExpressionIndex(t *testing.T) {
+	fixture.Run(t, func(t *testing.T, db *fixture.AppDB) {
+		ctx := t.Context()
+
+		_, err := ant.Raw[int](
+			db,
+			"CREATE INDEX posts_title_search ON posts USING gin (to_tsvector('english', title))",
+		).Exec(ctx)
+		require.NoError(t, err)
+
+		search := db.Posts.Where(postgres.Match(&fixture.Posts.Title, "english", "fox"))
+
+		text, _, err := search.ToSQL()
+		require.NoError(t, err)
+
+		require.Contains(
+			t,
+			text,
+			`to_tsvector('english'::regconfig, "posts"."title") @@ websearch_to_tsquery('english'::regconfig, $1)`,
+		)
+
+		err = db.Tx(ctx, func(tx *fixture.AppDB) error {
+			if _, err := ant.Raw[int](tx, "SET LOCAL enable_seqscan = off").Exec(ctx); err != nil {
+				return err
+			}
+
+			plan, err := tx.Posts.Where(postgres.Match(&fixture.Posts.Title, "english", "fox")).
+				Explain(ctx)
+			require.NoError(t, err)
+			require.Contains(t, plan, "posts_title_search")
+
+			return nil
+		})
+		require.NoError(t, err)
+	})
+}
+
+// A configuration name that could end the literal it is written in, or read as
+// a placeholder, is an error, not SQL.
+func TestFullTextRefusesABadConfiguration(t *testing.T) {
+	fixture.Run(t, func(t *testing.T, db *fixture.AppDB) {
+		for _, config := range []string{"", "english'::regconfig, title) OR true --", `eng\lish`, "eng?"} {
+			_, err := db.Posts.Where(postgres.Match(&fixture.Posts.Title, config, "fox")).
+				All(t.Context())
+			require.ErrorContains(t, err, "is not a text search configuration name", config)
+		}
+	})
+}
+
+type SearchDocument struct {
+	ID     int64
+	Title  string
+	Vector string
+}
+
+type SearchDocumentsDB struct {
+	ant.Context
+	Documents ant.Table[SearchDocument]
+}
+
+var SearchDocuments = ant.Fields[SearchDocument]()
+
+func (SearchDocument) Configure(b *ant.ModelBuilder[SearchDocument]) {
+	b.Table("search_documents")
+
+	b.Column(&SearchDocuments.Vector).
+		Type("tsvector").
+		Generated("to_tsvector('english', title)")
+}
+
+func TestFullTextStoredVector(t *testing.T) {
+	ddl := `CREATE TABLE search_documents (
+		id BIGSERIAL PRIMARY KEY,
+		title TEXT NOT NULL,
+		vector tsvector GENERATED ALWAYS AS (to_tsvector('english', title)) STORED
+	)`
+	fixture.RunTrackedWith(t, ddl, func(t *testing.T, db *SearchDocumentsDB) {
+		ctx := t.Context()
+		require.NoError(t, db.Documents.Insert(ctx,
+			&SearchDocument{Title: "The quick brown fox"},
+			&SearchDocument{Title: "Lazy dogs sleeping"}))
+
+		search := func(query string) []string {
+			got, err := ant.Pluck(
+				ctx,
+				db.Documents.Where(postgres.MatchVector(&SearchDocuments.Vector, "english", query)),
+				&SearchDocuments.Title,
+			)
+			require.NoError(t, err)
+
+			return got
+		}
+
+		require.Equal(t, []string{"The quick brown fox"}, search("quick fox"))
+		require.Empty(t, search("unrelated"))
+	})
+}

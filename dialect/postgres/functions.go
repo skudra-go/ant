@@ -68,11 +68,44 @@ func JSONLength[V any](field *V) ant.Expr[int] {
 }
 
 // Match matches rows whose text column meets a full-text search, in websearch
-// syntax, using the given text search configuration, such as "english".
+// syntax, using the given text search configuration, such as "english". The
+// configuration is written into the statement, so an expression index such as
+// one on to_tsvector('english', title) serves it, which a bound one never did
+// (#173). A configuration that holds a quote, a backslash or a ? is an error.
+// For a stored tsvector column, use MatchVector.
 func Match[V ~string](field *V, config, query string) ant.Cond {
+	literal, err := regconfig(config)
+	if err != nil {
+		return ant.FailedCond(err)
+	}
+
 	return ant.SQLCond(
-		"to_tsvector(?::regconfig, ?) @@ websearch_to_tsquery(?::regconfig, ?)",
-		config,
+		"to_tsvector("+literal+", ?) @@ websearch_to_tsquery("+literal+", ?)",
+		ant.Col(field),
+		query,
+	)
+}
+
+// regconfig writes a text search configuration as a literal, as an index on
+// to_tsvector names it. PostgreSQL reads the configuration of a bound
+// $1::regconfig only when the statement runs, so the planner can't match it to
+// the index. A name that holds a quote or a backslash could end the literal, and
+// a ? would read as a placeholder, so such a name is refused.
+func regconfig(config string) (string, error) {
+	if config == "" || strings.ContainsAny(config, "'\\?\x00") {
+		return "", fmt.Errorf("postgres: %q is not a text search configuration name", config)
+	}
+
+	return "'" + config + "'::regconfig", nil
+}
+
+// MatchVector matches rows whose precomputed tsvector column meets a full-text
+// search, in websearch syntax, using the given text search configuration. Use it
+// for a column such as one given .Type("tsvector").Generated(...), which Match
+// would pass to to_tsvector, which takes text.
+func MatchVector[V ~string](field *V, config, query string) ant.Cond {
+	return ant.SQLCond(
+		"? @@ websearch_to_tsquery(?::regconfig, ?)",
 		ant.Col(field),
 		config,
 		query,
