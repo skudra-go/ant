@@ -226,15 +226,32 @@ func (c AlterColumn) String() string {
 	}
 
 	if c.From.Identity != c.To.Identity {
-		what = append(what, "identity")
+		what = append(
+			what,
+			map[bool]string{true: "add identity", false: "drop identity"}[c.To.Identity],
+		)
 	}
 
 	if c.From.Generated != c.To.Generated {
-		what = append(what, "generated expression")
+		what = append(
+			what,
+			fmt.Sprintf(
+				"generated expression %s to %s",
+				orNone(c.From.Generated),
+				orNone(c.To.Generated),
+			),
+		)
 	}
 
 	if c.From.Collation != c.To.Collation {
-		what = append(what, "collation")
+		what = append(
+			what,
+			fmt.Sprintf(
+				"collation %s to %s",
+				orDefault(c.From.Collation),
+				orDefault(c.To.Collation),
+			),
+		)
 	}
 
 	return fmt.Sprintf("change column %s.%s: %s", c.Table, c.To.Name, strings.Join(what, ", "))
@@ -588,8 +605,21 @@ type AlterSequence struct {
 	From, To *Sequence
 }
 
-// String implements Change.
-func (c AlterSequence) String() string { return "change sequence " + c.To.Name }
+// String implements Change. It names both sides of what changed, as a column's
+// summary does.
+func (c AlterSequence) String() string {
+	var what []string
+
+	if c.From.start() != c.To.start() {
+		what = append(what, fmt.Sprintf("start %d to %d", c.From.start(), c.To.start()))
+	}
+
+	if c.From.increment() != c.To.increment() {
+		what = append(what, fmt.Sprintf("increment %d to %d", c.From.increment(), c.To.increment()))
+	}
+
+	return fmt.Sprintf("change sequence %s: %s", c.To.Name, strings.Join(what, ", "))
+}
 
 // Warning implements Change.
 func (c AlterSequence) Warning() string {
@@ -710,4 +740,13 @@ func orNone(expr string) string {
 	}
 
 	return expr
+}
+
+// orDefault names an absent collation, which is the database's default.
+func orDefault(collation string) string {
+	if collation == "" {
+		return "default"
+	}
+
+	return collation
 }

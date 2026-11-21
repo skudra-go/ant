@@ -123,6 +123,14 @@ func TestEnumsSequencesAndComments(t *testing.T) {
 			require.Contains(t, must[TicketDB](p, "drift"), "No drift")
 		})
 
+		t.Run("drift names both sides of a sequence changed by hand", func(t *testing.T) {
+			p.sql("ALTER SEQUENCE ticket_numbers INCREMENT BY 5")
+			out, err := run[TicketDB](p, "drift")
+			require.ErrorIs(t, err, migrate.ErrDrift)
+			require.Contains(t, out, "change sequence ticket_numbers: increment 5 to 1")
+			p.sql("ALTER SEQUENCE ticket_numbers INCREMENT BY 1")
+		})
+
 		t.Run("a new enum value is one statement", func(t *testing.T) {
 			must[Ticket2DB](p, "diff", "add_pending")
 

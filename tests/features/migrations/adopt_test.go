@@ -163,7 +163,7 @@ func TestDriftGuidesAdoption(t *testing.T) {
 
 		out, err := run[V1DB](p, "drift")
 		require.Error(t, err)
-		require.Contains(t, out, "change column accounts.id: identity")
+		require.Contains(t, out, "change column accounts.id: add identity")
 		require.Contains(t, out, "change column accounts.name: type character varying(50) to text")
 		require.Contains(t, out, "add unique accounts_email_key on accounts")
 		require.Contains(t, out, "drop column accounts.age")
