@@ -21,6 +21,6 @@ tests: [tests/each_stream_test.go]
 
 Each such connection now counts the `Each` loops reading from it, shared by every context bound to it: a session, a savepoint, and a transaction begun on a `UseConn` context. While the count is above zero, every statement on that connection, and beginning a transaction on a `UseConn` one, returns `ErrQueryInEach` without reaching the driver, so the transaction can go on once the loop ends. A loop that breaks, returns or panics lets go when the iterator returns.
 
-`dialect.Syntax.RunsWhileStreaming` says a connection can run a statement while it streams. SQLite's can, and it reads every row of such a loop, so it refuses nothing, which keeps code that works there working. Refusing on every database, as decision 33 does for `Include`, was rejected: it would break loops that work on SQLite today.
+`dialect.Syntax.RunsWhileStreaming` says a connection can run a statement while it streams. SQLite's can, and it reads every row of such a loop, so it refuses nothing, which keeps code that works there working. SQL Server refuses too, even a loop whose rows would have fit in the buffer: whether it ran or hung depended on how many rows the table held. Refusing on every database, as decision 33 does for `Include`, was rejected: it would break loops that work on SQLite today.
 
 Not done: outside a transaction, a pool limited to one connection still waits until the context ends, since another goroutine could give a connection back. The `Each` docs say to collect what the loop needs and act after it, or read with `All` or `Chunk`.
