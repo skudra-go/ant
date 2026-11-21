@@ -1,12 +1,28 @@
 package migrations
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/skudra-go/ant"
 	"github.com/skudra-go/ant/migrate"
 )
+
+// ScriptDB has a Go migration between two SQL ones.
+type ScriptDB struct {
+	ant.Context
+	Accounts ant.Table[V1Account]
+}
+
+func init() {
+	migrate.Register[ScriptDB]("0002_trim", func(ctx context.Context, tx *ScriptDB) error {
+		_, err := ant.Raw[any](tx, "CREATE TABLE trimmed (n int)").Exec(ctx)
+
+		return err
+	})
+}
 
 // script exports everything as one file, for a database ant cannot reach. It can
 // run any number of times, and shares its record with up.
@@ -51,6 +67,79 @@ func TestScriptRefusesNoTransaction(t *testing.T) {
 		_, err := run[V1DB](p, "script")
 		require.ErrorIs(t, err, migrate.ErrBadMigration)
 		require.ErrorContains(t, err, "--plain")
+	})
+}
+
+// script stops before a Go migration, which only up can run: a file that went
+// on past it would apply later migrations first, and up would then refuse the
+// Go one as older than an applied one (#183).
+func TestScriptStopsBeforeAGoMigration(t *testing.T) {
+	each(t, func(t *testing.T, p *project) {
+		p.write(
+			"versions/0001_init.up.sql",
+			"CREATE TABLE accounts (id bigint PRIMARY KEY, name text, email text UNIQUE);",
+		)
+		p.write("versions/0003_note.up.sql", "ALTER TABLE accounts ADD COLUMN note text;")
+		p.write("code/view.sql", "CREATE OR REPLACE VIEW v AS SELECT 1 AS n;")
+
+		text := must[ScriptDB](p, "script")
+		require.Contains(t, text, "CREATE TABLE accounts")
+		require.Contains(t, text, "0002_trim")
+		require.NotContains(t, text, "0003_note", "nothing after the Go migration")
+		require.NotContains(t, text, "VIEW", "repeatable files run after every versioned one")
+
+		p.sql(text)
+		require.Contains(t, must[ScriptDB](p, "up", "--to", "0002"), "Applied 0002_trim")
+		require.NotEmpty(t, p.columns("trimmed"))
+
+		// The rest, from the version after the Go migration.
+		rest := must[ScriptDB](p, "script", "--from", "0003")
+		require.NotContains(t, rest, "0001", "migrations before --from are left out")
+		require.Contains(t, rest, "0003_note")
+		require.Contains(t, rest, "VIEW")
+
+		p.sql(rest)
+		require.Contains(t, p.columns("accounts"), "note")
+		require.Contains(t, must[ScriptDB](p, "up"), "Nothing to apply")
+	})
+}
+
+// A file that cannot run in a transaction blocks a guarded script only while it
+// is among the migrations to write, so --from gets past one applied long ago
+// (#183).
+func TestScriptFromAVersion(t *testing.T) {
+	each(t, func(t *testing.T, p *project) {
+		must[V1DB](p, "diff", "create_accounts")
+		p.write(
+			"versions/0002_email_idx.up.sql",
+			"-- ant:no-transaction\nCREATE INDEX CONCURRENTLY accounts_name_idx ON accounts (name);",
+		)
+		must[V1DB](p, "up")
+		p.write("versions/0003_note.up.sql", "ALTER TABLE accounts ADD COLUMN note text;")
+
+		_, err := run[V1DB](p, "script")
+		require.ErrorIs(t, err, migrate.ErrBadMigration)
+		require.ErrorContains(t, err, "--from")
+
+		text := must[V1DB](p, "script", "--from", "0003")
+		require.NotContains(t, text, "0002_email_idx")
+		p.sql(text)
+		p.sql(text)
+		require.Contains(t, p.columns("accounts"), "note")
+		require.Contains(t, must[V1DB](p, "up"), "Nothing to apply")
+
+		t.Run("plain", func(t *testing.T) {
+			plain := must[V1DB](p, "script", "--plain", "--from", "3")
+			require.NotContains(t, plain, "0002_email_idx")
+			require.NotContains(t, plain, `CREATE TABLE "accounts"`)
+			require.Contains(t, plain, "0003_note")
+		})
+
+		t.Run("a version no migration has", func(t *testing.T) {
+			_, err := run[V1DB](p, "script", "--from", "0009")
+			require.ErrorIs(t, err, migrate.ErrBadMigration)
+			require.ErrorContains(t, err, "no migration has version 0009")
+		})
 	})
 }
 
