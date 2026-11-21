@@ -6,7 +6,6 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
-	"errors"
 	"fmt"
 	"maps"
 	"reflect"
@@ -994,8 +993,108 @@ func (m *Model) Configure(f func() error) {
 			m.err = m.distinctColumns()
 		}
 
+		if m.err == nil {
+			m.err = m.roles()
+		}
+
 		m.frozen.Store(true)
 	})
+}
+
+// roles refuses a field whose tags and configuration ask ant for two things it
+// can't both do, and two fields that take a role a model has once, of which ant
+// kept the last without a word (#208). It runs once Configure has, since
+// .Generated makes a column readonly, and .Unique and .Default add to the tags.
+func (m *Model) roles() error {
+	var version, deleted *Field
+
+	for _, f := range m.Fields {
+		if a, b, why := conflict(f); a != "" {
+			return fmt.Errorf(
+				"%w: %s.%s: %s and %s can't go together: %s",
+				errs.ErrBadSchema,
+				m.Type.Name(),
+				f.Name,
+				a,
+				b,
+				why,
+			)
+		}
+
+		for _, role := range []struct {
+			has   bool
+			first **Field
+			what  string
+		}{
+			{f.Version, &version, "version fields: a model has one version"},
+			{f.Type == deletedAtType, &deleted, "ant.DeletedAt fields: a model has one soft delete"},
+		} {
+			if !role.has {
+				continue
+			}
+
+			if *role.first != nil {
+				return fmt.Errorf(
+					"%w: %s.%s and %s.%s are both %s",
+					errs.ErrBadSchema,
+					m.Type.Name(),
+					(*role.first).Name,
+					m.Type.Name(),
+					f.Name,
+					role.what,
+				)
+			}
+
+			*role.first = f
+		}
+	}
+
+	return nil
+}
+
+// conflict returns two keys of f that ask for opposite things, and why, or ""
+// if it has none. readonly, computed and a generated column are never written,
+// and writeonly is never read.
+func conflict(f *Field) (a, b, why string) {
+	unwritten := ""
+
+	switch {
+	case f.Computed:
+		unwritten = "computed"
+	case f.Storage.Generated != "":
+		unwritten = "a generated column"
+	case f.ReadOnly:
+		unwritten = "readonly"
+	}
+
+	check := "token"
+
+	if f.Version {
+		check = "version"
+	}
+
+	switch {
+	case unwritten != "" && f.WriteOnly:
+		return unwritten, "writeonly", "the field would never be written or read"
+	case unwritten != "" && f.Immutable:
+		return unwritten, "immutable", "immutable is written on insert, and " + unwritten + " never is"
+	case f.Version && unwritten != "":
+		return "version", unwritten, "ant writes the version on every update"
+	case f.Version && f.Immutable:
+		return "version", "immutable", "ant writes the version on every update"
+	case f.Token && f.WriteOnly:
+		return check, "writeonly", "ant reads the " + check + " back to compare it"
+	case f.Computed && f.Token:
+		return "computed", "token", "a computed field has no column to compare"
+	case f.Computed && f.Unique:
+		return "computed", "unique", "a computed field has no column to keep unique"
+	case f.Computed && f.Default:
+		return "computed", "default", "a computed field has no column to give a default"
+	case f.Computed && f.Storage.Generated != "":
+		return "computed", ".Generated", "a computed field has no column to generate"
+	}
+
+	return "", "", ""
 }
 
 // distinctColumns refuses two fields that map to one column, which kept the
@@ -1527,29 +1626,13 @@ func walk(m *Model, t reflect.Type, offset uintptr, prefix, columnPrefix string)
 		}
 
 		// A write moves the version on by one, which needs a signed integer.
-		if tag.version {
-			if !signedInt(sf.Type.Kind()) {
-				return fmt.Errorf(
-					"ant: version field %s.%s must be a signed integer, got %s; use ant:\"token\" for a value the application manages",
-					m.Type.Name(),
-					name,
-					sf.Type,
-				)
-			}
-
-			// A second version field would replace the first one without
-			// saying so, and only one of them can count the writes.
-			for _, f := range m.Fields {
-				if f.Version {
-					return fmt.Errorf(
-						"ant: %s.%s and %s.%s are both version fields: a model has one",
-						m.Type.Name(),
-						f.Name,
-						m.Type.Name(),
-						name,
-					)
-				}
-			}
+		if tag.version && !signedInt(sf.Type.Kind()) {
+			return fmt.Errorf(
+				"ant: version field %s.%s must be a signed integer, got %s; use ant:\"token\" for a value the application manages",
+				m.Type.Name(),
+				name,
+				sf.Type,
+			)
 		}
 
 		read := ReaderFor(sf.Type)
@@ -1612,6 +1695,11 @@ func fieldError(m *Model, name string, sf reflect.StructField, tag tag, tagErr e
 
 	if _, kind, ok := relation(t); ok && kind == One && sf.Anonymous {
 		return fail("an embedded struct must be a value: embed %s, not %s", t.Elem().Name(), t)
+	}
+
+	embeds := tag.embedded || sf.Anonymous && t.Kind() == reflect.Struct && !IsValue(t)
+	if key := tag.columnKey(); embeds && key != "" {
+		return fail("an embedded struct has no column of its own for %s: tag its fields", key)
 	}
 
 	switch t.Kind() {
@@ -1714,6 +1802,30 @@ type tag struct {
 	version    bool
 }
 
+// columnKey returns the first key of the tag that describes a column, or "".
+func (t tag) columnKey() string {
+	for _, key := range []struct {
+		name string
+		set  bool
+	}{
+		{"unique", t.unique},
+		{"computed", t.computed},
+		{"readonly", t.readOnly},
+		{"writeonly", t.writeOnly},
+		{"immutable", t.immutable},
+		{"version", t.version},
+		{"token", t.token},
+		{"default", t.defaulted},
+		{"column", t.column != ""},
+	} {
+		if key.set {
+			return key.name
+		}
+	}
+
+	return ""
+}
+
 // tagParts splits a tag on commas, except inside parentheses or quotes, so a
 // default can be an expression such as coalesce(a, 0).
 func tagParts(s string) []string {
@@ -1781,22 +1893,6 @@ func parseTag(s string) (tag, error) {
 		default:
 			return out, fmt.Errorf("unknown tag key %q", key)
 		}
-	}
-
-	// A skipped field has no column, so the tags on it describe nothing.
-	if out.skip {
-		return out, nil
-	}
-
-	switch {
-	case out.readOnly && out.writeOnly:
-		return out, errors.New(
-			`ant: readonly and writeonly together: the column would never be read or written`,
-		)
-	case out.computed && out.unique:
-		return out, errors.New(
-			`ant: computed and unique together: the database fills the column, so ant cannot keep it unique`,
-		)
 	}
 
 	return out, nil

@@ -130,7 +130,10 @@ Calls that take columns of mixed types take `ant.FieldRef`, made with
   update), `writeonly`, `immutable`,
   `computed` (filled by `Query.With`), `version` (optimistic concurrency, a signed
   integer field),
-  `embedded` / `embedded,prefix=x_`. Combine with commas.
+  `embedded` / `embedded,prefix=x_`. Combine with commas. Keys that contradict
+  each other, such as `readonly,writeonly` or `version,immutable`, and two
+  `version` or `ant.DeletedAt` fields in one model, fail at `Open` with
+  `ant.ErrBadSchema`.
 - A field of type `ant.DeletedAt` turns on soft deletes. `ant.JSON[T]`
   stores a value as JSON. A number read into an interface (`map[string]any`)
   is a `json.Number`, not a `float64`.
