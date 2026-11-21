@@ -81,10 +81,12 @@ func TestPage(t *testing.T) {
 		})
 
 		t.Run("a bad page", func(t *testing.T) {
-			_, err := q.Page(ctx, 0, 10)
-			require.Error(t, err)
-			_, err = q.Page(ctx, 1, 0)
-			require.Error(t, err)
+			// A page number from a request, such as ?page=0, is the client's
+			// mistake, which ErrPaging tells from a database failure.
+			for _, bad := range [][2]int{{0, 10}, {-1, 10}, {1, 0}, {1, -5}} {
+				_, err := q.Page(ctx, bad[0], bad[1])
+				require.ErrorIs(t, err, ant.ErrPaging, "page %d of size %d", bad[0], bad[1])
+			}
 		})
 	})
 }
@@ -222,7 +224,8 @@ func TestAfter(t *testing.T) {
 
 		t.Run("a bad size", func(t *testing.T) {
 			_, err := db.Users.OrderBy(&Users.Name).After(ctx, "", 0)
-			require.Error(t, err)
+			require.ErrorIs(t, err, ant.ErrPaging)
+			require.NotErrorIs(t, err, ant.ErrCursor)
 		})
 	})
 }

@@ -78,7 +78,19 @@ func TestChunk(t *testing.T) {
 		})
 
 		t.Run("a bad size", func(t *testing.T) {
-			require.Error(t, ordered.Chunk(ctx, 0, func([]*User) error { return nil }))
+			require.ErrorIs(
+				t,
+				ordered.Chunk(ctx, 0, func([]*User) error {
+					return nil
+				}),
+				ant.ErrPaging,
+			)
+
+			require.ErrorIs(
+				t,
+				db.Users.Query().ChunkByKey(ctx, -1, func([]*User) error { return nil }),
+				ant.ErrPaging,
+			)
 		})
 
 		// A shared query such as "the newest thousand" stays that when chunked.

@@ -72,7 +72,7 @@ func (b *builder) fail(err error) { b.err = errors.Join(b.err, err) }
 // SQLite reads it as no limit at all.
 func (b *builder) paging(name string, n int) *int {
 	if n < 0 {
-		b.fail(fmt.Errorf("ant: %s cannot be negative, got %d", name, n))
+		b.fail(fmt.Errorf("%w: %s cannot be negative, got %d", ErrPaging, name, n))
 	}
 
 	return &n

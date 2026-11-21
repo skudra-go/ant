@@ -115,6 +115,10 @@ var (
 	ErrIncludeInSubquery = errors.New("ant: subquery cannot use Include")
 	// ErrCursor reports a cursor that this query cannot use.
 	ErrCursor = errors.New("ant: invalid cursor")
+	// ErrPaging reports a page number, or a page or chunk size, below 1, or a
+	// negative Limit or Offset. Such a value often comes from a request, as
+	// ?page=0 does, so a handler can answer it as the client's mistake.
+	ErrPaging = errors.New("ant: invalid paging")
 	// ErrNotManyToMany reports a link operation on another kind of relation.
 	ErrNotManyToMany = errors.New("ant: relation is not many-to-many")
 	// ErrReadOnly reports a write to a read-only model, such as a view.

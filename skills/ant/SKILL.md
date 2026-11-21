@@ -351,7 +351,9 @@ err := db.Tx(ctx, func(tx *AppDB) error {
 Match with `errors.Is` and `errors.As`, never by text. The common ones:
 `ErrNotFound`, `ErrMultipleRows`, `ErrNoCondition`, `ErrConcurrency`,
 `ErrConcurrentUse`, `ErrUnsupported` (the database can't do it; ant refuses before
-sending SQL), `ErrNotProbe`, `ErrWrongModel`, `ErrKeyType`, `ErrNoForeignKey`.
+sending SQL), `ErrNotProbe`, `ErrWrongModel`, `ErrKeyType`, `ErrNoForeignKey`,
+`ErrPaging` (a page number or size below 1, or a negative `Limit` or `Offset`: a
+client's mistake when it comes from a request), `ErrCursor`, and `ErrQueryInEach`.
 `ant.FailedSQL(err)` returns the statement behind an error, without values.
 
 ## Databases

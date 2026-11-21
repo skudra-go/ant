@@ -606,6 +606,7 @@ ant: var ErrNotProbe
 ant: var ErrNotRelation
 ant: var ErrNotSoftDeleted
 ant: var ErrNotTracked
+ant: var ErrPaging
 ant: var ErrQueryInEach
 ant: var ErrReadOnly
 ant: var ErrThenWithoutOrder

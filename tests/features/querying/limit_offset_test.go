@@ -95,7 +95,9 @@ func TestLimitOffset(t *testing.T) {
 					return err
 				},
 			} {
-				require.ErrorContains(t, run(), "cannot be negative", name)
+				err := run()
+				require.ErrorIs(t, err, ant.ErrPaging, name)
+				require.ErrorContains(t, err, "cannot be negative", name)
 			}
 		})
 	})

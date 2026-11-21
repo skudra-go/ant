@@ -51,9 +51,9 @@ func TestConformancePaging(t *testing.T) {
 		require.Equal(t, []string{"carol"}, names(rest), "OFFSET alone")
 
 		_, err = app.Users.OrderBy(&Users.Name).Limit(-1).All(ctx)
-		require.ErrorContains(t, err, "cannot be negative", "SQLite reads LIMIT -1 as no limit")
+		require.ErrorIs(t, err, ant.ErrPaging, "SQLite reads LIMIT -1 as no limit")
 		_, err = app.Users.OrderBy(&Users.Name).Offset(-1).All(ctx)
-		require.ErrorContains(t, err, "cannot be negative")
+		require.ErrorIs(t, err, ant.ErrPaging)
 
 		some, err := app.Users.Limit(2).All(ctx)
 		require.NoError(t, err)
