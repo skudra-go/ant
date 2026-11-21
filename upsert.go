@@ -937,8 +937,9 @@ func (t *Table[T]) FirstOrNew(ctx context.Context, e *T, conds ...Cond) (*T, boo
 }
 
 // UpdateMany writes the named columns of each entity to its own row, in one
-// transaction, and returns how many rows changed. Use it for values that differ
-// per row. Tracked entities keep their snapshots, so prefer SaveChanges for them.
+// transaction, and returns how many rows changed, which on MySQL and MariaDB
+// leaves out a row that already held the values, as Update does. Use it for
+// values that differ per row. Tracked entities keep their snapshots, so prefer SaveChanges for them.
 // As a bulk Update does, it moves the version on, sets UpdatedAt unless a field
 // names it, and skips rows the model's filters leave out, such as soft-deleted
 // ones. The entities themselves are not changed.
