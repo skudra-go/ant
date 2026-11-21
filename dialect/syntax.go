@@ -98,6 +98,13 @@ type Syntax struct {
 	// limit on how deep the recursion goes.
 	RecursiveUnionAll bool
 
+	// RunsWhileStreaming says a connection can run a statement while it streams
+	// the rows of another, as an Each loop does. Otherwise, on a transaction or
+	// a context from UseConn, ant refuses a statement inside the loop with
+	// ant.ErrQueryInEach, rather than leave the driver to fail or to wait for
+	// rows nobody reads.
+	RunsWhileStreaming bool
+
 	// UTCTimes binds times in UTC, for a database whose columns drop the zone, so
 	// that every stored time is on one clock.
 	UTCTimes bool

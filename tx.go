@@ -210,8 +210,16 @@ func ReadOnly() TxOption { return func(o *txOptions) { o.sql.ReadOnly = true } }
 // child returns a context state bound to a transaction.
 func (s *state) child(t *txState) *state {
 	c := *s
+
+	// A transaction ant begins on a context from UseConn is on that connection,
+	// so it shares its count of Each loops. Any other has a connection of its
+	// own.
+	if t.external || c.conn == nil {
+		c.streams = newStreams(s.dialect)
+	}
+
 	c.exec = exec.Wrap(
-		txExec{t, dialect.SyntaxOf(s.dialect).RetryEndsTx},
+		c.streams.guard(txExec{t, dialect.SyntaxOf(s.dialect).RetryEndsTx}),
 		s.settings.interceptors,
 		false,
 		s.settings.detailed,
@@ -246,6 +254,12 @@ func (s *state) starter() beginner {
 // driver can finish on.
 func (s *state) begin(ctx context.Context, o txOptions) (*txState, error) {
 	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	// On a context from UseConn, the connection may be streaming an Each loop's
+	// rows, and could not begin.
+	if err := s.streams.check(); err != nil {
 		return nil, err
 	}
 
@@ -815,7 +829,8 @@ func UseConn[DB any](db *DB, conn *sql.Conn) (*DB, error) {
 
 	s := *parent
 	s.conn = conn
-	s.exec = exec.Wrap(conn, s.settings.interceptors, false, s.settings.detailed)
+	s.streams = newStreams(s.dialect)
+	s.exec = exec.Wrap(s.streams.guard(conn), s.settings.interceptors, false, s.settings.detailed)
 	s.replicas = nil
 
 	return bindState[DB](&s)

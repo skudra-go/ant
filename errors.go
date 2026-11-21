@@ -58,6 +58,15 @@ var (
 	// ErrIncludeInEach reports Include or IncludeJoined with Each, which would
 	// need a second query while rows stream. Use All, or Chunk for large results.
 	ErrIncludeInEach = errors.New("ant: Each does not support Include")
+	// ErrQueryInEach reports a statement inside an Each loop on a transaction,
+	// or on a context from UseConn, whose one connection is still streaming the
+	// loop's rows. Only SQLite can run it there: PostgreSQL, MySQL and MariaDB
+	// fail, and SQL Server waits for rows nobody reads. Collect what the loop
+	// needs and act after it, or read the rows with All or Chunk.
+	ErrQueryInEach = errors.New(
+		"ant: a statement cannot run while Each streams rows on the same connection; " +
+			"finish the loop first, or read the rows with All or Chunk",
+	)
 	// ErrConcurrency reports that SaveChanges found a row changed or removed
 	// since it was loaded. Nothing was saved.
 	ErrConcurrency = errors.New("ant: row was changed or removed since it was loaded")

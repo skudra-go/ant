@@ -339,7 +339,9 @@ func (p *Projection[R]) First(ctx context.Context) (*R, error) {
 	return &found[0], nil
 }
 
-// Each streams projected rows, stopping after the first error.
+// Each streams projected rows, stopping after the first error. In a
+// transaction, a statement inside the loop returns ErrQueryInEach, as with
+// Query.Each.
 func (p *Projection[R]) Each(ctx context.Context) iter.Seq2[R, error] {
 	return func(yield func(R, error) bool) {
 		var zero R
@@ -351,6 +353,10 @@ func (p *Projection[R]) Each(ctx context.Context) iter.Seq2[R, error] {
 			return
 		}
 		defer rows.Close()
+
+		// As in Query.Each, the connection streams until the loop ends.
+		p.state.streams.start()
+		defer p.state.streams.stop()
 
 		for rows.Next() {
 			v, err := read()

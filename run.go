@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"log/slog"
 	"reflect"
+	"sync/atomic"
 	"time"
 
+	"github.com/skudra-go/ant/dialect"
 	"github.com/skudra-go/ant/internal/exec"
 	"github.com/skudra-go/ant/internal/meta"
 	"github.com/skudra-go/ant/internal/scan"
@@ -281,6 +283,78 @@ func readInto[T any](rows *sql.Rows, v *T) (err error) {
 	}
 
 	return into(v)
+}
+
+// streams counts the Each loops reading rows on one connection, a
+// transaction's or a context's from UseConn. Where that connection cannot run a
+// statement meanwhile, each of its statements checks the count first, so a
+// statement in the loop gets ErrQueryInEach, not the driver's "bad connection"
+// or a wait for rows nobody reads (#163). A nil count, the pool's and SQLite's,
+// counts nothing and refuses nothing.
+type streams struct{ open atomic.Int32 }
+
+// newStreams returns the count for a new connection of d, or nil if d's
+// connections run statements while they stream.
+func newStreams(d dialect.Dialect) *streams {
+	if dialect.SyntaxOf(d).RunsWhileStreaming {
+		return nil
+	}
+
+	return new(streams)
+}
+
+// start counts a loop that has begun reading rows, and stop its end.
+func (s *streams) start() {
+	if s != nil {
+		s.open.Add(1)
+	}
+}
+
+func (s *streams) stop() {
+	if s != nil {
+		s.open.Add(-1)
+	}
+}
+
+// check refuses a statement while a loop reads rows.
+func (s *streams) check() error {
+	if s != nil && s.open.Load() > 0 {
+		return ErrQueryInEach
+	}
+
+	return nil
+}
+
+// guard returns e, refusing statements while a loop reads rows.
+func (s *streams) guard(e exec.Executor) exec.Executor {
+	if s == nil {
+		return e
+	}
+
+	return guarded{e, s}
+}
+
+// guarded is an executor on one connection that refuses statements while an
+// Each loop reads rows on it.
+type guarded struct {
+	exec.Executor
+	streams *streams
+}
+
+func (g guarded) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	if err := g.streams.check(); err != nil {
+		return nil, err
+	}
+
+	return g.Executor.ExecContext(ctx, query, args...)
+}
+
+func (g guarded) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	if err := g.streams.check(); err != nil {
+		return nil, err
+	}
+
+	return g.Executor.QueryContext(ctx, query, args...)
 }
 
 // stream yields rows until the consumer stops or an error occurs.

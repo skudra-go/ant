@@ -2,18 +2,20 @@ package tests
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/skudra-go/ant"
+	"github.com/skudra-go/ant/dialect"
 	"github.com/skudra-go/ant/internal/testdb"
 )
 
 // streamBlocks reports whether a connection of target can run nothing else while
 // Each reads rows from it.
 func streamBlocks(target testdb.Target) bool {
-	return target.Name != "sqlite" && target.Name != "sqlserver"
+	return !dialect.SyntaxOf(target.Dialect).RunsWhileStreaming
 }
 
 // requireRefusedInEach checks the error of a statement run inside an Each loop
@@ -27,7 +29,7 @@ func requireRefusedInEach(t *testing.T, target testdb.Target, err error) {
 		return
 	}
 
-	require.ErrorContains(t, err, "Each")
+	require.ErrorIs(t, err, ant.ErrQueryInEach)
 }
 
 // eachThen streams db's users and runs f once inside the loop, returning f's
@@ -138,6 +140,7 @@ func TestEachRefusesStatementsOnEveryOneConnectionContext(t *testing.T) {
 				target,
 				eachThen(ctx, tx, func(u User) error { return count(ctx, tx, u) }),
 			)
+
 			require.NoError(t, tx.Commit())
 		})
 
@@ -192,6 +195,7 @@ func TestEachRefusesStatementsOnEveryOneConnectionContext(t *testing.T) {
 				target,
 				eachThen(ctx, tx, func(u User) error { return count(ctx, tx, u) }),
 			)
+
 			require.NoError(t, sqlTx.Commit())
 		})
 
@@ -216,6 +220,15 @@ func TestEachRefusesStatementsOnEveryOneConnectionContext(t *testing.T) {
 			requireRefusedInEach(t, target, eachThen(ctx, db, func(u User) error {
 				return db.Tx(ctx, func(tx *AppDB) error { return count(ctx, tx, u) })
 			}))
+
+			// A loop that panics lets go of the connection too.
+			func() {
+				defer func() { require.NotNil(t, recover()) }()
+
+				for range db.Users.Each(ctx) {
+					panic("in the loop")
+				}
+			}()
 
 			_, err = db.Users.Count(ctx)
 			require.NoError(t, err)
@@ -251,3 +264,53 @@ func TestEachRefusesStatementsOnEveryOneConnectionContext(t *testing.T) {
 type userName struct{ Name string }
 
 var userNames = ant.Fields[userName]()
+
+// Where the connection can run statements while it streams, a loop that runs
+// them reads every row, and ant refuses none. Elsewhere the first is refused,
+// and the transaction goes on. SQL Server looked able to, but only while the
+// rows fit in the driver's buffer: past that, the statement waited for good
+// (#163).
+func TestEachLoopOverManyRows(t *testing.T) {
+	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
+		ctx := t.Context()
+		app := openApp(t, target)
+
+		users := make([]*User, 300)
+		for i := range users {
+			users[i] = &User{Name: fmt.Sprint("u", i), Email: fmt.Sprintf("u%d@example.com", i)}
+		}
+
+		_, err := app.Users.InsertMany(ctx, users)
+		require.NoError(t, err)
+
+		seen := 0
+
+		err = app.Tx(ctx, func(tx *AppDB) error {
+			for u, err := range tx.Users.OrderBy(&Users.ID).Each(ctx) {
+				if err != nil {
+					return err
+				}
+
+				seen++
+
+				if err := tx.Posts.Insert(ctx, &Post{UserID: u.ID, Title: "x"}); err != nil {
+					return err
+				}
+			}
+
+			return nil
+		})
+
+		if streamBlocks(target) {
+			require.ErrorIs(t, err, ant.ErrQueryInEach)
+			require.Equal(t, 1, seen)
+			require.Zero(t, countRows(t, target.DB, "posts"))
+
+			return
+		}
+
+		require.NoError(t, err)
+		require.Equal(t, 300, seen)
+		require.Equal(t, 300, countRows(t, target.DB, "posts"))
+	})
+}

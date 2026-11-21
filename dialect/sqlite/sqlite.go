@@ -35,7 +35,9 @@ var syntax = dialect.Syntax{
 	ValuesUnion:   true,
 	UTCTimes:      true,
 	MaxParameters: 32766,
-	NoArrayParams: true,
+	// A statement on the connection steps its own cursor, beside the open one.
+	RunsWhileStreaming: true,
+	NoArrayParams:      true,
 }
 
 func (impl) Name() string       { return "sqlite" }

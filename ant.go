@@ -77,6 +77,7 @@ type state struct {
 	observed  *observers
 	self      any
 	tx        *txState        // nil outside a transaction
+	streams   *streams        // the Each loops on a transaction's or UseConn's connection
 	begun     *savepointState // the savepoint of a context from Begin inside a transaction
 	lastWrite *atomic.Int64   // when this session last wrote, for sticky reads
 }

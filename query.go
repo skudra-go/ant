@@ -793,7 +793,11 @@ func (q *Query[T]) Find[K comparable](ctx context.Context, key K) (*T, error) {
 }
 
 // Each streams matching rows, stopping after the first error. Values are
-// copies, so streamed rows are not tracked.
+// copies, so streamed rows are not tracked. In a transaction, or on a context
+// from UseConn, the rows stream on its one connection until the loop ends, and
+// a statement inside the loop on that context returns ErrQueryInEach, except on
+// SQLite, whose connection can run it. Collect what the loop needs and act
+// after it, or read the rows with All or Chunk.
 func (q *Query[T]) Each(ctx context.Context) iter.Seq2[T, error] {
 	return func(yield func(T, error) bool) {
 		var zero T
@@ -828,6 +832,11 @@ func (q *Query[T]) Each(ctx context.Context) iter.Seq2[T, error] {
 
 			return
 		}
+
+		// The connection streams until the loop ends, so in a transaction it
+		// refuses the loop's own statements meanwhile.
+		q.state.streams.start()
+		defer q.state.streams.stop()
 
 		stream(rows, yield)
 	}
