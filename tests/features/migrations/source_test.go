@@ -3,6 +3,8 @@ package migrations
 import (
 	"context"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -131,6 +133,52 @@ func TestEmbeddedFallback(t *testing.T) {
 			p.config.Dir = p.dir + "/not-here"
 			must[V1DB](p, "up")
 			require.NotEmpty(t, p.columns("baked_in"))
+		})
+	})
+}
+
+// diff, check and status say which migrations they read, since a folder is
+// found from the working directory, and the embedded copy when it is not there
+// (#177).
+func TestCommandsSayWhichMigrations(t *testing.T) {
+	each(t, func(t *testing.T, p *project) {
+		where := "Migrations: " + p.dir
+
+		require.Contains(t, must[V1DB](p, "diff", "start"), where)
+		require.Contains(t, must[V1DB](p, "check"), where)
+		require.Contains(t, must[V1DB](p, "status"), where)
+
+		t.Run("not in SQL meant for a pipe", func(t *testing.T) {
+			require.NotContains(t, must[V2DB](p, "diff", "bio", "--dry-run"), "Migrations:")
+		})
+
+		t.Run("a relative folder, from the working directory", func(t *testing.T) {
+			wd, err := os.Getwd()
+			require.NoError(t, err)
+
+			relative, err := filepath.Rel(wd, p.dir)
+			require.NoError(t, err)
+
+			q := *p
+			q.config.Dir = relative
+			require.Contains(t, must[V1DB](&q, "check"), where)
+		})
+
+		t.Run("the embedded copy, and why diff cannot write it", func(t *testing.T) {
+			q := *p
+			q.config.Embedded = fstest.MapFS{
+				"versions/0001_baked_in.up.sql": {Data: []byte("CREATE TABLE baked_in (id int);")},
+			}
+			q.config.Dir = filepath.Join(p.dir, "not-here")
+
+			out := must[V1DB](&q, "status")
+			require.Contains(t, out, "Migrations: the embedded files")
+			require.Contains(t, out, q.config.Dir)
+
+			_, err := run[V1DB](&q, "diff", "nope")
+			require.ErrorIs(t, err, migrate.ErrReadOnly)
+			require.ErrorContains(t, err, "the embedded files")
+			require.ErrorContains(t, err, q.config.Dir)
 		})
 	})
 }
