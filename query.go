@@ -968,7 +968,9 @@ func (q *Query[T]) update(a []Assignment) (*qb.Update, *Query[T], error) {
 
 // Update applies assignments to every matching row and returns the number of
 // rows changed. Zero values are written like any other value. With Limit or
-// Offset, it changes only the rows the query selects.
+// Offset, it changes only the rows the query selects. MySQL and MariaDB count
+// only the rows whose values changed, so there a matched row that already held
+// them counts zero: don't read zero as "not found".
 func (q *Query[T]) Update(ctx context.Context, a ...Assignment) (int64, error) {
 	stmt, n, err := q.update(a)
 	if err != nil {

@@ -121,6 +121,9 @@ type unit struct {
 	// unit, so that another instance of the row is written over it. It is made
 	// by the first such write.
 	versions map[rowID]reflect.Value
+	// inTx reports whether the statements of this unit run in a transaction,
+	// whether the caller's or one the unit opens itself.
+	inTx bool
 	// dry plans the unit without changing any entity, for HasChanges.
 	dry bool
 }
@@ -1056,6 +1059,11 @@ func (u *unit) run(ctx context.Context) error {
 
 	// With no transaction, each statement stands once it runs.
 	standing := u.s.tx == nil && (!several || !u.s.settings.autoTx)
+
+	// transact opens a transaction for this unit when it is not already in one,
+	// so the caller's state says nothing about what these statements run on. The
+	// unit records it, for the reads that must see what the write saw.
+	u.inTx = !standing
 
 	err = u.s.transact(ctx, several, func(to exec.Executor) error {
 		for i := 0; i < len(order); {
@@ -1994,12 +2002,81 @@ func (u *unit) writeOne(ctx context.Context, to exec.Executor, n *node, stmt qb.
 	}
 
 	if affected == 0 {
+		// MySQL counts the rows an UPDATE changed, not the rows it matched, so a
+		// write of the values a row already holds reports zero. Ask whether the
+		// row is still there by the same conditions the write carried: the
+		// version or token included, so a stale copy stays a conflict. Only an
+		// UPDATE can match a row and change nothing; a DELETE that matched
+		// nothing means the row is gone.
+		if update, ok := stmt.(*qb.Update); ok && u.s.countsChangedRows() {
+			found, err := u.matchesOne(ctx, to, n.model, update.Where)
+			if err != nil {
+				return err
+			}
+
+			if found {
+				return nil
+			}
+		}
+
 		key, _ := n.model.KeyOf(n.entity)
 
 		return &ConcurrencyError{Model: n.model.Type.Name(), Key: key}
 	}
 
 	return nil
+}
+
+// countsChangedRows reports whether the dialect counts changed rows rather than
+// matched ones.
+func (s *state) countsChangedRows() bool {
+	d, ok := s.dialect.(dialect.ChangedRowsOnly)
+
+	return ok && d.CountsChangedRows()
+}
+
+// matchesOne reports whether one row satisfies where.
+//
+// In a transaction the read locks the row. MySQL at REPEATABLE READ answers a
+// plain read from the transaction's snapshot, which may predate the commit that
+// took the row away; a locking read sees the row as it is now, so the answer
+// matches what the write itself saw. Locking for update rather than share, as
+// FirstOrNew does: the caller holds the row next, and upgrading a share lock
+// deadlocks against another transaction doing the same.
+func (u *unit) matchesOne(
+	ctx context.Context,
+	to exec.Executor,
+	model *meta.Model,
+	where []qb.Cond,
+) (bool, error) {
+	one := 1
+	stmt := &qb.Select{
+		Columns: []qb.Selected{{Value: qb.Column{Name: model.Keys[0].Column}}},
+		From:    qb.Source{Table: model.Table},
+		Where:   where,
+		Limit:   &one,
+	}
+
+	// The lock belongs to a transaction: there it makes the read a current one,
+	// so it sees the row as the write did rather than from the transaction's
+	// snapshot. Outside one every statement is its own transaction and sees the
+	// newest rows anyway, so a lock would only be held for the length of this
+	// read. That leaves a window there between the write and this read in which
+	// another transaction can delete the row and put one back with the same key;
+	// a model with a version or a timestamp is not open to it, since its
+	// conditions name that value and a new row would not carry it.
+	if u.inTx && dialect.Supports(u.s.dialect, dialect.RowLocks) {
+		stmt.Lock = &qb.Lock{Mode: "UPDATE"}
+	}
+
+	rows, err := u.s.queryOn(ctx, to, stmt)
+	if err != nil {
+		return false, err
+	}
+
+	defer rows.Close()
+
+	return rows.Next(), rows.Err()
 }
 
 // commit brings the tracker up to date after a successful write. Rows that left
