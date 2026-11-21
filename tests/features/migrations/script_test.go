@@ -112,6 +112,30 @@ func TestScriptStopsBeforeAGoMigration(t *testing.T) {
 	})
 }
 
+// After the last versioned migration, a Go one leaves only the repeatable
+// files, which up --to skips, so script says to run up (#183).
+func TestScriptStopsBeforeTheLastGoMigration(t *testing.T) {
+	each(t, func(t *testing.T, p *project) {
+		p.write(
+			"versions/0001_init.up.sql",
+			"CREATE TABLE accounts (id bigint PRIMARY KEY, name text, email text UNIQUE);",
+		)
+
+		p.write("code/view.sql", "CREATE OR REPLACE VIEW v AS SELECT 1 AS n;")
+
+		text := must[ScriptDB](p, "script")
+		require.Contains(t, text, "Stopped before 0002_trim")
+		require.Contains(t, text, "run it with up.")
+		require.NotContains(t, text, "--to", "up --to would leave the repeatable files")
+		require.NotContains(t, text, "VIEW")
+
+		p.sql(text)
+		require.Contains(t, must[ScriptDB](p, "up"), "Applied 0002_trim")
+		require.Equal(t, []string{"n"}, p.columns("v"))
+		require.Contains(t, must[ScriptDB](p, "up"), "Nothing to apply")
+	})
+}
+
 // A file that cannot run in a transaction blocks a guarded script only while it
 // is among the migrations to write, so --from gets past one applied long ago
 // (#183).

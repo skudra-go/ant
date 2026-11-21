@@ -571,11 +571,13 @@ func script(
 		switch {
 		case m.run != nil:
 			// The repeatable files run after every versioned one, so they wait
-			// too.
-			next := "run it with up --to " + m.Version
+			// too. Up --to leaves them out, so after the last versioned
+			// migration plain up runs the rest.
+			next := "run it with up"
 
 			if i+1 < len(versioned) {
-				next += ", then script --from " + versioned[i+1].Version + " for the rest"
+				next += " --to " + m.Version + ", then script --from " +
+					versioned[i+1].Version + " for the rest"
 			}
 
 			warn("stopped before " + m.ID() + ", which is a Go migration: " + next)
