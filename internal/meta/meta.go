@@ -8,6 +8,7 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"maps"
+	"math"
 	"reflect"
 	"runtime"
 	"slices"
@@ -166,7 +167,8 @@ func (f *Field) CopyAt(dst, src unsafe.Pointer) {
 // intKeyReader returns the function that reads a key of integer type t as an
 // int64 with no reflection, or nil if t is not one. Only types that keyOf widens
 // to int64 as they are have one: they implement no driver.Valuer. The bool is
-// false for a nil pointer, which is NULL.
+// false for a nil pointer, which is NULL. A uint or uint64 past math.MaxInt64
+// comes out negative, which IntKey and keyReader turn back into its uint64.
 func intKeyReader(t reflect.Type) func(unsafe.Pointer) (int64, bool) {
 	switch t {
 	case reflect.TypeFor[int64]():
@@ -206,10 +208,18 @@ func intKeyReader(t reflect.Type) func(unsafe.Pointer) (int64, bool) {
 // which saves two allocations per row, or nil.
 func keyReader(t reflect.Type) func(unsafe.Pointer) (any, bool) {
 	if read := intKeyReader(t); read != nil {
+		unsigned := isUnsigned(t)
+
 		return func(p unsafe.Pointer) (any, bool) {
 			n, ok := read(p)
 			if !ok {
 				return nil, false
+			}
+
+			// A uint past math.MaxInt64 read as an int64 is negative: it is the
+			// uint64 keyOf gives it as, not that int64 (#206).
+			if n < 0 && unsigned {
+				return uint64(n), true
 			}
 
 			return n, true
@@ -283,6 +293,13 @@ func keyOf(v reflect.Value) (any, bool) {
 	case v.CanInt():
 		return v.Int(), true
 	case v.CanUint():
+		// A key that fits is an int64, as a signed one is, so an int64 foreign
+		// key finds a uint64 key. One past math.MaxInt64 stays a uint64: as an
+		// int64 it wrapped, and that value was written to foreign keys (#206).
+		if u := v.Uint(); u > math.MaxInt64 {
+			return u, true
+		}
+
 		return int64(v.Uint()), true
 	case v.Kind() == reflect.String:
 		return v.String(), true
@@ -1151,7 +1168,19 @@ func (m *Model) IntKey(entity unsafe.Pointer) (n int64, ok, fast bool) {
 	f := m.Keys[0]
 	n, ok = f.intKey(unsafe.Add(entity, f.Offset))
 
+	// A uint past math.MaxInt64 has no int64 of its own: KeyOf gives it as a
+	// uint64.
+	if n < 0 && isUnsigned(f.Type) {
+		return 0, false, false
+	}
+
 	return n, ok, true
+}
+
+// isUnsigned reports whether t is an unsigned integer that can pass
+// math.MaxInt64.
+func isUnsigned(t reflect.Type) bool {
+	return t.Kind() == reflect.Uint || t.Kind() == reflect.Uint64 || t.Kind() == reflect.Uintptr
 }
 
 // Key returns the primary key field, or nil if the model has none or the key is

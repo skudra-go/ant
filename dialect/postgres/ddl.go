@@ -85,10 +85,10 @@ func (d impl) ColumnType(t reflect.Type, f schema.Facets) (string, bool) {
 	case reflect.Int, reflect.Int64, reflect.Uint, reflect.Uint32:
 		return "bigint", true
 	case reflect.Uint64:
-		// Its maximum, 18446744073709551615, is past bigint's, so a column that
-		// held one could not take every value the field admits. numeric(20,0)
-		// holds all twenty digits. `uint` stays bigint: its width follows the
-		// platform, and a schema that changes with the build host is worse.
+		// Its maximum, 18446744073709551615, is past bigint's, and numeric(20,0)
+		// holds all twenty digits. A key the database generates stays bigint, as
+		// an identity is an integer (decision 138). uint stays bigint above: it
+		// is what code uses for ordinary counts and keys.
 		return "numeric(20,0)", true
 	case reflect.Float32:
 		return "real", true

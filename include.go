@@ -413,15 +413,13 @@ func loadPivot[R any](
 			return nil, nil, nil, err
 		}
 
-		pairs, err := collectPairs(rows)
+		pairs, err := collectKeys(rows, link.Local, field)
 		if err != nil {
 			return nil, nil, nil, err
 		}
 
 		for _, pair := range pairs {
-			local, _ := meta.KeyValue(pair[0])
-
-			key, _ := meta.KeyValue(pair[1])
+			local, key := pair[0], pair[1]
 			if _, seen := targets[key]; !seen {
 				foreign = append(foreign, key)
 			}

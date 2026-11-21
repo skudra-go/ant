@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"time"
 
 	"github.com/skudra-go/ant/internal/exec"
@@ -142,17 +143,39 @@ func (s *state) checkColumns(rows *sql.Rows, model *meta.Model) error {
 	return nil
 }
 
-// collectPairs reads two-column rows and closes them.
-func collectPairs(rows *sql.Rows) (out [][2]any, err error) {
+// collectKeys reads rows of keys and closes them. Each column is read into the
+// type of the key field it holds, as its model reads that key, and given as
+// meta.KeyValue gives it, so a key from a join table is found by the key it
+// holds. Read into an interface, a NUMERIC or BIGINT UNSIGNED column came as
+// text, which matched no integer key (#206).
+func collectKeys(rows *sql.Rows, fields ...*meta.Field) (out [][]any, err error) {
 	defer func() { err = errors.Join(err, rows.Close()) }()
 
+	values := make([]reflect.Value, len(fields))
+	dests := make([]any, len(fields))
+
 	for rows.Next() {
-		var pair [2]any
-		if err := rows.Scan(&pair[0], &pair[1]); err != nil {
+		for i, f := range fields {
+			values[i] = reflect.New(f.Type)
+
+			dests[i] = values[i].Interface()
+
+			if read := meta.ReaderFor(f.Type); read != nil {
+				dests[i] = read(values[i].UnsafePointer())
+			}
+		}
+
+		if err := rows.Scan(dests...); err != nil {
 			return nil, err
 		}
 
-		out = append(out, pair)
+		keys := make([]any, len(fields))
+
+		for i, v := range values {
+			keys[i], _ = meta.KeyValue(v.Elem().Interface())
+		}
+
+		out = append(out, keys)
 	}
 
 	return out, rows.Err()

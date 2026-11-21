@@ -553,7 +553,7 @@ func (b *schemaBuilder) column(m *meta.Model, f *meta.Field) (*schema.Column, er
 	label := m.Type.Name() + "." + f.Name
 
 	if c.Type == "" {
-		c.Type = b.columnType(valueType, storage)
+		c.Type = b.columnType(generatedKey(f, valueType), storage)
 	}
 
 	switch {
@@ -592,6 +592,18 @@ func typeName(d schema.Dialect, name string) string {
 	}
 
 	return d.Quote(name)
+}
+
+// generatedKey returns the type a key the database generates is stored as. An
+// identity is a smallint, integer or bigint, and counts up from 1, so a uint64
+// key of one is bigint, which holds every value it gives, where any other
+// uint64 is numeric(20,0) (decision 138).
+func generatedKey(f *meta.Field, t reflect.Type) reflect.Type {
+	if f.Generated && t.Kind() == reflect.Uint64 {
+		return reflect.TypeFor[int64]()
+	}
+
+	return t
 }
 
 func (b *schemaBuilder) columnType(t reflect.Type, s meta.Storage) string {
@@ -996,10 +1008,14 @@ func distinctNames(s *schema.Schema) error {
 // target was given, as a join table's columns take theirs. A string key typed
 // uuid left a string foreign key text, which PostgreSQL cannot join to uuid,
 // so the migration failed on its first run (#187). A serial target is the
-// integer it draws from a sequence, which the referring column holds.
+// integer it draws from a sequence, which the referring column holds. A uint64
+// on either side takes the target's type too: a key the database generates is
+// bigint and any other uint64 numeric(20,0), and PostgreSQL refuses a foreign
+// key from one to the other (decision 138).
 func typeAsTarget(column *schema.Column, field, ref *meta.Field, target *schema.Table) {
-	if target == nil || field.Storage.Type != "" || field.Storage.Enum != nil ||
-		ref.Storage.Type == "" {
+	follows := ref.Storage.Type != "" || isUint64(field) || isUint64(ref)
+
+	if target == nil || field.Storage.Type != "" || field.Storage.Enum != nil || !follows {
 		return
 	}
 
@@ -1017,6 +1033,13 @@ func typeAsTarget(column *schema.Column, field, ref *meta.Field, target *schema.
 	}[strings.ToLower(to.Type)]; ok {
 		column.Type = plain
 	}
+}
+
+// isUint64 reports whether f holds a uint64, as a pointer or an sql.Null too.
+func isUint64(f *meta.Field) bool {
+	t, _ := columnValue(f.Type)
+
+	return t.Kind() == reflect.Uint64
 }
 
 func isUnique(t *schema.Table, column string) bool {

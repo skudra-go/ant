@@ -136,7 +136,8 @@ Calls that take columns of mixed types take `ant.FieldRef`, made with
   is a `json.Number`, not a `float64`.
 - On PostgreSQL, a standard type takes PostgreSQL's own column: `time.Duration` is
   `interval`, `net.IP` and `netip.Addr` are `inet`, `netip.Prefix` is `cidr`,
-  `json.RawMessage` and `map[string]any` are `jsonb`, `decimal.Decimal` is `numeric`, and a plain slice
+  `json.RawMessage` and `map[string]any` are `jsonb`, `decimal.Decimal` is `numeric`, `uint64` is
+  `numeric(20,0)` (a key the database generates stays `bigint`), and a plain slice
   is an array, as `[]string` is `text[]`. A type with no column type fails with
   `ant.ErrNoColumnType` until `b.Column(&...).Type("...")` names one.
 - Everything else is configured in typed Go, with a `Configure` method on the model:
