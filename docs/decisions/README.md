@@ -206,7 +206,7 @@ On 2026-11-20 the decisions moved from one file, `docs/DECISIONS.md`, to a file 
 | [85](085-mysql-reads-the-table-it-writes-through-a-derived-table.md) | MySQL reads the table it writes through a derived table | active | `mysql` `error-1093` `derived-table` `no-merge` `self-read` `Upsert` `on-duplicate-key` `lazy` |
 | [88](088-sql-server-recurses-with-union-all-and-a-path-of-keys.md) | SQL Server recurses with UNION ALL and a path of keys | active | `sqlserver` `Recursive` `CTE` `union-all` `maxrecursion` `count` `exists` |
 | [118](118-a-sqlite-dsn-says-whether-foreign-keys-are-on.md) | A SQLite DSN says whether foreign keys are on | active | `sqlite` `foreign-keys` `dsn` `CheckDSN` |
-| [137](137-stored-tsvector-columns-have-a-separate-match-helper.md) | Stored tsvector columns have a separate Match helper | active | `postgres` `Match` `MatchVector` `tsvector` `full-text` |
+| [137](137-stored-tsvector-columns-have-a-separate-match-helper.md) | Stored tsvector columns have a separate Match helper, and Match writes its configuration | active | `postgres` `Match` `MatchVector` `tsvector` `full-text` `regconfig` `indexes` |
 
 #### Migrations and schema
 

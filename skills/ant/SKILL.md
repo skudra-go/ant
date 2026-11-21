@@ -181,7 +181,8 @@ Conditions: `ant.Eq`, `Ne`, `Gt`, `Gte`, `Lt`, `Lte`, `Between`, `In`, `NotIn`,
 joined with `AND`. `ant.In(&Users.Age)` with no values matches nothing.
 
 On PostgreSQL, `postgres.Match(&Posts.Title, "english", query)` converts a text
-column with `to_tsvector`. For a stored `tsvector` column, use
+column with `to_tsvector`, writing the configuration into the SQL, so an index on
+`to_tsvector('english', title)` serves it. For a stored `tsvector` column, use
 `postgres.MatchVector(&Posts.SearchVector, "english", query)`, which applies the
 full-text operator directly and can use the vector's index.
 
