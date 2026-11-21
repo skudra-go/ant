@@ -79,6 +79,7 @@ func TestScriptStopsBeforeAGoMigration(t *testing.T) {
 			"versions/0001_init.up.sql",
 			"CREATE TABLE accounts (id bigint PRIMARY KEY, name text, email text UNIQUE);",
 		)
+
 		p.write("versions/0003_note.up.sql", "ALTER TABLE accounts ADD COLUMN note text;")
 		p.write("code/view.sql", "CREATE OR REPLACE VIEW v AS SELECT 1 AS n;")
 
@@ -87,6 +88,13 @@ func TestScriptStopsBeforeAGoMigration(t *testing.T) {
 		require.Contains(t, text, "0002_trim")
 		require.NotContains(t, text, "0003_note", "nothing after the Go migration")
 		require.NotContains(t, text, "VIEW", "repeatable files run after every versioned one")
+
+		// From the Go migration itself, there is nothing it can write yet.
+		stopped := must[ScriptDB](p, "script", "--from", "0002")
+		require.Contains(t, stopped, "Stopped before 0002_trim")
+		require.Contains(t, stopped, "script --from 0003")
+		require.NotContains(t, stopped, "0001_init")
+		require.NotContains(t, stopped, "0003_note")
 
 		p.sql(text)
 		require.Contains(t, must[ScriptDB](p, "up", "--to", "0002"), "Applied 0002_trim")
@@ -110,10 +118,12 @@ func TestScriptStopsBeforeAGoMigration(t *testing.T) {
 func TestScriptFromAVersion(t *testing.T) {
 	each(t, func(t *testing.T, p *project) {
 		must[V1DB](p, "diff", "create_accounts")
+
 		p.write(
 			"versions/0002_email_idx.up.sql",
 			"-- ant:no-transaction\nCREATE INDEX CONCURRENTLY accounts_name_idx ON accounts (name);",
 		)
+
 		must[V1DB](p, "up")
 		p.write("versions/0003_note.up.sql", "ALTER TABLE accounts ADD COLUMN note text;")
 

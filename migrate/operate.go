@@ -508,18 +508,34 @@ func prune(s *schema.Schema, patterns []string) (*schema.Schema, error) {
 
 // script writes migrations as one SQL file, for databases ant cannot reach, such
 // as a DBA's review queue. Plain leaves out the guards and the history, for use
-// with other tools. Otherwise the file can run any number of times, like up.
+// with other tools. Otherwise the file can run any number of times, like up, and
+// it stops before a Go migration, which only up can run: going on would apply
+// later migrations first, and up would then refuse the Go one as older than an
+// applied one (#183). With from, the versioned migrations before that version
+// are left out, as applied.
 func script(
 	d schema.Dialect,
 	h history,
 	c *catalog,
 	plain bool,
+	from string,
 	warn func(string),
 ) (string, error) {
 	var b strings.Builder
 
+	if from != "" && !slices.ContainsFunc(
+		c.versioned,
+		func(m Migration) bool { return compareVersions(m.Version, from) == 0 },
+	) {
+		return "", fmt.Errorf("%w: no migration has version %s", ErrBadMigration, from)
+	}
+
+	versioned := slices.DeleteFunc(slices.Clone(c.versioned), func(m Migration) bool {
+		return from != "" && compareVersions(m.Version, from) < 0
+	})
+
 	if plain {
-		for _, m := range slices.Concat(c.versioned, c.repeatable) {
+		for _, m := range slices.Concat(versioned, c.repeatable) {
 			if m.run != nil {
 				warn("left out " + m.ID() + ", which is a Go migration")
 				fmt.Fprintf(&b, "-- %s is a Go migration, and is not in this file.\n\n", m.ID())
@@ -551,24 +567,29 @@ func script(
 		b.WriteString(statement + ";\n\n")
 	}
 
-	for _, m := range c.versioned {
+	for i, m := range versioned {
 		switch {
 		case m.run != nil:
-			warn("left out " + m.ID() + ", which is a Go migration: run it with up")
+			// The repeatable files run after every versioned one, so they wait
+			// too.
+			next := "run it with up --to " + m.Version
+
+			if i+1 < len(versioned) {
+				next += ", then script --from " + versioned[i+1].Version + " for the rest"
+			}
+
+			warn("stopped before " + m.ID() + ", which is a Go migration: " + next)
 
 			fmt.Fprintf(
 				&b,
-				"-- %s is a Go migration, and is not in this file. Run it with up.\n\n",
+				"-- Stopped before %s, a Go migration, which only up can run: %s.\n",
 				m.ID(),
+				next,
 			)
 
-			continue
+			return b.String(), nil
 		case m.noTransaction:
-			return "", fmt.Errorf(
-				"%w: %s cannot run in a transaction, so it cannot be guarded. Use script --plain, or up",
-				ErrBadMigration,
-				m.ID(),
-			)
+			return "", noTransactionScript(m)
 		}
 
 		condition := fmt.Sprintf(
@@ -582,11 +603,7 @@ func script(
 
 	for _, m := range c.repeatable {
 		if m.noTransaction {
-			return "", fmt.Errorf(
-				"%w: %s cannot run in a transaction, so it cannot be guarded. Use script --plain, or up",
-				ErrBadMigration,
-				m.ID(),
-			)
+			return "", noTransactionScript(m)
 		}
 
 		condition := fmt.Sprintf(
@@ -612,6 +629,25 @@ func script(
 	}
 
 	return b.String(), nil
+}
+
+// noTransactionScript refuses m in a guarded script: a guard is a block that runs
+// in one transaction.
+func noTransactionScript(m Migration) error {
+	if m.Kind == Repeatable {
+		return fmt.Errorf(
+			"%w: %s cannot run in a transaction, so it cannot be guarded. Use script --plain, or up",
+			ErrBadMigration,
+			m.ID(),
+		)
+	}
+
+	return fmt.Errorf(
+		"%w: %s cannot run in a transaction, so it cannot be guarded. Use script --plain, or up; "+
+			"once it has run, script --from the version after it leaves it out",
+		ErrBadMigration,
+		m.ID(),
+	)
 }
 
 // defaultNote goes with a default the database has and the models lack. A
