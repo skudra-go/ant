@@ -179,6 +179,11 @@ Conditions: `ant.Eq`, `Ne`, `Gt`, `Gte`, `Lt`, `Lte`, `Between`, `In`, `NotIn`,
 `InTuples`, `AnyOf`. Several conditions in one `Where`, or several `Where` calls, are
 joined with `AND`. `ant.In(&Users.Age)` with no values matches nothing.
 
+On PostgreSQL, `postgres.Match(&Posts.Title, "english", query)` converts a text
+column with `to_tsvector`. For a stored `tsvector` column, use
+`postgres.MatchVector(&Posts.SearchVector, "english", query)`, which applies the
+full-text operator directly and can use the vector's index.
+
 ```go
 users, err := db.Users.
 	Where(

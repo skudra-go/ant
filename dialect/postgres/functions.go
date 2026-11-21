@@ -79,6 +79,17 @@ func Match[V ~string](field *V, config, query string) ant.Cond {
 	)
 }
 
+// MatchVector matches rows whose precomputed tsvector column meets a full-text
+// search, in websearch syntax, using the given text search configuration.
+func MatchVector[V ~string](field *V, config, query string) ant.Cond {
+	return ant.SQLCond(
+		"? @@ websearch_to_tsquery(?::regconfig, ?)",
+		ant.Col(field),
+		config,
+		query,
+	)
+}
+
 // Point is a location in PostgreSQL's built-in point type, which needs no
 // extension. For geography, with projections and real distances, use PostGIS through
 // .Type("geometry(Point,4326)") and ant.SQL.

@@ -205,6 +205,7 @@ On 2026-11-20 the decisions moved from one file, `docs/DECISIONS.md`, to a file 
 | [85](085-mysql-reads-the-table-it-writes-through-a-derived-table.md) | MySQL reads the table it writes through a derived table | active | `mysql` `error-1093` `derived-table` `no-merge` `self-read` `Upsert` `on-duplicate-key` `lazy` |
 | [88](088-sql-server-recurses-with-union-all-and-a-path-of-keys.md) | SQL Server recurses with UNION ALL and a path of keys | active | `sqlserver` `Recursive` `CTE` `union-all` `maxrecursion` `count` `exists` |
 | [118](118-a-sqlite-dsn-says-whether-foreign-keys-are-on.md) | A SQLite DSN says whether foreign keys are on | active | `sqlite` `foreign-keys` `dsn` `CheckDSN` |
+| [137](137-stored-tsvector-columns-have-a-separate-match-helper.md) | Stored tsvector columns have a separate Match helper | active | `postgres` `Match` `MatchVector` `tsvector` `full-text` |
 
 #### Migrations and schema
 
@@ -325,7 +326,7 @@ Before changing a file, read the decisions about it.
 | `dialect/postgres/ddl.go` | [50](050-three-layers-for-migrations.md) [52](052-new-not-null-columns-fill-existing-rows.md) [78](078-a-replaced-column-takes-its-dependents-along-and-they.md) [114](114-an-identity-columns-default-is-not-ants-to-change.md) [130](130-partitioning-is-part-of-the-table.md) [131](131-a-foreign-key-column-follows-its-target.md) [133](133-a-concurrent-build-clears-its-leftover.md) [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) [135](135-a-column-ant-made-for-an-earlier-default-is-converted-as-ant-stored-it.md) |
 | `dialect/postgres/ddl_test.go` | [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) [135](135-a-column-ant-made-for-an-earlier-default-is-converted-as-ant-stored-it.md) |
 | `dialect/postgres/expression.go` | [57](057-drift-compares-what-the-server-stored.md) |
-| `dialect/postgres/functions.go` | [42](042-converters-are-scanner-and-valuer.md) [43](043-database-specific-helpers.md) |
+| `dialect/postgres/functions.go` | [42](042-converters-are-scanner-and-valuer.md) [43](043-database-specific-helpers.md) [137](137-stored-tsvector-columns-have-a-separate-match-helper.md) |
 | `dialect/postgres/inspect.go` | [57](057-drift-compares-what-the-server-stored.md) [72](072-partitions-are-not-migrations.md) [73](073-drift-compares-what-models-declare.md) [114](114-an-identity-columns-default-is-not-ants-to-change.md) [133](133-a-concurrent-build-clears-its-leftover.md) |
 | `dialect/postgres/partitions.go` | [72](072-partitions-are-not-migrations.md) |
 | `dialect/postgres/pgxext` | [71](071-dependencies-stay-out-of-the-root-package.md) |
@@ -509,7 +510,7 @@ Before changing a file, read the decisions about it.
 | `tests/features/transactions/tx_test.go` | [2](002-tx-is-a-generic-method-on-context.md) [106](106-begin-inside-a-transaction-opens-a-savepoint.md) |
 | `tests/features/value_handling/json_test.go` | [42](042-converters-are-scanner-and-valuer.md) [109](109-numbers-inside-an-interface-read-as-json-number.md) |
 | `tests/features/value_handling/native_types_test.go` | [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) [136](136-an-outer-joins-side-reads-what-only-the-driver-converts.md) |
-| `tests/features/value_handling/postgres_test.go` | [43](043-database-specific-helpers.md) |
+| `tests/features/value_handling/postgres_test.go` | [43](043-database-specific-helpers.md) [137](137-stored-tsvector-columns-have-a-separate-match-helper.md) |
 | `tests/features/value_handling/probes` | [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) |
 | `tests/features/value_handling/probes/rows/probes_test.go` | [25](025-scanning.md) [119](119-an-upserts-update-writes-the-zero-a-default-field-holds.md) |
 | `tests/features/writing` | [80](080-every-write-moves-the-version-on.md) |
@@ -627,7 +628,7 @@ Tags on two or more decisions. Search the headers for the rest: `rg -l '^tags: .
 - `pg_dump`: [59](059-adopting-an-existing-database.md) [128](128-adopt-leaves-out-roles.md)
 - `pivot`: [44](044-many-to-many.md) [64](064-through-relations-are-read-only-pivots.md)
 - `pointer`: [7](007-eq-with-a-nil-pointer.md) [87](087-an-embedded-field-must-be-a-struct-value.md)
-- `postgres`: [26](026-feature-examples-run-on-postgresql-only.md) [43](043-database-specific-helpers.md) [49](049-postgresql-first.md) [50](050-three-layers-for-migrations.md) [72](072-partitions-are-not-migrations.md) [94](094-migrations-keep-a-columns-dependents-working-while-it.md) [114](114-an-identity-columns-default-is-not-ants-to-change.md)
+- `postgres`: [26](026-feature-examples-run-on-postgresql-only.md) [43](043-database-specific-helpers.md) [49](049-postgresql-first.md) [50](050-three-layers-for-migrations.md) [72](072-partitions-are-not-migrations.md) [94](094-migrations-keep-a-columns-dependents-working-while-it.md) [114](114-an-identity-columns-default-is-not-ants-to-change.md) [137](137-stored-tsvector-columns-have-a-separate-match-helper.md)
 - `probe`: [100](100-probes-are-named-after-their-model-in-the-plural.md) [101](101-probes-are-pinned.md)
 - `probes`: [4](004-conditions-are-not-tied-to-a-model.md) [18](018-wrong-model-detection.md) [21](021-configuration-runs-when-a-context-opens.md) [34](034-self-joins.md) [37](037-references-to-outer-queries.md)
 - `Project`: [5](005-select-closures-run-client-side.md) [35](035-typed-expressions.md)
