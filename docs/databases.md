@@ -66,6 +66,8 @@ Error helpers mean the same everywhere. `ant.IsUniqueViolation` works on all fiv
 
 **A nested read-only `Tx`.** A `Tx` inside another is a savepoint. On PostgreSQL `ant.ReadOnly()` holds there until the savepoint ends; MySQL, MariaDB, SQLite and SQL Server cannot make a transaction read-only once it has begun, so it returns `ant.ErrUnsupported`. `ant.Isolation` on a nested `Tx` is `ant.ErrNestedIsolation` everywhere.
 
+**A statement inside an `Each` loop in a transaction.** `Each` streams its rows on the transaction's one connection until the loop ends, and so on a context from `UseConn`. PostgreSQL, MySQL and MariaDB cannot run another statement there, and SQL Server waits for good once the rows pass the driver's buffer, so a statement in the loop returns `ant.ErrQueryInEach` on those four. SQLite runs it, and reads every row. Collect what the loop needs and act after it, or read the rows with `All` or `Chunk`.
+
 **`FirstOrCreate` in a transaction.** When another writer inserted the row first, it is read `FOR UPDATE`, so changing it next takes no further lock. On MySQL and MariaDB the insert that lost already holds a share lock on that row, so two such transactions can still deadlock there (MariaDB: error 1020); the error is retryable, so run them with `ant.Attempts`.
 
 **Row locks.** `ForUpdate` and `ForShare` lock the rows a query returns. `Count`, `Exists`, the aggregates, and the total of `Page` read no rows to lock, and PostgreSQL refuses a lock on them, so they run without it on every database. With `IncludeJoined` the lock is on the query's own table (`FOR UPDATE OF`), since PostgreSQL refuses to lock the nullable side of a left join. MariaDB has no `OF` and locks the related rows as well.
