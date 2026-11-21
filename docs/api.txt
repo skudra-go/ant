@@ -682,6 +682,7 @@ dialect/postgres: func JSONLength[V any](field *V) ant.Expr[int]
 dialect/postgres: func JSONSet[V any](field *V, value any, path ...string) ant.Expr[V]
 dialect/postgres: func JSONText[V any](field *V, path ...string) ant.Expr[string]
 dialect/postgres: func L2Distance(field *Vector, v Vector) ant.Expr[float64]
+dialect/postgres: func MatchVector[V ~string](field *V, config, query string) ant.Cond
 dialect/postgres: func Match[V ~string](field *V, config, query string) ant.Cond
 dialect/postgres: func MonthlyPartitions[T any](db Database) (*Partitions, error)
 dialect/postgres: func Near(field *Point, p Point, radius float64) ant.Cond

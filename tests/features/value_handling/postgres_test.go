@@ -135,3 +135,52 @@ func TestFullText(t *testing.T) {
 		require.Empty(t, search("unrelated"))
 	})
 }
+
+type SearchDocument struct {
+	ID     int64
+	Title  string
+	Vector string
+}
+
+type SearchDocumentsDB struct {
+	ant.Context
+	Documents ant.Table[SearchDocument]
+}
+
+var SearchDocuments = ant.Fields[SearchDocument]()
+
+func (SearchDocument) Configure(b *ant.ModelBuilder[SearchDocument]) {
+	b.Table("search_documents")
+
+	b.Column(&SearchDocuments.Vector).
+		Type("tsvector").
+		Generated("to_tsvector('english', title)")
+}
+
+func TestFullTextStoredVector(t *testing.T) {
+	ddl := `CREATE TABLE search_documents (
+		id BIGSERIAL PRIMARY KEY,
+		title TEXT NOT NULL,
+		vector tsvector GENERATED ALWAYS AS (to_tsvector('english', title)) STORED
+	)`
+	fixture.RunTrackedWith(t, ddl, func(t *testing.T, db *SearchDocumentsDB) {
+		ctx := t.Context()
+		require.NoError(t, db.Documents.Insert(ctx,
+			&SearchDocument{Title: "The quick brown fox"},
+			&SearchDocument{Title: "Lazy dogs sleeping"}))
+
+		search := func(query string) []string {
+			got, err := ant.Pluck(
+				ctx,
+				db.Documents.Where(postgres.MatchVector(&SearchDocuments.Vector, "english", query)),
+				&SearchDocuments.Title,
+			)
+			require.NoError(t, err)
+
+			return got
+		}
+
+		require.Equal(t, []string{"The quick brown fox"}, search("quick fox"))
+		require.Empty(t, search("unrelated"))
+	})
+}
