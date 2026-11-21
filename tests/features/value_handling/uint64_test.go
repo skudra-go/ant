@@ -53,7 +53,12 @@ func TestUint64KeepsEveryValue(t *testing.T) {
 		})
 
 		max := uint64(math.MaxUint64)
-		row := &Wide{ID: 1, Mask: max, Narrow: math.MaxUint32, Pointer: &max}
+		row := &Wide{
+			ID:      1,
+			Mask:    max,
+			Narrow:  math.MaxUint32,
+			Pointer: &max,
+		}
 		require.NoError(t, db.Wides.Insert(ctx, row))
 
 		got, err := db.Wides.Find(ctx, row.ID)
