@@ -273,10 +273,38 @@ func (c Config) store() (Store, error) {
 
 	store, ok := source.(Store)
 	if !ok {
-		return nil, ErrReadOnly
+		return nil, fmt.Errorf("%w: %s", ErrReadOnly, c.describe(source))
 	}
 
 	return store, nil
+}
+
+// describe says which migrations source reads: a folder is found from the
+// working directory, so a command run from another folder reads, or writes,
+// other migrations, and with Embedded set, a folder that is not there means the
+// embedded copy (#177).
+func (c Config) describe(source Source) string {
+	switch s := source.(type) {
+	case disk:
+		if abs, err := filepath.Abs(s.root); err == nil {
+			return abs
+		}
+
+		return s.root
+	case folders:
+		if c.FS == nil && c.Embedded != nil {
+			at, err := filepath.Abs(c.Dir)
+			if err != nil {
+				at = c.Dir
+			}
+
+			return "the embedded files, since there is no folder " + at
+		}
+
+		return "the files in Config.FS"
+	}
+
+	return "Config.Source"
 }
 
 // catalog is every known migration, in the order they run.

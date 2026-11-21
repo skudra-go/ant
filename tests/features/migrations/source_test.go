@@ -169,6 +169,7 @@ func TestCommandsSayWhichMigrations(t *testing.T) {
 			q.config.Embedded = fstest.MapFS{
 				"versions/0001_baked_in.up.sql": {Data: []byte("CREATE TABLE baked_in (id int);")},
 			}
+
 			q.config.Dir = filepath.Join(p.dir, "not-here")
 
 			out := must[V1DB](&q, "status")

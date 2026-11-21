@@ -163,6 +163,13 @@ func Run[DB any](ctx context.Context, d dialect.Dialect, args []string, config .
 		return fmt.Errorf("%s takes one name, and got: %s", command, strings.Join(positional, " "))
 	}
 
+	// A folder is found from the working directory, so the commands that
+	// compare or write migrations say which they read. SQL meant for a pipe
+	// stays alone.
+	if command == "check" || command == "status" || command == "diff" && !dry {
+		fmt.Fprintln(c.Out, "Migrations:", c.describe(source))
+	}
+
 	switch command {
 	case "diff":
 		if name == "" {
