@@ -93,6 +93,7 @@ On 2026-11-20 the decisions moved from one file, `docs/DECISIONS.md`, to a file 
 | [95](095-in-means-eq-and-other-value-rules.md) | In means Eq, and other value rules | amended by [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) | `In` `NotIn` `Eq` `null` `any-array` `secure.Value` `UnixTime` `utf8` |
 | [109](109-numbers-inside-an-interface-read-as-json-number.md) | Numbers inside an interface read as json.Number | active | `json.Number` `UseNumber` `JSON` `secure.Value` `float64` `snowflake` |
 | [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) | A type PostgreSQL has a column for maps to it, and reads back | active | `ColumnType` `interval` `inet` `cidr` `jsonb` `numeric` `arrays` `time.Duration` `net.IP` `netip` `json.RawMessage` `decimal` `IntervalStyle` `AvgOf` `ErrNoColumnType` |
+| [137](137-a-uint64-column-on-postgresql-is-numeric.md) | A uint64 column on PostgreSQL is numeric(20,0) | active | `ColumnType` `uint64` `numeric` `bigint` |
 
 #### Relations
 
@@ -322,8 +323,8 @@ Before changing a file, read the decisions about it.
 | `dialect/mysql/mysql.go` | [13](013-mariadb-shares-the-mysql-package.md) [71](071-dependencies-stay-out-of-the-root-package.md) [74](074-dialects-state-their-differences.md) [75](075-generated-values-without-returning.md) [85](085-mysql-reads-the-table-it-writes-through-a-derived-table.md) |
 | `dialect/mysql/mysql_test.go` | [13](013-mariadb-shares-the-mysql-package.md) |
 | `dialect/postgres/array_test.go` | [43](043-database-specific-helpers.md) |
-| `dialect/postgres/ddl.go` | [50](050-three-layers-for-migrations.md) [52](052-new-not-null-columns-fill-existing-rows.md) [78](078-a-replaced-column-takes-its-dependents-along-and-they.md) [114](114-an-identity-columns-default-is-not-ants-to-change.md) [130](130-partitioning-is-part-of-the-table.md) [131](131-a-foreign-key-column-follows-its-target.md) [133](133-a-concurrent-build-clears-its-leftover.md) [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) [135](135-a-column-ant-made-for-an-earlier-default-is-converted-as-ant-stored-it.md) |
-| `dialect/postgres/ddl_test.go` | [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) [135](135-a-column-ant-made-for-an-earlier-default-is-converted-as-ant-stored-it.md) |
+| `dialect/postgres/ddl.go` | [50](050-three-layers-for-migrations.md) [52](052-new-not-null-columns-fill-existing-rows.md) [78](078-a-replaced-column-takes-its-dependents-along-and-they.md) [114](114-an-identity-columns-default-is-not-ants-to-change.md) [130](130-partitioning-is-part-of-the-table.md) [131](131-a-foreign-key-column-follows-its-target.md) [133](133-a-concurrent-build-clears-its-leftover.md) [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) [135](135-a-column-ant-made-for-an-earlier-default-is-converted-as-ant-stored-it.md) [137](137-a-uint64-column-on-postgresql-is-numeric.md) |
+| `dialect/postgres/ddl_test.go` | [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) [135](135-a-column-ant-made-for-an-earlier-default-is-converted-as-ant-stored-it.md) [137](137-a-uint64-column-on-postgresql-is-numeric.md) |
 | `dialect/postgres/expression.go` | [57](057-drift-compares-what-the-server-stored.md) |
 | `dialect/postgres/functions.go` | [42](042-converters-are-scanner-and-valuer.md) [43](043-database-specific-helpers.md) |
 | `dialect/postgres/inspect.go` | [57](057-drift-compares-what-the-server-stored.md) [72](072-partitions-are-not-migrations.md) [73](073-drift-compares-what-models-declare.md) [114](114-an-identity-columns-default-is-not-ants-to-change.md) [133](133-a-concurrent-build-clears-its-leftover.md) |
@@ -512,6 +513,7 @@ Before changing a file, read the decisions about it.
 | `tests/features/value_handling/postgres_test.go` | [43](043-database-specific-helpers.md) |
 | `tests/features/value_handling/probes` | [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) |
 | `tests/features/value_handling/probes/rows/probes_test.go` | [25](025-scanning.md) [119](119-an-upserts-update-writes-the-zero-a-default-field-holds.md) |
+| `tests/features/value_handling/uint64_test.go` | [137](137-a-uint64-column-on-postgresql-is-numeric.md) |
 | `tests/features/writing` | [80](080-every-write-moves-the-version-on.md) |
 | `tests/features/writing/bulk_changes_test.go` | [23](023-guarding-bulk-writes.md) [38](038-bulk-writes.md) [98](098-an-explicit-write-refuses-the-columns-ant-keeps.md) [102](102-updatemany-keeps-what-a-bulk-update-keeps.md) |
 | `tests/features/writing/bulk_test.go` | [22](022-inserts-run-one-statement-per-row.md) [63](063-savechanges-batches-inserts.md) |
@@ -554,10 +556,12 @@ Tags on two or more decisions. Search the headers for the rest: `rg -l '^tags: .
 - `Attempts`: [99](099-a-retried-attempt-leaves-nothing-in-the-tracker.md) [121](121-a-rollback-forgets-what-its-transaction-began-tracking.md)
 - `baseline`: [58](058-squashing-needs-no-coordination.md) [59](059-adopting-an-existing-database.md) [127](127-commands-refuse-to-guess-which-migration-is-meant.md) [128](128-adopt-leaves-out-roles.md)
 - `Batch`: [22](022-inserts-run-one-statement-per-row.md) [71](071-dependencies-stay-out-of-the-root-package.md)
+- `bigint`: [135](135-a-column-ant-made-for-an-earlier-default-is-converted-as-ant-stored-it.md) [137](137-a-uint64-column-on-postgresql-is-numeric.md)
 - `bulk-write`: [23](023-guarding-bulk-writes.md) [38](038-bulk-writes.md)
 - `change-tracking`: [92](092-tracked-values-compare-as-stored.md) [93](093-tracking-follows-what-a-save-wrote.md)
 - `check`: [127](127-commands-refuse-to-guess-which-migration-is-meant.md) [130](130-partitioning-is-part-of-the-table.md)
 - `closure`: [5](005-select-closures-run-client-side.md) [9](009-owner-review-of-step-1.md)
+- `ColumnType`: [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) [137](137-a-uint64-column-on-postgresql-is-numeric.md)
 - `ConcurrencyError`: [80](080-every-write-moves-the-version-on.md) [110](110-a-version-the-application-sets-is-the-one-checked.md) [112](112-a-locking-read-puts-the-row-into-the-tracked-instance.md)
 - `CONCURRENTLY`: [56](056-failure.md) [78](078-a-replaced-column-takes-its-dependents-along-and-they.md)
 - `Configure`: [21](021-configuration-runs-when-a-context-opens.md) [66](066-several-models-can-share-a-table.md) [83](083-antvet-judges-only-what-it-can-see.md) [107](107-hot-paths-allocate-for-the-operation-not-for-each-row.md)
@@ -617,6 +621,7 @@ Tags on two or more decisions. Search the headers for the rest: `rg -l '^tags: .
 - `netip`: [125](125-open-refuses-a-model-it-would-misread.md) [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) [136](136-an-outer-joins-side-reads-what-only-the-driver-converts.md)
 - `no-transaction`: [115](115-a-file-outside-a-transaction-is-recorded-before-it-runs.md) [126](126-a-migration-runs-as-it-says-or-not-at-all.md)
 - `null`: [30](030-tracking-follows-keys-not-addresses.md) [95](095-in-means-eq-and-other-value-rules.md)
+- `numeric`: [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) [137](137-a-uint64-column-on-postgresql-is-numeric.md)
 - `on-conflict`: [44](044-many-to-many.md) [103](103-an-upserts-update-stamps-updatedat.md)
 - `on-duplicate-key`: [75](075-generated-values-without-returning.md) [85](085-mysql-reads-the-table-it-writes-through-a-derived-table.md) [91](091-an-upsert-checks-a-copys-version-on-mysql-and-mariadb.md)
 - `Open`: [12](012-additions-to-the-dialect-contract.md) [21](021-configuration-runs-when-a-context-opens.md) [66](066-several-models-can-share-a-table.md) [67](067-naming-and-conventions-are-global.md) [125](125-open-refuses-a-model-it-would-misread.md)

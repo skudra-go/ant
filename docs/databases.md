@@ -80,7 +80,7 @@ Error helpers mean the same everywhere. `ant.IsUniqueViolation` works on all fiv
 
 **Values the drivers cannot take.** These are limits of `database/sql` or of a driver, which ant does not work around:
 
-- An `sql.Null[uint64]` above `math.MaxInt64` is refused by `database/sql`, though a bare `uint64` field is not.
+- An `sql.Null[uint64]` above `math.MaxInt64` is refused, though a bare `uint64` field is not: pgx answers `uint64 values with high bit set are not supported`. On PostgreSQL a `uint64` column is `numeric(20,0)`, which holds every value; the other dialects store it in an integer column, where a value past `math.MaxInt64` does not fit.
 - `ant.JSON` and `secure.Value` refuse text that is not valid UTF-8, as a text column does: `encoding/json` would store U+FFFD in its place.
 - pgx writes a pointer to a nil `json.RawMessage` as the JSON `null`, not as `NULL`.
 - pgx writes a 16-byte `net.IP` that holds an IPv4 address, as `net.ParseIP` returns, to an `inet` as `::ffff:10.0.0.1`, which `<<` against an IPv4 network does not match. Call `To4` on it, or use `netip.Addr`.

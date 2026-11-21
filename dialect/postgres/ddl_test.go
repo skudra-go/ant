@@ -83,6 +83,8 @@ func TestColumnTypeForNativeTypes(t *testing.T) {
 		"a named string":      {t: reflect.TypeFor[status](), want: "text"},
 		"map[string]any":      {t: reflect.TypeFor[map[string]any](), want: "jsonb"},
 		"int64, as it always": {t: reflect.TypeFor[int64](), want: "bigint"},
+		"uint64":              {t: reflect.TypeFor[uint64](), want: "numeric(20,0)"},
+		"uint32":              {t: reflect.TypeFor[uint32](), want: "bigint"},
 	}
 
 	for name, c := range cases {
