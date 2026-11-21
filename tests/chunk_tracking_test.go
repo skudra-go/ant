@@ -31,6 +31,7 @@ func seedChunked(t *testing.T, app *AppDB, n int) {
 	require.NoError(t, err)
 
 	posts := make([]*Post, n)
+
 	for i, u := range users {
 		posts[i] = &Post{UserID: u.ID, Title: "p" + u.Name}
 	}
@@ -202,7 +203,9 @@ func TestChunkKeepsWhatIsStillNeeded(t *testing.T) {
 				first, err := s.Users.OrderBy(&Users.ID).First(ctx)
 				require.NoError(t, err)
 
-				require.NoError(t, chunk(s.Users.Query(), ctx, 3, func([]*User) error { return nil }))
+				require.NoError(t, chunk(s.Users.Query(), ctx, 3, func([]*User) error {
+					return nil
+				}))
 
 				tracked, err := ant.Tracked[User](ctx, s)
 				require.NoError(t, err)
@@ -221,7 +224,9 @@ func TestChunkKeepsWhatIsStillNeeded(t *testing.T) {
 
 				require.NoError(
 					t,
-					chunk(s.Users.Include(&Users.Posts), ctx, 3, func([]*User) error { return nil }),
+					chunk(s.Users.Include(&Users.Posts), ctx, 3, func([]*User) error {
+						return nil
+					}),
 				)
 
 				require.Len(t, first.Posts, 1)
@@ -231,6 +236,7 @@ func TestChunkKeepsWhatIsStillNeeded(t *testing.T) {
 				require.False(t, changes)
 
 				first.Posts = nil
+
 				require.NoError(t, s.SaveChanges(ctx))
 
 				n, err := app.Posts.Where(ant.Eq(&Posts.UserID, first.ID)).Count(ctx)

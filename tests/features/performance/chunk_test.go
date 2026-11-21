@@ -117,6 +117,33 @@ func TestChunk(t *testing.T) {
 	})
 }
 
+// On a session, the unit of work for a job, a group stays tracked while its
+// callback runs, and goes once the callback has saved it, so a walk over a large
+// table holds one group at a time.
+func TestChunkOnASession(t *testing.T) {
+	fixture.RunTracked(t, func(t *testing.T, db *fixture.AppDB) {
+		seed(t, db, 25)
+		ctx := t.Context()
+		s := ant.Session(db)
+
+		require.NoError(t, s.Users.Query().ChunkByKey(ctx, 10, func(users []*User) error {
+			for _, u := range users {
+				u.Age += 10
+			}
+
+			return s.SaveChanges(ctx)
+		}))
+
+		tracked, err := ant.Tracked[User](ctx, s)
+		require.NoError(t, err)
+		require.Empty(t, tracked, "each group went once it was saved")
+
+		n, err := db.Users.Where(ant.Gte(&Users.Age, 10)).Count(ctx)
+		require.NoError(t, err)
+		require.EqualValues(t, 25, n)
+	})
+}
+
 // ChunkByKey keeps its place by key, so the callback can delete what it reads,
 // which would make Chunk skip rows.
 func TestChunkByKey(t *testing.T) {

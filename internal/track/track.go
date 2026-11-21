@@ -1219,6 +1219,37 @@ func (t *Tracker) ForgetBetween(mark, end uint64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	t.forgetBetween(mark, end)
+}
+
+// ForgetAlone is ForgetBetween, unless an entry that began by mark holds one of
+// those entries among the members of a loaded relation: let go of, it would look
+// taken out of that relation to the next save. It reports whether it let go.
+func (t *Tracker) ForgetAlone(mark, end uint64) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	for _, e := range t.entries {
+		if e.seq > mark {
+			continue
+		}
+
+		for _, members := range e.Members {
+			for _, member := range members {
+				if member.seq > mark && member.seq <= end {
+					return false
+				}
+			}
+		}
+	}
+
+	t.forgetBetween(mark, end)
+
+	return true
+}
+
+// forgetBetween is ForgetBetween, with the tracker locked.
+func (t *Tracker) forgetBetween(mark, end uint64) {
 	var gone []*Entry
 
 	began := func(e *Entry) bool { return e.seq > mark && e.seq <= end }
