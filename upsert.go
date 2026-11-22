@@ -1007,7 +1007,7 @@ func (t *Table[T]) UpdateMany(
 	}
 
 	if len(fields) == 0 {
-		return 0, ErrNoAssignment
+		return 0, fmt.Errorf("%w: name the fields to write, as UpdateMany(ctx, rows, &...Name)", ErrNoAssignment)
 	}
 
 	columns := make([]string, 0, len(fields))

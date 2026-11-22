@@ -1834,7 +1834,7 @@ func (u *unit) createMany(ctx context.Context, to exec.Executor, batch []*node) 
 // keyCondition finds the node's row by the key it was loaded with.
 func (n *node) keyCondition() ([]qb.Cond, error) {
 	if len(n.model.Keys) == 0 {
-		return nil, ErrNoKey
+		return nil, noKey(n.model)
 	}
 
 	if n.entry != nil && n.entry.HasOriginal() {

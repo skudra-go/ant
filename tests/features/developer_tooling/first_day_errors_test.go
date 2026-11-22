@@ -27,6 +27,18 @@ type GormColumn struct {
 	Name string `ant:"column:full_name"`
 }
 
+// GORM separates its keys with semicolons, ant with commas.
+type GormKeys struct {
+	ID   int64
+	Name string `ant:"size:100;not null"`
+}
+
+// ant's keys are lower case.
+type CasedKey struct {
+	ID   int64
+	Name string `ant:"readOnly"`
+}
+
 // A Writer's novels name their writer AuthorID, which convention does not find.
 type Novel struct {
 	ID       int64
@@ -110,6 +122,24 @@ func TestFirstDayMistakesSayWhatToDo(t *testing.T) {
 			[]string{`unknown tag key "column:full_name"`, "column=full_name"},
 		},
 		{
+			"GORM's semicolons",
+			opened[struct {
+				ant.Context
+				T ant.Table[GormKeys]
+			}],
+			ant.ErrBadSchema,
+			[]string{"Length(100);", "ant separates tag keys with commas"},
+		},
+		{
+			"a key in the wrong case",
+			opened[struct {
+				ant.Context
+				T ant.Table[CasedKey]
+			}],
+			ant.ErrBadSchema,
+			[]string{`unknown tag key "readOnly"`, "write readonly, in lower case"},
+		},
+		{
 			"an unknown tag key lists the keys there are",
 			opened[struct {
 				ant.Context
@@ -141,6 +171,12 @@ func TestFirstDayMistakesSayWhatToDo(t *testing.T) {
 			opened[*BadgeDB],
 			ant.ErrNoContext,
 			[]string{"*developer_tooling.BadgeDB is a pointer", "Open[developer_tooling.BadgeDB]"},
+		},
+		{
+			"a type that is no context",
+			opened[Badge],
+			ant.ErrNoContext,
+			[]string{"developer_tooling.Badge: Open takes a struct type that embeds ant.Context"},
 		},
 	} {
 		t.Run(c.name, func(t *testing.T) {

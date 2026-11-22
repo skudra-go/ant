@@ -142,7 +142,7 @@ func (q *Query[T]) ChunkByKey(ctx context.Context, size int, f func([]*T) error)
 
 	model := q.model()
 	if len(model.Keys) == 0 {
-		return ErrNoKey
+		return noKey(model)
 	}
 
 	// A composite key is one place too: the rows after (a, b) are those with a
@@ -289,7 +289,7 @@ func (q *Query[T]) keyset() ([]sortColumn, error) {
 	}
 
 	if len(model.Keys) == 0 {
-		return nil, ErrNoKey
+		return nil, noKey(model)
 	}
 
 	for _, key := range model.Keys {

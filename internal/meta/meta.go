@@ -4,6 +4,7 @@ package meta
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"database/sql"
 	"database/sql/driver"
@@ -528,12 +529,26 @@ func (r *Relation) Link() (Link, error) {
 func (r *Relation) resolve() (Link, error) {
 	target := ofType(r.Target)
 
-	missing := fmt.Errorf("%w: %s.%s", errs.ErrNoForeignKey, r.Owner.Type.Name(), r.Name)
+	// noKey says which model has no key for the relation to reference.
+	noKey := func(m *Model) error {
+		return fmt.Errorf(
+			"%w: %s.%s: %s has no single-column primary key to reference: "+
+				"give it one, or name the referenced field with References",
+			errs.ErrNoForeignKey,
+			r.Owner.Type.Name(),
+			r.Name,
+			m.Type.Name(),
+		)
+	}
 
 	if p := r.Pivot; p != nil {
 		local, foreign := r.Owner.Key(), target.Key()
-		if local == nil || (foreign == nil && r.ThroughKey == nil) {
-			return Link{}, missing
+
+		switch {
+		case local == nil:
+			return Link{}, noKey(r.Owner)
+		case foreign == nil && r.ThroughKey == nil:
+			return Link{}, noKey(target)
 		}
 
 		if p.Local == "" {
@@ -580,7 +595,7 @@ func (r *Relation) resolve() (Link, error) {
 		}
 
 		if local == nil {
-			return Link{}, missing
+			return Link{}, noKey(r.Owner)
 		}
 
 		return Link{Target: target, Local: local, Foreign: fk}, nil
@@ -593,7 +608,7 @@ func (r *Relation) resolve() (Link, error) {
 		}
 
 		if foreign == nil {
-			return Link{}, missing
+			return Link{}, noKey(target)
 		}
 
 		return Link{
@@ -648,7 +663,53 @@ func (r *Relation) resolve() (Link, error) {
 		}
 	}
 
-	return Link{}, missing
+	return Link{}, r.notFound(target, owners)
+}
+
+// notFound reports a relation whose foreign key no convention finds, naming the
+// fields ant looked for and how to name the key instead (#301).
+func (r *Relation) notFound(target *Model, owners []reflect.Type) error {
+	owner, name := r.Owner.Type.Name(), target.Type.Name()
+
+	backs := make([]string, 0, len(owners))
+	for _, o := range owners {
+		backs = append(backs, name+"."+o.Name()+"ID")
+	}
+
+	looked := strings.Join(backs, " or ")
+
+	if r.Kind == One {
+		return fmt.Errorf(
+			"%w: %s.%s: looked for %s.%sID and %s; name the key in %s's Configure, "+
+				"as b.BelongsTo(&...%s).ForeignKey(&...Key) for a key on %s, "+
+				"or b.HasOne(&...%s).ForeignKey(&...Key) for one on %s",
+			errs.ErrNoForeignKey,
+			owner,
+			r.Name,
+			owner,
+			r.Name,
+			looked,
+			owner,
+			r.Name,
+			owner,
+			r.Name,
+			name,
+		)
+	}
+
+	return fmt.Errorf(
+		"%w: %s.%s: looked for %s, and for a %s relation back to %s; "+
+			"name the %s field that holds the key in %s's Configure, as b.HasMany(&...%s).ForeignKey(&...Key)",
+		errs.ErrNoForeignKey,
+		owner,
+		r.Name,
+		looked,
+		name,
+		owner,
+		name,
+		owner,
+		r.Name,
+	)
 }
 
 // shared refuses a foreign key that convention gives to r and to another
@@ -1648,7 +1709,7 @@ func signedInt(k reflect.Kind) bool {
 
 func walk(m *Model, t reflect.Type, offset uintptr, prefix, columnPrefix string) error {
 	for sf := range t.Fields() {
-		tag, tagErr := parseTag(sf.Tag.Get("ant"))
+		tag, tagErr := parseTag(sf.Tag.Get("ant"), sf.Name)
 		if !sf.IsExported() || tag.skip {
 			continue
 		}
@@ -1933,7 +1994,8 @@ func tagParts(s string) []string {
 	return append(parts, s[start:])
 }
 
-func parseTag(s string) (tag, error) {
+// parseTag reads the ant tag of the field named field.
+func parseTag(s, field string) (tag, error) {
 	var out tag
 
 	for _, part := range tagParts(s) {
@@ -1972,11 +2034,71 @@ func parseTag(s string) (tag, error) {
 				out.column = value
 			}
 		default:
-			return out, fmt.Errorf("unknown tag key %q", key)
+			return out, unknownKey(key, field)
 		}
 	}
 
 	return out, nil
+}
+
+// tagKeys lists the keys an ant tag takes.
+const tagKeys = "-, unique, computed, readonly, writeonly, immutable, embedded, version, token, " +
+	"default=, prefix= and column="
+
+// unknownKey refuses a tag key ant does not take, saying what to write instead
+// where it can tell, and listing the keys there are. Most such keys are GORM's,
+// whose values follow a colon, and whose schema settings ant takes in Configure
+// (#301).
+func unknownKey(key, field string) error {
+	first, _, _ := strings.Cut(key, ";") // GORM's separator
+	name, value, _ := strings.Cut(first, ":")
+
+	column := func(call string) string {
+		return fmt.Sprintf("set it in Configure, as b.Column(&...%s).%s", field, call)
+	}
+
+	var hint string
+
+	switch strings.ToLower(strings.ReplaceAll(strings.TrimSpace(name), "_", "")) {
+	case "column", "default", "prefix":
+		hint = fmt.Sprintf("a tag value follows =, as %s=%s", name, value)
+	case "-":
+		hint = "write - alone to leave the field out"
+	case "unique", "computed", "readonly", "writeonly", "immutable", "embedded", "version", "token":
+		hint = fmt.Sprintf("write %s, in lower case and with no value", strings.ToLower(name))
+	case "primarykey", "pk", "autoincrement":
+		hint = fmt.Sprintf(
+			"a field named ID is the key, and an integer one is generated; "+
+				"name another with b.Key(&...%s) in Configure",
+			field,
+		)
+	case "size", "length":
+		hint = column("Length(" + cmp.Or(value, "n") + ")")
+	case "type":
+		hint = column(fmt.Sprintf("Type(%q)", cmp.Or(value, "...")))
+	case "precision", "scale":
+		hint = column("Precision(precision, scale)")
+	case "not null", "notnull":
+		hint = column("NotNull()")
+	case "comment":
+		hint = column(fmt.Sprintf("Comment(%q)", value))
+	case "index", "uniqueindex":
+		hint = fmt.Sprintf("declare it in Configure, as b.Index(&...%s), with .Unique() for a unique one", field)
+	case "foreignkey", "references", "many2many", "constraint":
+		hint = "configure relations in Configure, as b.HasMany(&...Rel).ForeignKey(&...Key)"
+	case "serializer":
+		hint = "store the field as JSON with ant.JSON[T]"
+	}
+
+	if strings.Contains(key, ";") {
+		hint = strings.TrimPrefix(hint+"; ant separates tag keys with commas", "; ")
+	}
+
+	if hint != "" {
+		return fmt.Errorf("unknown tag key %q: %s; ant's tag keys are %s", key, hint, tagKeys)
+	}
+
+	return fmt.Errorf("unknown tag key %q; ant's tag keys are %s", key, tagKeys)
 }
 
 // ColumnName converts a Go field name to snake_case, keeping initialisms

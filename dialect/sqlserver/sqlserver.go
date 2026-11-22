@@ -99,6 +99,8 @@ func state(err error) string {
 		return "23502"
 	case 1205:
 		return "40P01"
+	case 208: // invalid object name
+		return "42P01"
 	}
 
 	return ""

@@ -67,7 +67,7 @@ func (t *Table[T]) keyed() (*meta.Model, *meta.Field, error) {
 
 	key := model.Key()
 	if key == nil {
-		return nil, nil, fmt.Errorf("%w: %s", ErrNoKey, model.Type.Name())
+		return nil, nil, noKey(model)
 	}
 
 	return model, key, nil
@@ -257,7 +257,7 @@ func (t *Table[T]) Reload(ctx context.Context, e *T) error {
 	}
 
 	if len(model.Keys) == 0 {
-		return fmt.Errorf("%w: %s", ErrNoKey, model.Type.Name())
+		return noKey(model)
 	}
 
 	if e == nil {

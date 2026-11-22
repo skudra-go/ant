@@ -77,7 +77,10 @@ adults, err := db.Users.
 - `ant.Open` fills in every `ant.Table` field and fails at startup if a model can't
   be mapped: an unknown tag key, two fields on one column, a relation with no
   foreign key, or `[]*Post` where `[]Post` is meant. It reports every broken model
-  at once. Open once per process. Never construct `AppDB` yourself.
+  at once, and each error says what to write instead: GORM's `primaryKey`,
+  `size:100` and `column:name` are refused with ant's equivalent. Open once per
+  process, as `ant.Open[AppDB]`, never `ant.Open[*AppDB]`. Never construct `AppDB`
+  yourself.
 - The application imports the driver: `_ "github.com/jackc/pgx/v5/stdlib"` for
   PostgreSQL, `_ "modernc.org/sqlite"`, `_ "github.com/go-sql-driver/mysql"` or
   `_ "github.com/microsoft/go-mssqldb"`.
@@ -402,7 +405,8 @@ Match with `errors.Is` and `errors.As`, never by text. The common ones:
 sending SQL), `ErrNotProbe`, `ErrWrongModel`, `ErrKeyType`, `ErrNoForeignKey`,
 `ErrPaging` (a page number or size below 1, or a negative `Limit` or `Offset`: a
 client's mistake when it comes from a request), `ErrCursor`, and `ErrQueryInEach`.
-`ant.FailedSQL(err)` returns the statement behind an error, without values.
+`ant.FailedSQL(err)` returns the statement behind an error, without values. A table
+that does not exist gives `ant.SQLState(err) == "42P01"` on every database.
 
 ## Databases
 

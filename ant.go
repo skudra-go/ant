@@ -26,7 +26,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -166,7 +165,7 @@ func Open[DB any](
 	options ...Option,
 ) (*DB, error) {
 	if _, ok := any(new(DB)).(Handle); !ok {
-		return nil, fmt.Errorf("%w: %T", ErrNoContext, new(DB))
+		return nil, noContext[DB]()
 	}
 
 	if checker, ok := d.(dialect.DSNChecker); ok {
@@ -196,7 +195,7 @@ func Open[DB any](
 // closes it, as with Open.
 func Wrap[DB any](d dialect.Dialect, pool *sql.DB, options ...Option) (*DB, error) {
 	if _, ok := any(new(DB)).(Handle); !ok {
-		return nil, fmt.Errorf("%w: %T", ErrNoContext, new(DB))
+		return nil, noContext[DB]()
 	}
 
 	return wrap[DB](pool, pool, d, options)

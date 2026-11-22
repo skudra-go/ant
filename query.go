@@ -802,7 +802,7 @@ func (q *Query[T]) Explain(ctx context.Context) (string, error) {
 func (q *Query[T]) Find[K comparable](ctx context.Context, key K) (*T, error) {
 	field := q.model().Key()
 	if field == nil {
-		return nil, ErrNoKey
+		return nil, noKey(q.model())
 	}
 
 	if err := checkKey[K](field); err != nil {
@@ -880,7 +880,7 @@ func (q *Query[T]) bulkTarget() ([]qb.Cond, error) {
 
 	key := model.Key()
 	if key == nil {
-		return nil, ErrNoKey
+		return nil, noKey(model)
 	}
 
 	// A source without the key cannot say which rows it came from, and some
@@ -956,7 +956,7 @@ func (q *Query[T]) update(a []Assignment) (*qb.Update, *Query[T], error) {
 	n := q.next()
 
 	if len(a) == 0 {
-		n.fail(ErrNoAssignment)
+		n.fail(fmt.Errorf("%w: pass what to set, as ant.Set(&...Name, value)", ErrNoAssignment))
 	}
 
 	set := make([]qb.Assignment, 0, len(a))

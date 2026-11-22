@@ -69,7 +69,7 @@ func mark[T any](ctx context.Context, h Handle, entity *T, state track.State) er
 	}
 
 	if len(model.Keys) == 0 {
-		return fmt.Errorf("%w: %s", ErrNoKey, model.Type.Name())
+		return noKey(model)
 	}
 
 	release, err := s.hold(ctx)

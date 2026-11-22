@@ -34,7 +34,7 @@ func (t *Table[T]) tableModel() *meta.Model { return configure[T]() }
 // migrate commands, passes them here.
 func SchemaOf[DB any](d dialect.Dialect, options ...Option) (*schema.Schema, error) {
 	if _, ok := any(new(DB)).(Handle); !ok {
-		return nil, fmt.Errorf("%w: %T", ErrNoContext, new(DB))
+		return nil, noContext[DB]()
 	}
 
 	unused := defaultSettings()
