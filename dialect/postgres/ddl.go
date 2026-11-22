@@ -461,10 +461,25 @@ func (d impl) alterColumn(c schema.AlterColumn) []string {
 // interval, inet and jsonb. It returns "" for any other change. An interval
 // keeps microseconds, so the nanoseconds below one go, toward zero, as they do
 // when pgx writes a time.Duration. A bytea that is no address becomes NULL.
+//
+// PostgreSQL also has no cast between a boolean and an integer other than
+// integer itself, so a boolean to smallint or bigint goes through integer, and
+// an integer to boolean reads as a comparison with zero. Both keep NULL a NULL,
+// where CASE WHEN would turn it into 0 or false.
 func converted(from, to, column string) string {
 	switch from, to = baseType(from), baseType(to); {
 	case from == "bigint" && to == "interval":
 		return "(" + column + " / 1000) * interval '1 microsecond'"
+	case from == "boolean" || from == "bool":
+		switch to {
+		case "smallint", "bigint":
+			return column + "::integer::" + to
+		}
+	case to == "boolean" || to == "bool":
+		switch from {
+		case "smallint", "integer", "int", "bigint":
+			return column + " <> 0"
+		}
 	case from == "bytea" && to == "inet":
 		bytes := make([]string, 4)
 
