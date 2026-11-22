@@ -23,8 +23,18 @@ func TestConformanceNotEqualMatchesNull(t *testing.T) {
 		one := sql.Null[float64]{V: 1, Valid: true}
 
 		require.NoError(t, db.Tickets.Insert(ctx,
-			&Ticket{ID: 1, Nick: &ann, Score: sql.Null[float64]{V: 2, Valid: true}, Amount: decimal.NewFromInt(5)},
-			&Ticket{ID: 2, Nick: &bob, Score: one, Amount: decimal.NewFromInt(5)},
+			&Ticket{
+				ID:     1,
+				Nick:   &ann,
+				Score:  sql.Null[float64]{V: 2, Valid: true},
+				Amount: decimal.NewFromInt(5),
+			},
+			&Ticket{
+				ID:     2,
+				Nick:   &bob,
+				Score:  one,
+				Amount: decimal.NewFromInt(5),
+			},
 			&Ticket{ID: 3, Amount: decimal.NewFromInt(5)},
 		))
 

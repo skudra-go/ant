@@ -27,11 +27,20 @@ func TestNe(t *testing.T) {
 			require.Equal(t, []string{"Carol"}, fixture.Names(got))
 		})
 
-		// SQL rule: comparing NULL with a value is neither true nor false.
-		t.Run("a NULL column never matches a value", func(t *testing.T) {
-			got, err := db.Users.Where(ant.Ne(&Users.Bio, new("Other"))).All(ctx)
+		// As Go's != does, and unlike SQL's <>: Alice and Bob have no bio, and
+		// no bio is not "Other". Not(Eq(...)) is the same.
+		t.Run("a NULL column matches a value", func(t *testing.T) {
+			got, err := db.Users.Where(ant.Ne(&Users.Bio, new("Other"))).
+				OrderBy(&Users.Name).
+				All(ctx)
 			require.NoError(t, err)
-			require.Equal(t, []string{"Carol"}, fixture.Names(got))
+			require.Equal(t, []string{"Alice", "Bob", "Carol"}, fixture.Names(got))
+
+			got, err = db.Users.Where(ant.Not(ant.Eq(&Users.Bio, new("Gopher")))).
+				OrderBy(&Users.Name).
+				All(ctx)
+			require.NoError(t, err)
+			require.Equal(t, []string{"Alice", "Bob"}, fixture.Names(got))
 		})
 	})
 }

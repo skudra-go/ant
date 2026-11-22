@@ -183,6 +183,11 @@ Conditions: `ant.Eq`, `Ne`, `Gt`, `Gte`, `Lt`, `Lte`, `Between`, `In`, `NotIn`,
 `InTuples`, `AnyOf`. Several conditions in one `Where`, or several `Where` calls, are
 joined with `AND`. `ant.In(&Users.Age)` with no values matches nothing.
 
+NULL reads as Go: `ant.Eq(&Users.Bio, nil)` is `IS NULL`, and on a nullable column
+`ant.Ne(&Users.Bio, &x)`, `NotIn` and `ant.Not(ant.Eq(...))` with a value also match
+the NULL rows (`bio <> $1 OR bio IS NULL`). Ordering comparisons stay SQL's:
+`Gt`, `Lt` and `ant.Not(ant.Gt(...))` never match NULL.
+
 Every helper takes a field of any type, and the database checks that it can
 order, compare or add it up: `OrderBy`, `ThenBy`, `Latest`, `Gt` to `Between`,
 `Like`, `ILike`, `Lower`, `Past`, `Future`, `Today`, `DatePart`, `Sum`, `Avg`, `Min`,

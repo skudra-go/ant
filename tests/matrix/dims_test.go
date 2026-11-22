@@ -275,7 +275,25 @@ func conditions() []condition {
 				return ant.Ne(&Authors.Score, ptr(5))
 			},
 			func(a *Author) tri {
-				return cmpScore(a, func(v int) bool { return v != 5 })
+				return truth(a.Score == nil || *a.Score != 5)
+			},
+		),
+		atom(
+			"score not in 0,5",
+			func() ant.Cond {
+				return ant.NotIn(&Authors.Score, ptr(0), ptr(5))
+			},
+			func(a *Author) tri {
+				return truth(a.Score == nil || *a.Score != 0 && *a.Score != 5)
+			},
+		),
+		atom(
+			"Col(score).Ne(5)",
+			func() ant.Cond {
+				return ant.Col(&Authors.Score).Ne(ptr(5))
+			},
+			func(a *Author) tri {
+				return truth(a.Score == nil || *a.Score != 5)
 			},
 		),
 		atom(
@@ -445,7 +463,17 @@ func conditions() []condition {
 		},
 		compound("age>18 and score set", ant.And, and, ageGt18, scoreSet),
 		compound("age<0 or score=5", ant.Or, or, ageNeg, score5),
-		negated("not score=5", score5),
+		complement("not score=5", score5),
+		complement("not score in 0,5", atom(
+			"",
+			func() ant.Cond {
+				return ant.In(&Authors.Score, ptr(0), ptr(5))
+			},
+			func(a *Author) tri {
+				return cmpScore(a, func(v int) bool { return v == 0 || v == 5 })
+			},
+		)),
+		complement("not (score=5 or age<0)", compound("", ant.Or, or, score5, ageNeg)),
 		negated("not (age=30 or active)", compound("", ant.Or, or, age30, active)),
 		compound(
 			"(age<0 or score=5) and not active",
@@ -467,6 +495,17 @@ func compound(
 		name: name,
 		cond: func(db *MatrixDB) ant.Cond { return join(left.cond(db), right.cond(db)) },
 		eval: func(w *world, a *Author) tri { return op(left.eval(w, a), right.eval(w, a)) },
+	}
+}
+
+// complement is Not of a condition built from Eq and In and the connectives
+// over them, which matches every row the condition doesn't, NULL included: ant
+// makes Not(Eq) Ne, and Ne on a nullable column matches NULL, as Go's != does.
+func complement(name string, c condition) condition {
+	return condition{
+		name: name,
+		cond: func(db *MatrixDB) ant.Cond { return ant.Not(c.cond(db)) },
+		eval: func(w *world, a *Author) tri { return truth(c.eval(w, a) != yes) },
 	}
 }
 

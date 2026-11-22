@@ -451,8 +451,9 @@ func TestProbeInvalidNullWithData(t *testing.T) {
 	})
 }
 
-// In and NotIn with NULL members: Eq(nil) and Ne(nil) turn into IS [NOT] NULL.
-// In/NotIn do not, which is the SQL meaning.
+// In and NotIn with NULL members: Eq(nil) and Ne(nil) turn into IS [NOT] NULL,
+// and In and NotIn fold them per value. NotIn with no nil matches NULL, as Ne
+// does.
 func TestProbeInWithNulls(t *testing.T) {
 	probekit.KnownHere(t)
 
@@ -491,9 +492,9 @@ func TestProbeInWithNulls(t *testing.T) {
 			t.Errorf("NotIn(P, nil, &1) matches %d rows; want 1 (only 2) like Ne(nil)", n)
 		}
 
-		if n := count(ant.NotIn(&f.P, &one)); n != 1 {
+		if n := count(ant.NotIn(&f.P, &one)); n != 2 {
 			t.Errorf(
-				"NotIn(P, &1) matches %d rows; plain SQL gives 1 (the NULL row is not 'not in')",
+				"NotIn(P, &1) matches %d rows; want 2 (NULL row and 2) like Ne(&1)",
 				n,
 			)
 		}
