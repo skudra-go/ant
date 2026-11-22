@@ -455,6 +455,19 @@ func Min[V any](field *V) Expr[V] { return function[V]("MIN", false, Col(field))
 // Max returns a column's largest value.
 func Max[V any](field *V) Expr[V] { return function[V]("MAX", false, Col(field)) }
 
+// Nullable reads e as an sql.Null[V], for an expression that can be NULL where
+// V can't hold it: Max over no rows, or a column of a left join's side. A
+// projection reads such a NULL into a plain V field as its zero value; an
+// sql.Null field tells it from a stored zero.
+func Nullable[V any](e Expr[V]) Expr[sql.Null[V]] {
+	return Expr[sql.Null[V]]{
+		node:     e.node,
+		refs:     e.refs,
+		err:      e.err,
+		nullable: true,
+	}
+}
+
 // Func calls a database function by name. Arguments that are an Expr render
 // inline, and any other is a bound value. The name is not quoted, so it must
 // never come from untrusted input.

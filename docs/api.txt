@@ -435,6 +435,7 @@ ant: func Not(c Cond) Cond
 ant: func NotExists(q Selectable) Cond
 ant: func NotInSub[V any](field *V, sub Sub[V]) Cond
 ant: func NotIn[V comparable](field *V, values ...V) Cond
+ant: func Nullable[V any](e Expr[V]) Expr[sql.Null[V]]
 ant: func Observe[T any](h Handle, o Observer[T]) error
 ant: func OnConflict[V any](field *V) *Conflict
 ant: func OnPrimary(ctx context.Context) context.Context

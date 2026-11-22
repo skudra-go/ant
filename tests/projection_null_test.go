@@ -22,7 +22,10 @@ func TestConformanceProjectionReadsNullAsZero(t *testing.T) {
 		app := openApp(t, target)
 		ctx := t.Context()
 		users := seedUsers(t, app, "alice", 30, "bob", 25)
-		require.NoError(t, app.Posts.Insert(ctx, &Post{UserID: users[0].ID, Title: "hello", Published: true}))
+		require.NoError(
+			t,
+			app.Posts.Insert(ctx, &Post{UserID: users[0].ID, Title: "hello", Published: true}),
+		)
 
 		t.Run("a left join's side", func(t *testing.T) {
 			type row struct {

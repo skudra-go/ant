@@ -244,6 +244,11 @@ titles, err := db.Posts.
 	All(ctx)
 ```
 
+In `ant.Project`, a NULL from a left join's side or an aggregate over no rows
+reads into a plain field as its zero value, as `MaxOf` returns one. Wrap the
+expression in `ant.Nullable` and use an `sql.Null[V]` field to tell "no row"
+from a stored zero: `ant.IntoExpr(&R.Newest, ant.Nullable(ant.Max(&Posts.ID)))`.
+
 Raw SQL scans into models, any struct or a single value. Use `?` placeholders on
 every database, and pass values as arguments, never in the text:
 
