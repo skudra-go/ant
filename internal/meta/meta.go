@@ -672,6 +672,7 @@ func (r *Relation) notFound(target *Model, owners []reflect.Type) error {
 	owner, name := r.Owner.Type.Name(), target.Type.Name()
 
 	backs := make([]string, 0, len(owners))
+
 	for _, o := range owners {
 		backs = append(backs, name+"."+o.Name()+"ID")
 	}
@@ -2083,7 +2084,10 @@ func unknownKey(key, field string) error {
 	case "comment":
 		hint = column(fmt.Sprintf("Comment(%q)", value))
 	case "index", "uniqueindex":
-		hint = fmt.Sprintf("declare it in Configure, as b.Index(&...%s), with .Unique() for a unique one", field)
+		hint = fmt.Sprintf(
+			"declare it in Configure, as b.Index(&...%s), with .Unique() for a unique one",
+			field,
+		)
 	case "foreignkey", "references", "many2many", "constraint":
 		hint = "configure relations in Configure, as b.HasMany(&...Rel).ForeignKey(&...Key)"
 	case "serializer":

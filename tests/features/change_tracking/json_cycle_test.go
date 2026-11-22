@@ -23,6 +23,7 @@ func TestEncodeATrackedGraph(t *testing.T) {
 		authors := func(q *ant.Query[Post]) *ant.Query[Post] {
 			return q.IncludeOne(&Posts.User)
 		}
+
 		session := ant.Session(db)
 
 		t.Run("a tracked graph is a cycle", func(t *testing.T) {
@@ -35,7 +36,9 @@ func TestEncodeATrackedGraph(t *testing.T) {
 		})
 
 		t.Run("a NoTracking read is a tree", func(t *testing.T) {
-			users, err := session.Users.NoTracking().Include(&Users.Posts, authors).Find(ctx, alice.ID)
+			users, err := session.Users.NoTracking().
+				Include(&Users.Posts, authors).
+				Find(ctx, alice.ID)
 			require.NoError(t, err)
 			require.NotSame(t, users, users.Posts[0].User)
 

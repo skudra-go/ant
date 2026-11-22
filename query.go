@@ -865,6 +865,7 @@ func (q *Query[T]) Each(ctx context.Context) iter.Seq2[T, error] {
 		// The connection streams until the loop ends, so in a transaction it
 		// refuses the loop's own statements meanwhile.
 		on := q.state.streamsOf(ctx)
+
 		on.start()
 		defer on.stop()
 

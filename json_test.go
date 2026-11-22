@@ -112,9 +112,9 @@ func TestDeletedAtJSON(t *testing.T) {
 	require.JSONEq(t, `{"ID":2,"DeletedAt":"2026-01-02T03:04:05Z"}`, string(deleted))
 
 	for doc, want := range map[string]ant.DeletedAt{
-		`{"DeletedAt":null}`:                                       {},
-		`{}`:                                                       {},
-		`{"DeletedAt":"2026-01-02T03:04:05Z"}`:                     gone,
+		`{"DeletedAt":null}`:                   {},
+		`{}`:                                   {},
+		`{"DeletedAt":"2026-01-02T03:04:05Z"}`: gone,
 		`{"DeletedAt":{"V":"2026-01-02T03:04:05Z","Valid":true}}`:  gone,
 		`{"DeletedAt":{"V":"0001-01-01T00:00:00Z","Valid":false}}`: {},
 	} {

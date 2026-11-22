@@ -22,6 +22,7 @@ func TestWriteFromARequest(t *testing.T) {
 	fixture.Run(t, func(t *testing.T, db *fixture.AppDB) {
 		alice, _, _ := fixture.Seed(t, db)
 		ctx := t.Context()
+
 		body := `{
 			"Title": "Mine",
 			"ID": 77,

@@ -41,7 +41,7 @@ type sessions struct {
 	// parent maps a variable set from ant.Session to the variable it was given,
 	// or to nil when that was no variable.
 	parent  map[types.Object]types.Object
-	loads   []load // in the order of the source
+	loads   []load                     // in the order of the source
 	changed map[types.Object]token.Pos // the first change to each entity
 	escaped map[types.Object]bool
 	saves   []save
@@ -205,6 +205,7 @@ func (s *sessions) follow() {
 			}
 		case *ast.ValueSpec:
 			lhs := make([]ast.Expr, len(n.Names))
+
 			for i, name := range n.Names {
 				lhs[i] = name
 			}
@@ -309,7 +310,10 @@ func (s *sessions) loadedThrough(call *ast.CallExpr) types.Object {
 			}
 
 			if selection.Kind() == types.FieldVal {
-				if named := antType(selection.Type()); named == nil || named.Obj().Name() != "Table" {
+				if named := antType(
+					selection.Type(),
+				); named == nil ||
+					named.Obj().Name() != "Table" {
 					return nil
 				}
 

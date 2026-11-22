@@ -53,6 +53,7 @@ func TestConformanceOpenRefusesValuesTheDriverCannotTake(t *testing.T) {
 
 		t.Run("a struct, a slice or a map", func(t *testing.T) {
 			db, err := ant.Open[ResidentDB](ctx, target.Dialect, target.DSN)
+
 			if target.Name == "postgres" {
 				require.NoError(t, err)
 				require.NoError(t, db.Close())

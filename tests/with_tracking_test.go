@@ -105,6 +105,7 @@ func TestConformanceWithKeepsRowsTracked(t *testing.T) {
 				Ref:    uuid.New(),
 				Amount: decimal.NewFromInt(1),
 			}))
+
 			require.NoError(t, root.TicketNotes.Insert(ctx, &TicketNote{
 				ID:       20,
 				TicketID: 2,
@@ -127,6 +128,7 @@ func TestConformanceWithKeepsRowsTracked(t *testing.T) {
 
 			nick := "joined"
 			first.Nick = &nick
+
 			require.NoError(t, s.SaveChanges(ctx))
 
 			again, err := root.Tickets.Find(ctx, int64(2))

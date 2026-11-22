@@ -188,7 +188,12 @@ func (s *state) bound(ctx context.Context) context.Context {
 }
 
 // bind returns ctx bound to t, which runs statements through e.
-func (s *state) bind(ctx context.Context, t *txState, on *streams, e exec.Executor) context.Context {
+func (s *state) bind(
+	ctx context.Context,
+	t *txState,
+	on *streams,
+	e exec.Executor,
+) context.Context {
 	return context.WithValue(ctx, boundKey{}, &binding{s.db, t, on, bare(e)})
 }
 
@@ -535,6 +540,7 @@ func (s *state) transactHooked(
 	s = s.joined(ctx)
 
 	inner := ctx
+
 	if hooked {
 		inner = s.bound(ctx)
 	}

@@ -61,6 +61,7 @@ func openHolders(t *testing.T, target testdb.Target) *HolderDB {
 
 	// SQL Server's unique index counts NULL as a value, unless it is filtered.
 	someone := ""
+
 	if target.Name == "sqlserver" {
 		someone = " WHERE holder_id IS NOT NULL"
 	}
@@ -102,6 +103,7 @@ func TestConformanceHasOneReplacedOrCleared(t *testing.T) {
 			t.Helper()
 
 			s := ant.Session(root)
+
 			h := &Holder{
 				Name:   name,
 				Pass:   &Pass{Code: name + "-1"},
@@ -131,6 +133,7 @@ func TestConformanceHasOneReplacedOrCleared(t *testing.T) {
 			require.NoError(t, err)
 
 			var codes []string
+
 			for _, p := range got {
 				codes = append(codes, p.Code)
 			}
@@ -141,10 +144,13 @@ func TestConformanceHasOneReplacedOrCleared(t *testing.T) {
 		lockers := func(t *testing.T, id int64) []int {
 			t.Helper()
 
-			got, err := root.Lockers.Where(ant.Eq(&Lockers.HolderID, &id)).OrderBy(&Lockers.ID).All(ctx)
+			got, err := root.Lockers.Where(ant.Eq(&Lockers.HolderID, &id)).
+				OrderBy(&Lockers.ID).
+				All(ctx)
 			require.NoError(t, err)
 
 			var numbers []int
+
 			for _, l := range got {
 				numbers = append(numbers, l.Number)
 			}
@@ -205,6 +211,7 @@ func TestConformanceHasOneReplacedOrCleared(t *testing.T) {
 
 		t.Run("cleared after the graph was inserted", func(t *testing.T) {
 			s := ant.Session(root)
+
 			h := &Holder{
 				Name: "cat",
 				Pass: &Pass{Code: "cat-1"},
@@ -213,6 +220,7 @@ func TestConformanceHasOneReplacedOrCleared(t *testing.T) {
 			require.NoError(t, s.SaveChanges(ctx))
 
 			h.Pass = nil
+
 			require.NoError(t, s.SaveChanges(ctx))
 			require.Empty(t, passes(t, h.ID))
 		})
@@ -228,7 +236,9 @@ func TestConformanceHasOneReplacedOrCleared(t *testing.T) {
 				Pass:   a.Pass,
 				Locker: a.Locker,
 			}
+
 			a.Pass, a.Locker = nil, nil
+
 			require.NoError(t, ant.Add(ctx, s, c))
 			require.NoError(t, s.SaveChanges(ctx))
 
@@ -255,6 +265,7 @@ func TestConformanceHasOnePickedIsLeftAlone(t *testing.T) {
 		require.NotNil(t, got.LastNote)
 
 		got.LastNote = nil
+
 		require.NoError(t, s.SaveChanges(ctx))
 
 		n, err := root.TicketNotes.Count(ctx)

@@ -399,6 +399,7 @@ func (t *Table[T]) Upsert(ctx context.Context, e *T, conflict *Conflict) (bool, 
 	hooked := ctx.Value(skipHooks{}) == nil && hooksOf(model).writes()
 
 	hookCtx := ctx
+
 	if hooked {
 		hookCtx = t.state.bound(ctx)
 	}
@@ -438,18 +439,23 @@ func (t *Table[T]) Upsert(ctx context.Context, e *T, conflict *Conflict) (bool, 
 	stmt.Conflict = clause
 
 	// An AfterInsert error has to undo the write, which a transaction covers.
-	err = t.state.transactHooked(ctx, hooksOf(model).afterInsert, hooked, func(ctx context.Context, to exec.Executor) error {
-		rows, err := t.upsertRows(ctx, to, model, stmt, unsafe.Pointer(e), checked)
-		if err == nil {
-			err = readInto(rows, e)
-		}
+	err = t.state.transactHooked(
+		ctx,
+		hooksOf(model).afterInsert,
+		hooked,
+		func(ctx context.Context, to exec.Executor) error {
+			rows, err := t.upsertRows(ctx, to, model, stmt, unsafe.Pointer(e), checked)
+			if err == nil {
+				err = readInto(rows, e)
+			}
 
-		if err != nil {
-			return err
-		}
+			if err != nil {
+				return err
+			}
 
-		return n.afterInsert(ctx)
-	})
+			return n.afterInsert(ctx)
+		},
+	)
 	if err != nil {
 		for _, f := range slices.Concat(n.generated, n.stamped) {
 			f.Value(n.entity).SetZero()
@@ -1019,7 +1025,10 @@ func (t *Table[T]) UpdateMany(
 	}
 
 	if len(fields) == 0 {
-		return 0, fmt.Errorf("%w: name the fields to write, as UpdateMany(ctx, rows, &...Name)", ErrNoAssignment)
+		return 0, fmt.Errorf(
+			"%w: name the fields to write, as UpdateMany(ctx, rows, &...Name)",
+			ErrNoAssignment,
+		)
 	}
 
 	columns := make([]string, 0, len(fields))

@@ -172,7 +172,11 @@ func noKey(model *meta.Model) error {
 	name := model.Type.Name()
 
 	if len(model.Keys) > 1 {
-		return fmt.Errorf("%w: %s has a composite key, and this needs a single-column one", ErrNoKey, name)
+		return fmt.Errorf(
+			"%w: %s has a composite key, and this needs a single-column one",
+			ErrNoKey,
+			name,
+		)
 	}
 
 	for _, f := range model.Fields {

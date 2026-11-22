@@ -1177,51 +1177,56 @@ func (u *unit) run(ctx context.Context) error {
 	// unit records it, for the reads that must see what the write saw.
 	u.inTx = !standing
 
-	err = u.s.transactHooked(ctx, several, u.hooks(ctx), func(ctx context.Context, to exec.Executor) error {
-		if err := u.remove(ctx, to, removals, true); err != nil {
-			return err
-		}
+	err = u.s.transactHooked(
+		ctx,
+		several,
+		u.hooks(ctx),
+		func(ctx context.Context, to exec.Executor) error {
+			if err := u.remove(ctx, to, removals, true); err != nil {
+				return err
+			}
 
-		for i := 0; i < len(order); {
-			if batch := u.insertBatch(ctx, order[i:]); len(batch) > 1 {
-				if err := u.createMany(ctx, to, batch); err != nil {
+			for i := 0; i < len(order); {
+				if batch := u.insertBatch(ctx, order[i:]); len(batch) > 1 {
+					if err := u.createMany(ctx, to, batch); err != nil {
+						return err
+					}
+
+					for _, n := range batch {
+						n.wrote = true
+					}
+
+					i += len(batch)
+
+					continue
+				}
+
+				n := order[i]
+				i++
+
+				assigned, err := n.assignForeignKeys()
+				if err != nil {
 					return err
 				}
 
-				for _, n := range batch {
-					n.wrote = true
+				if err := u.write(ctx, to, n, assigned); err != nil {
+					return err
 				}
-
-				i += len(batch)
-
-				continue
 			}
 
-			n := order[i]
-			i++
+			for _, change := range u.pivots {
+				if err := change.run(ctx, u, to); err != nil {
+					return err
+				}
+			}
 
-			assigned, err := n.assignForeignKeys()
-			if err != nil {
+			if err := u.remove(ctx, to, removals, false); err != nil {
 				return err
 			}
 
-			if err := u.write(ctx, to, n, assigned); err != nil {
-				return err
-			}
-		}
-
-		for _, change := range u.pivots {
-			if err := change.run(ctx, u, to); err != nil {
-				return err
-			}
-		}
-
-		if err := u.remove(ctx, to, removals, false); err != nil {
-			return err
-		}
-
-		return u.touch(ctx, to)
-	})
+			return u.touch(ctx, to)
+		},
+	)
 	if err != nil {
 		for _, n := range u.order {
 			if standing && n.wrote {

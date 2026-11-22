@@ -47,7 +47,8 @@ func (s *Signup) BeforeInsert(ctx context.Context) error {
 }
 
 func (s *Signup) AfterUpdate(ctx context.Context) error {
-	_, err := s.root.Signups.Where(ant.Eq(&Signups.ID, s.ID)).Update(ctx, ant.Inc(&Signups.Edits, 1))
+	_, err := s.root.Signups.Where(ant.Eq(&Signups.ID, s.ID)).
+		Update(ctx, ant.Inc(&Signups.Edits, 1))
 
 	return err
 }

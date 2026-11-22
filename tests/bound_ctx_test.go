@@ -48,7 +48,10 @@ func TestConformanceBoundContextRunsInTheTransaction(t *testing.T) {
 			err := db.Tx(ctx, func(tx *SignupDB) error {
 				ctx := ant.InTx(ctx, tx)
 
-				if err := repo.Signups.Insert(ctx, &Signup{Email: "leaked@x", root: repo}); err != nil {
+				if err := repo.Signups.Insert(
+					ctx,
+					&Signup{Email: "leaked@x", root: repo},
+				); err != nil {
 					return err
 				}
 
@@ -160,7 +163,10 @@ func TestConformanceBoundContextRunsInTheTransaction(t *testing.T) {
 				}
 
 				inner := repo.Tx(ctx, func(nested *SignupDB) error {
-					if err := nested.Signups.Insert(ctx, &Signup{Email: "inner@x", root: db}); err != nil {
+					if err := nested.Signups.Insert(
+						ctx,
+						&Signup{Email: "inner@x", root: db},
+					); err != nil {
 						return err
 					}
 
@@ -191,7 +197,13 @@ func TestConformanceBoundContextRunsInTheTransaction(t *testing.T) {
 			}))
 
 			err := repo.Signups.Insert(kept, &Signup{Email: "late@x", root: db})
-			require.True(t, errors.Is(err, sql.ErrTxDone) || errors.Is(err, ant.ErrTxDone), "got %v", err)
+			require.True(
+				t,
+				errors.Is(err, sql.ErrTxDone) || errors.Is(err, ant.ErrTxDone),
+				"got %v",
+				err,
+			)
+
 			require.Zero(t, count(t))
 		})
 	})
