@@ -119,6 +119,7 @@ func state(err error) string {
 	case 5, 261, 517: // busy
 		return "40001"
 	case 1: // SQLITE_ERROR, a code for many errors
+		// SQLite gives a missing table no code of its own, only this text.
 		if strings.Contains(err.Error(), "no such table") {
 			return "42P01"
 		}

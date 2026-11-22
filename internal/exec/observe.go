@@ -49,8 +49,9 @@ func (e *Error) Error() string {
 	msg := e.Err.Error()
 
 	// The drivers' messages say only that the table is not there (#301).
+	// Migrations are PostgreSQL's alone, and EnsureCreated runs everywhere.
 	if undefinedTable(e.Err) {
-		msg += "; the table does not exist: create it with a migration, or with EnsureCreated"
+		msg += "; the table does not exist: create it with EnsureCreated, or with a migration on PostgreSQL"
 	}
 
 	if e.Detailed {
