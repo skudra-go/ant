@@ -243,3 +243,59 @@ func wrappers(
 func openWrapper[T any](ctx context.Context, repo Repo[T]) {
 	repo.Where(ant.Gt(&P.UserID, 1)).All(ctx)
 }
+
+// The expression builders and the model, relation, and index builders take
+// field pointers too, so a pointer into an ordinary variable is reported
+// there, while a probe passes.
+func builders(b *ant.ModelBuilder[User]) {
+	_ = ant.Coalesce(&U.Age, 0)
+	_ = ant.CountDistinct(&U.Age)
+	_ = ant.DatePart(&U.At, "year")
+	_ = ant.Lag(&U.Age)
+	_ = ant.Lead(&U.Age)
+	ant.GenerateKey(b, &U.ID, func() int64 { return 1 })
+
+	b.Key(&U.ID)
+	b.Index(&U.Age).And(&U.Name)
+	b.Validate(&U.Age, func(int) error { return nil })
+	b.Discriminator(&U.Name, "x")
+	b.Comparer(&U.Age, func(a, b int) bool { return a == b })
+	b.HasMany(&U.Posts).ForeignKey(&P.UserID)
+	b.HasOne(&P.User).References(&P.UserID)
+	b.HasMany(&U.Posts).Morph(&U.Name, "x")
+	b.HasMany(&U.Posts).Inverse(&P.User)
+	b.ManyToMany(&U.Posts)
+	b.BelongsTo(&P.User)
+	b.HasManyThrough(&U.Posts, &P.UserID, &U.ID)
+	b.HasOneThrough(&P.User, &P.UserID, &U.ID)
+
+	user := &User{}
+	post := &Post{}
+	_ = ant.Coalesce(&user.Age, 0)                          // want `ant.Coalesce needs a field of a probe`
+	_ = ant.CountDistinct(&user.Age)                        // want `ant.CountDistinct needs a field of a probe`
+	_ = ant.DatePart(&user.At, "year")                      // want `ant.DatePart needs a field of a probe`
+	_ = ant.Lag(&user.Age)                                  // want `ant.Lag needs a field of a probe`
+	_ = ant.Lead(&user.Age)                                 // want `ant.Lead needs a field of a probe`
+	ant.GenerateKey(b, &user.ID, func() int64 { return 1 }) // want `ant.GenerateKey needs a field of a probe`
+
+	b.Key(&user.ID)                                              // want `Key needs a field of a probe`
+	b.Index(&user.Age)                                           // want `Index needs a field of a probe`
+	b.Index(&U.Age).And(&user.Name)                              // want `And needs a field of a probe`
+	b.Validate(&user.Age, func(int) error { return nil })        // want `Validate needs a field of a probe`
+	b.Discriminator(&user.Name, "x")                             // want `Discriminator needs a field of a probe`
+	b.Comparer(&user.Age, func(a, b int) bool { return a == b }) // want `Comparer needs a field of a probe`
+	b.HasMany(&user.Posts)                                       // want `HasMany needs a field of a probe`
+	b.HasOne(&post.User)                                         // want `HasOne needs a field of a probe`
+	b.ManyToMany(&user.Posts)                                    // want `ManyToMany needs a field of a probe`
+	b.BelongsTo(&post.User)                                      // want `BelongsTo needs a field of a probe`
+	b.HasManyThrough(&user.Posts, &P.UserID, &U.ID)              // want `HasManyThrough needs a field of a probe`
+	b.HasManyThrough(&U.Posts, &post.UserID, &U.ID)              // want `HasManyThrough needs a field of a probe`
+	b.HasManyThrough(&U.Posts, &P.UserID, &user.ID)              // want `HasManyThrough needs a field of a probe`
+	b.HasOneThrough(&post.User, &P.UserID, &U.ID)                // want `HasOneThrough needs a field of a probe`
+	b.HasOneThrough(&P.User, &post.UserID, &U.ID)                // want `HasOneThrough needs a field of a probe`
+	b.HasOneThrough(&P.User, &P.UserID, &user.ID)                // want `HasOneThrough needs a field of a probe`
+	b.HasMany(&U.Posts).ForeignKey(&post.UserID)                 // want `ForeignKey needs a field of a probe`
+	b.HasOne(&P.User).References(&post.UserID)                   // want `References needs a field of a probe`
+	b.HasMany(&U.Posts).Morph(&user.Name, "x")                   // want `Morph needs a field of a probe`
+	b.HasMany(&U.Posts).Inverse(&post.User)                      // want `Inverse needs a field of a probe`
+}

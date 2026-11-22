@@ -78,70 +78,76 @@ var first = fields{0, 1}
 
 // fieldFuncs lists ant's functions that take field pointers, and where.
 var fieldFuncs = map[string]fields{
-	"Eq":           first,
-	"Ne":           first,
-	"Gt":           first,
-	"Gte":          first,
-	"Lt":           first,
-	"Lte":          first,
-	"In":           first,
-	"NotIn":        first,
-	"Between":      first,
-	"Like":         first,
-	"ILike":        first,
-	"IsNull":       first,
-	"IsNotNull":    first,
-	"Past":         first,
-	"Future":       first,
-	"Today":        first,
-	"InSub":        first,
-	"NotInSub":     first,
-	"AnyOf":        {1, 0},
-	"AllOf":        {1, 0},
-	"NoneOf":       {1, 0},
-	"EqCol":        {0, 2},
-	"Set":          first,
-	"SetExpr":      first,
-	"Inc":          first,
-	"Dec":          first,
-	"Col":          first,
-	"F":            first,
-	"Into":         {0, 2},
-	"IntoExpr":     first,
-	"SubOf":        {1, 1},
-	"SumOf":        {2, 1},
-	"AvgOf":        {2, 1},
-	"MinOf":        {2, 1},
-	"MaxOf":        {2, 1},
-	"Pluck":        {2, 1},
-	"Sum":          first,
-	"Avg":          first,
-	"Min":          first,
-	"Max":          first,
-	"CountOf":      first,
-	"Lower":        first,
-	"Upper":        first,
-	"Length":       first,
-	"Collate":      first,
-	"PartitionBy":  first,
-	"OnConflict":   first,
-	"Then":         {1, 1},
-	"Has":          first,
-	"HasNone":      first,
-	"HasOne":       first,
-	"CountRelated": first,
-	"SumRelated":   {0, 2},
-	"AvgRelated":   {0, 2},
-	"MinRelated":   {0, 2},
-	"MaxRelated":   {0, 2},
-	"Related":      {2, 1},
-	"RelatedOne":   {2, 1},
-	"Link":         {3, 1},
-	"Unlink":       {3, 1},
-	"SyncLinks":    {3, 1},
-	"Toggle":       {3, 1},
-	"IsDirty":      {1, 1},
-	"Original":     {1, 1},
+	"Eq":            first,
+	"Ne":            first,
+	"Gt":            first,
+	"Gte":           first,
+	"Lt":            first,
+	"Lte":           first,
+	"In":            first,
+	"NotIn":         first,
+	"Between":       first,
+	"Like":          first,
+	"ILike":         first,
+	"IsNull":        first,
+	"IsNotNull":     first,
+	"Past":          first,
+	"Future":        first,
+	"Today":         first,
+	"InSub":         first,
+	"NotInSub":      first,
+	"AnyOf":         {1, 0},
+	"AllOf":         {1, 0},
+	"NoneOf":        {1, 0},
+	"EqCol":         {0, 2},
+	"Set":           first,
+	"SetExpr":       first,
+	"Inc":           first,
+	"Dec":           first,
+	"DatePart":      first,
+	"Col":           first,
+	"Coalesce":      first,
+	"F":             first,
+	"GenerateKey":   {1, 1},
+	"Into":          {0, 2},
+	"IntoExpr":      first,
+	"SubOf":         {1, 1},
+	"SumOf":         {2, 1},
+	"AvgOf":         {2, 1},
+	"MinOf":         {2, 1},
+	"MaxOf":         {2, 1},
+	"Pluck":         {2, 1},
+	"Sum":           first,
+	"Avg":           first,
+	"Min":           first,
+	"Max":           first,
+	"CountOf":       first,
+	"CountDistinct": first,
+	"Lower":         first,
+	"Upper":         first,
+	"Lag":           first,
+	"Lead":          first,
+	"Length":        first,
+	"Collate":       first,
+	"PartitionBy":   first,
+	"OnConflict":    first,
+	"Then":          {1, 1},
+	"Has":           first,
+	"HasNone":       first,
+	"HasOne":        first,
+	"CountRelated":  first,
+	"SumRelated":    {0, 2},
+	"AvgRelated":    {0, 2},
+	"MinRelated":    {0, 2},
+	"MaxRelated":    {0, 2},
+	"Related":       {2, 1},
+	"RelatedOne":    {2, 1},
+	"Link":          {3, 1},
+	"Unlink":        {3, 1},
+	"SyncLinks":     {3, 1},
+	"Toggle":        {3, 1},
+	"IsDirty":       {1, 1},
+	"Original":      {1, 1},
 }
 
 // fieldMethods lists the methods of ant's query builders whose first argument
@@ -166,6 +172,44 @@ var fieldMethods = map[string]judging{
 	"LeftJoin":      byOwn,
 	"LeftJoinMany":  byOwn,
 	"JoinUsing":     probeOnly,
+
+	// The model, relation, and index builders' methods that take field
+	// pointers, in Configure and in a relation's definition: a field of
+	// their own model, so byOwn. checkScope only judges a query's own
+	// models, so for these receivers only checkProbes applies.
+	"Key":            byOwn,
+	"Index":          byOwn,
+	"Validate":       byOwn,
+	"Discriminator":  byOwn,
+	"Comparer":       byOwn,
+	"HasMany":        byOwn,
+	"HasOne":         byOwn,
+	"ManyToMany":     byOwn,
+	"BelongsTo":      byOwn,
+	"HasManyThrough": byOwn,
+	"HasOneThrough":  byOwn,
+	"ForeignKey":     byOwn,
+	"Inverse":        byOwn,
+	"Morph":          byOwn,
+	"References":     byOwn,
+	"And":            byOwn,
+}
+
+// methodFields says where a method of fieldMethods takes its field pointers
+// when that is not only its first argument: the through methods take the
+// relation and both of its keys.
+var methodFields = map[string]fields{
+	"HasManyThrough": {0, 3},
+	"HasOneThrough":  {0, 3},
+}
+
+// fieldsOf returns the field pointers among the arguments of method.
+func fieldsOf(method string, args []ast.Expr) []ast.Expr {
+	if f, ok := methodFields[method]; ok {
+		return f.of(args)
+	}
+
+	return first.of(args)
 }
 
 type judging int
@@ -993,7 +1037,7 @@ func (c *checker) fieldArgs(call *ast.CallExpr) (string, []ast.Expr) {
 		return "", nil
 	}
 
-	return selector.Sel.Name, first.of(args)
+	return selector.Sel.Name, fieldsOf(selector.Sel.Name, args)
 }
 
 // antType returns the named type of ant that t is, or points to, or nil.
@@ -1184,10 +1228,10 @@ func (c *checker) checkScope(call *ast.CallExpr, stack []ast.Node) {
 		}
 	case fieldMethods[method] == byScope:
 		if allowed, ok := c.scope(stack, own); ok {
-			c.judge(first.of(args), allowed, own, method)
+			c.judge(fieldsOf(method, args), allowed, own, method)
 		}
 	case fieldMethods[method] == byOwn:
-		c.judge(first.of(args), own, own, method)
+		c.judge(fieldsOf(method, args), own, own, method)
 	case updates[method] && len(args) > 0:
 		for _, arg := range args[1:] {
 			assignment, ok := ast.Unparen(arg).(*ast.CallExpr)

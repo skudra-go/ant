@@ -52,7 +52,7 @@ type NotAProbeKey struct{ ID int64 }
 
 func (NotAProbeKey) Configure(b *ant.ModelBuilder[NotAProbeKey]) {
 	var id int64
-	b.Key(&id)
+	b.Key(&id) //antvet:ignore the error is what this tests
 }
 
 func openErr[DB any](t *testing.T, target testdb.Target) error {

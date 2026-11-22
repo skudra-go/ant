@@ -34,6 +34,14 @@ type Assignment struct{}
 
 func Set[V any](field *V, v V) Assignment { return Assignment{} }
 
+func Coalesce[V any](field *V, fallback V) Expr[V] { return Expr[V]{} }
+func CountDistinct[V any](field *V) Expr[int64]    { return Expr[int64]{} }
+func DatePart(field *time.Time, part string) Expr[float64] {
+	return Expr[float64]{}
+}
+func Lag[V any](field *V) Expr[V]  { return Expr[V]{} }
+func Lead[V any](field *V) Expr[V] { return Expr[V]{} }
+
 type Mapping struct{}
 
 func Into[V any](dst *V, src *V) Mapping { return Mapping{} }
@@ -133,6 +141,45 @@ func (b *ModelBuilder[T]) Table(name string)               {}
 func (b *ModelBuilder[T]) Key[V any](field *V) *KeyBuilder { return nil }
 func (b *ModelBuilder[T]) CompositeKey(fields ...FieldRef) {}
 func (b *ModelBuilder[T]) NoKey()                          {}
+func (b *ModelBuilder[T]) Index[V any](field *V) *IndexBuilder {
+	return nil
+}
+func (b *ModelBuilder[T]) Validate[V any](field *V, rule func(V) error)      {}
+func (b *ModelBuilder[T]) Discriminator[V comparable](field *V, value V)     {}
+func (b *ModelBuilder[T]) Comparer[V any](field *V, equal func(a, b V) bool) {}
+func (b *ModelBuilder[T]) HasMany[R any](rel *[]R) *RelationBuilder          { return nil }
+func (b *ModelBuilder[T]) HasOne[R any](rel **R) *RelationBuilder            { return nil }
+func (b *ModelBuilder[T]) ManyToMany[R any](rel *[]R) *RelationBuilder       { return nil }
+func (b *ModelBuilder[T]) BelongsTo[R any](rel **R) *RelationBuilder         { return nil }
+
+func (b *ModelBuilder[T]) HasManyThrough[R, A, C any](
+	rel *[]R,
+	parentKey *A,
+	throughKey *C,
+) *RelationBuilder {
+	return nil
+}
+
+func (b *ModelBuilder[T]) HasOneThrough[R, A, C any](
+	rel **R,
+	parentKey *A,
+	throughKey *C,
+) *RelationBuilder {
+	return nil
+}
+
+type IndexBuilder struct{}
+
+func (i *IndexBuilder) And[V any](field *V) *IndexBuilder { return i }
+
+type RelationBuilder struct{}
+
+func (r *RelationBuilder) ForeignKey[V any](field *V) *RelationBuilder { return r }
+func (r *RelationBuilder) References[V any](field *V) *RelationBuilder { return r }
+func (r *RelationBuilder) Morph[V comparable](field *V, value V) *RelationBuilder {
+	return r
+}
+func (r *RelationBuilder) Inverse[P any](back **P) *RelationBuilder { return r }
 
 type KeyBuilder struct{}
 
