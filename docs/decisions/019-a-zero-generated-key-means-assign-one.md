@@ -6,7 +6,7 @@ status: active
 tags: [generated-key, NotGenerated, zero-value, primary-key]
 issues: []
 related: [8]
-changed_by: []
+changed_by: [150]
 code: [config.go, unit.go, internal/meta/meta.go]
 tests: [tests/features/keys_and_identity/generated_key_test.go]
 ---
@@ -14,6 +14,8 @@ tests: [tests/features/keys_and_identity/generated_key_test.go]
 # 19. A zero generated key means "assign one"
 
 **In short:** A zero integer generated primary key means assign one; NotGenerated opts a model out and non-integer keys are never generated.
+
+> **Amended.** Decision 150 refuses an insert of a zero non-integer key that nothing fills, with `ErrZeroKey`.
 
 ## Decision
 

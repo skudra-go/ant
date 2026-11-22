@@ -285,11 +285,17 @@ func PrepareBulk[T any](h Handle, entities []*T) (*BulkRows, error) {
 
 	nodes := make([]*node, len(entities))
 
-	for i, e := range entities {
+	for _, e := range entities {
 		if e == nil {
 			return nil, ErrNilEntity
 		}
 
+		if err := zeroKey(model, unsafe.Pointer(e)); err != nil {
+			return nil, err
+		}
+	}
+
+	for i, e := range entities {
 		nodes[i] = &node{model: model, entity: unsafe.Pointer(e)}
 		u.stamp(nodes[i])
 	}

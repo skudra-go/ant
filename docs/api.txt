@@ -618,6 +618,7 @@ ant: var ErrTxType
 ant: var ErrUnknownColumn
 ant: var ErrUnsupported
 ant: var ErrWrongModel
+ant: var ErrZeroKey
 anttest: func (f *Factory[T]) AfterBuild(fn func(*T)) *Factory[T]
 anttest: func (f *Factory[T]) AfterCreate(fn func(*T)) *Factory[T]
 anttest: func (f *Factory[T]) Build(overrides ...func(*T)) *T

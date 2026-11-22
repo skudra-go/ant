@@ -116,7 +116,11 @@ Calls that take columns of mixed types take `ant.FieldRef`, made with
 - Table names are the struct name in snake case, plural: `OrderItem` is
   `order_items`. Columns are snake case: `UserID` is `user_id`.
 - A field named `ID` is the primary key. A zero integer key means "generate one",
-  and the database's key is copied back after an insert.
+  and the database's key is copied back after an insert. A key of another type,
+  such as `uuid.UUID` or `string`, is yours to fill: set it, generate it in
+  `Configure` with `ant.GenerateKey(b, &Docs.ID, uuid.New)`, or give it a default
+  (`ant:"default=gen_random_uuid()"`). Inserting one at its zero value returns
+  `ant.ErrZeroKey`.
 - `time.Time` fields named `CreatedAt` and `UpdatedAt` are maintained by ant, on any
   model. `ant.Base` is just `ID`, `CreatedAt` and `UpdatedAt`. A zero `UpdatedAt`,
   as in a struct decoded from a request body, is stamped on every save.

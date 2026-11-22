@@ -74,7 +74,7 @@ On 2026-11-20 the decisions moved from one file, `docs/DECISIONS.md`, to a file 
 
 | # | Decision | Status | Tags |
 |---|---|---|---|
-| [19](019-a-zero-generated-key-means-assign-one.md) | A zero generated key means "assign one" | active | `generated-key` `NotGenerated` `zero-value` `primary-key` |
+| [19](019-a-zero-generated-key-means-assign-one.md) | A zero generated key means "assign one" | active by [150](150-a-zero-key-nothing-fills-is-refused.md) | `generated-key` `NotGenerated` `zero-value` `primary-key` |
 | [21](021-configuration-runs-when-a-context-opens.md) | Configuration runs when a context opens | active | `Configure` `Open` `Fields` `probes` `table-name` |
 | [41](041-automatic-timestamps.md) | Automatic timestamps | active | `timestamps` `CreatedAt` `UpdatedAt` `utc` `NoTimestamps` `microseconds` |
 | [66](066-several-models-can-share-a-table.md) | Several models can share a table | active | `Discriminator` `table-splitting` `b.Table` `ErrBadSchema` `Open` `SchemaOf` `Configure` |
@@ -84,6 +84,7 @@ On 2026-11-20 the decisions moved from one file, `docs/DECISIONS.md`, to a file 
 | [101](101-probes-are-pinned.md) | Probes are pinned | active | `probe` `Pinner` `runtime.Pinner` `gc` `Resolve` `field-pointer` |
 | [125](125-open-refuses-a-model-it-would-misread.md) | Open refuses a model it would misread | active | `Open` `tags` `ErrBadSchema` `relations` `embedded` `ManyToMany` `PivotColumns` `netip` |
 | [139](139-a-field-can-not-ask-for-two-things-ant-can-not-both-do.md) | A field can't ask for two things ant can't both do | active | `Open` `tags` `ErrBadSchema` `readonly` `writeonly` `immutable` `computed` `version` `token` `embedded` `DeletedAt` `Generated` |
+| [150](150-a-zero-key-nothing-fills-is-refused.md) | A zero key that nothing fills is refused | active | `primary-key` `uuid` `zero-value` `GenerateKey` `default` `ErrZeroKey` |
 
 #### Values and types
 
@@ -356,7 +357,7 @@ Before changing a file, read the decisions about it.
 | `dialect/utc_test.go` | [76](076-one-clock-for-times-without-a-zone.md) [84](084-every-time-is-bound-in-utc-where-columns-keep-no-zone.md) |
 | `docs/DECISIONS.md` | [8](008-step-1-file-count.md) |
 | `entry.go` | [28](028-identity-and-relation-slices.md) [30](030-tracking-follows-keys-not-addresses.md) [79](079-a-tracking-context-serves-one-operation-at-a-time.md) [93](093-tracking-follows-what-a-save-wrote.md) [96](096-a-forced-update-stamps-updatedat.md) [110](110-a-version-the-application-sets-is-the-one-checked.md) [120](120-the-root-does-not-track-and-a-session-does.md) |
-| `errors.go` | [17](017-implemented-ahead-of-the-skeleton.md) [18](018-wrong-model-detection.md) [31](031-failed-saves.md) [65](065-scoped-relations-use-the-same-filter-path.md) [110](110-a-version-the-application-sets-is-the-one-checked.md) [120](120-the-root-does-not-track-and-a-session-does.md) [143](143-paging-arguments-out-of-range-are-errpaging.md) |
+| `errors.go` | [17](017-implemented-ahead-of-the-skeleton.md) [18](018-wrong-model-detection.md) [31](031-failed-saves.md) [65](065-scoped-relations-use-the-same-filter-path.md) [110](110-a-version-the-application-sets-is-the-one-checked.md) [120](120-the-root-does-not-track-and-a-session-does.md) [143](143-paging-arguments-out-of-range-are-errpaging.md) [150](150-a-zero-key-nothing-fills-is-refused.md) |
 | `errors_kind.go` | [45](045-errors-are-classified-not-wrapped.md) [69](069-errors-carry-their-sql.md) |
 | `example_test.go` | [100](100-probes-are-named-after-their-model-in-the-plural.md) |
 | `expr.go` | [35](035-typed-expressions.md) [43](043-database-specific-helpers.md) [68](068-sensitive-values-are-wrapped-when-bound.md) [145](145-helpers-take-a-field-of-any-type.md) [146](146-ne-matches-null-as-go-does.md) [147](147-a-projection-reads-null-into-a-plain-field-as-zero.md) |
@@ -386,7 +387,7 @@ Before changing a file, read the decisions about it.
 | `joined.go` | [136](136-an-outer-joins-side-reads-what-only-the-driver-converts.md) [148](148-a-query-with-computed-fields-stays-tracked.md) |
 | `json.go` | [42](042-converters-are-scanner-and-valuer.md) [95](095-in-means-eq-and-other-value-rules.md) [109](109-numbers-inside-an-interface-read-as-json-number.md) |
 | `json_test.go` | [42](042-converters-are-scanner-and-valuer.md) [95](095-in-means-eq-and-other-value-rules.md) [109](109-numbers-inside-an-interface-read-as-json-number.md) |
-| `merge.go` | [80](080-every-write-moves-the-version-on.md) [89](089-one-column-one-value.md) [90](090-merge-keeps-what-other-writes-keep.md) |
+| `merge.go` | [80](080-every-write-moves-the-version-on.md) [89](089-one-column-one-value.md) [90](090-merge-keeps-what-other-writes-keep.md) [150](150-a-zero-key-nothing-fills-is-refused.md) |
 | `migrate/cli.go` | [11](011-migration-model.md) [55](055-renames.md) [58](058-squashing-needs-no-coordination.md) [59](059-adopting-an-existing-database.md) [116](116-code-files-rerun-after-versioned-migrations.md) [117](117-the-migrate-program-takes-the-applications-options.md) [127](127-commands-refuse-to-guess-which-migration-is-meant.md) [129](129-status-check-fails-a-deploy-gate.md) [144](144-script-stops-before-a-go-migration.md) |
 | `migrate/config.go` | [11](011-migration-model.md) [60](060-one-program-two-jobs.md) [117](117-the-migrate-program-takes-the-applications-options.md) |
 | `migrate/engine.go` | [50](050-three-layers-for-migrations.md) [56](056-failure.md) [58](058-squashing-needs-no-coordination.md) [115](115-a-file-outside-a-transaction-is-recorded-before-it-runs.md) [116](116-code-files-rerun-after-versioned-migrations.md) [126](126-a-migration-runs-as-it-says-or-not-at-all.md) [127](127-commands-refuse-to-guess-which-migration-is-meant.md) |
@@ -458,6 +459,7 @@ Before changing a file, read the decisions about it.
 | `tests/features/developer_tooling/sensitive_test.go` | [68](068-sensitive-values-are-wrapped-when-bound.md) [146](146-ne-matches-null-as-go-does.md) |
 | `tests/features/fixture/fixture.go` | [26](026-feature-examples-run-on-postgresql-only.md) |
 | `tests/features/keys_and_identity/generated_key_test.go` | [19](019-a-zero-generated-key-means-assign-one.md) |
+| `tests/features/keys_and_identity/string_uuid_keys_test.go` | [150](150-a-zero-key-nothing-fills-is-refused.md) |
 | `tests/features/lifecycle/concurrency_test.go` | [110](110-a-version-the-application-sets-is-the-one-checked.md) |
 | `tests/features/lifecycle/filters_test.go` | [39](039-global-filters-are-lazy.md) |
 | `tests/features/lifecycle/hooks_test.go` | [47](047-hooks-run-inside-the-write.md) [123](123-an-after-hooks-edit-is-a-change-to-save.md) |
@@ -559,6 +561,7 @@ Before changing a file, read the decisions about it.
 | `tests/tx_test.go` | [2](002-tx-is-a-generic-method-on-context.md) [31](031-failed-saves.md) [106](106-begin-inside-a-transaction-opens-a-savepoint.md) |
 | `tests/wide_keys_test.go` | [138](138-a-uint64-column-on-postgresql-is-numeric.md) |
 | `tests/with_tracking_test.go` | [148](148-a-query-with-computed-fields-stays-tracked.md) |
+| `tests/zero_key_test.go` | [150](150-a-zero-key-nothing-fills-is-refused.md) |
 | `tools/antfmt/format.go` | [77](077-layout-is-enforced-by-tools.md) |
 | `tools/antfmt/format_test.go` | [77](077-layout-is-enforced-by-tools.md) |
 | `tools/antfmt/main.go` | [77](077-layout-is-enforced-by-tools.md) |
@@ -570,8 +573,8 @@ Before changing a file, read the decisions about it.
 | `tools/antvet/cmd` | [83](083-antvet-judges-only-what-it-can-see.md) |
 | `tools/compare` | [71](071-dependencies-stay-out-of-the-root-package.md) |
 | `tx.go` | [2](002-tx-is-a-generic-method-on-context.md) [31](031-failed-saves.md) [47](047-hooks-run-inside-the-write.md) [48](048-replicas.md) [61](061-sessions-take-options.md) [70](070-dryrun-really-runs.md) [79](079-a-tracking-context-serves-one-operation-at-a-time.md) [99](099-a-retried-attempt-leaves-nothing-in-the-tracker.md) [106](106-begin-inside-a-transaction-opens-a-savepoint.md) [121](121-a-rollback-forgets-what-its-transaction-began-tracking.md) [141](141-a-statement-inside-an-each-loop-on-one-connection-is-refused.md) |
-| `unit.go` | [19](019-a-zero-generated-key-means-assign-one.md) [22](022-inserts-run-one-statement-per-row.md) [28](028-identity-and-relation-slices.md) [30](030-tracking-follows-keys-not-addresses.md) [31](031-failed-saves.md) [32](032-navigation-and-foreign-key-changes.md) [41](041-automatic-timestamps.md) [47](047-hooks-run-inside-the-write.md) [63](063-savechanges-batches-inserts.md) [75](075-generated-values-without-returning.md) [79](079-a-tracking-context-serves-one-operation-at-a-time.md) [93](093-tracking-follows-what-a-save-wrote.md) [96](096-a-forced-update-stamps-updatedat.md) [99](099-a-retried-attempt-leaves-nothing-in-the-tracker.md) [108](108-kept-sql-by-shape-unboxed-keys-compact-snapshots-and.md) [110](110-a-version-the-application-sets-is-the-one-checked.md) [111](111-a-replaced-entity-keeps-what-the-body-could-not-give.md) [112](112-a-locking-read-puts-the-row-into-the-tracked-instance.md) [120](120-the-root-does-not-track-and-a-session-does.md) [122](122-what-the-database-fills-is-read-back-by-key.md) [123](123-an-after-hooks-edit-is-a-change-to-save.md) [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) [140](140-an-update-that-changed-nothing-is-checked-against-the-row.md) [149](149-a-has-one-pointer-is-the-truth-about-its-row.md) |
-| `upsert.go` | [22](022-inserts-run-one-statement-per-row.md) [38](038-bulk-writes.md) [47](047-hooks-run-inside-the-write.md) [63](063-savechanges-batches-inserts.md) [75](075-generated-values-without-returning.md) [79](079-a-tracking-context-serves-one-operation-at-a-time.md) [80](080-every-write-moves-the-version-on.md) [89](089-one-column-one-value.md) [91](091-an-upsert-checks-a-copys-version-on-mysql-and-mariadb.md) [98](098-an-explicit-write-refuses-the-columns-ant-keeps.md) [102](102-updatemany-keeps-what-a-bulk-update-keeps.md) [103](103-an-upserts-update-stamps-updatedat.md) [119](119-an-upserts-update-writes-the-zero-a-default-field-holds.md) [123](123-an-after-hooks-edit-is-a-change-to-save.md) [124](124-a-conflict-target-repeats-a-partial-indexs-predicate.md) |
+| `unit.go` | [19](019-a-zero-generated-key-means-assign-one.md) [22](022-inserts-run-one-statement-per-row.md) [28](028-identity-and-relation-slices.md) [30](030-tracking-follows-keys-not-addresses.md) [31](031-failed-saves.md) [32](032-navigation-and-foreign-key-changes.md) [41](041-automatic-timestamps.md) [47](047-hooks-run-inside-the-write.md) [63](063-savechanges-batches-inserts.md) [75](075-generated-values-without-returning.md) [79](079-a-tracking-context-serves-one-operation-at-a-time.md) [93](093-tracking-follows-what-a-save-wrote.md) [96](096-a-forced-update-stamps-updatedat.md) [99](099-a-retried-attempt-leaves-nothing-in-the-tracker.md) [108](108-kept-sql-by-shape-unboxed-keys-compact-snapshots-and.md) [110](110-a-version-the-application-sets-is-the-one-checked.md) [111](111-a-replaced-entity-keeps-what-the-body-could-not-give.md) [112](112-a-locking-read-puts-the-row-into-the-tracked-instance.md) [120](120-the-root-does-not-track-and-a-session-does.md) [122](122-what-the-database-fills-is-read-back-by-key.md) [123](123-an-after-hooks-edit-is-a-change-to-save.md) [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) [140](140-an-update-that-changed-nothing-is-checked-against-the-row.md) [149](149-a-has-one-pointer-is-the-truth-about-its-row.md) [150](150-a-zero-key-nothing-fills-is-refused.md) |
+| `upsert.go` | [22](022-inserts-run-one-statement-per-row.md) [38](038-bulk-writes.md) [47](047-hooks-run-inside-the-write.md) [63](063-savechanges-batches-inserts.md) [75](075-generated-values-without-returning.md) [79](079-a-tracking-context-serves-one-operation-at-a-time.md) [80](080-every-write-moves-the-version-on.md) [89](089-one-column-one-value.md) [91](091-an-upsert-checks-a-copys-version-on-mysql-and-mariadb.md) [98](098-an-explicit-write-refuses-the-columns-ant-keeps.md) [102](102-updatemany-keeps-what-a-bulk-update-keeps.md) [103](103-an-upserts-update-stamps-updatedat.md) [119](119-an-upserts-update-writes-the-zero-a-default-field-holds.md) [123](123-an-after-hooks-edit-is-a-change-to-save.md) [124](124-a-conflict-target-repeats-a-partial-indexs-predicate.md) [150](150-a-zero-key-nothing-fills-is-refused.md) |
 
 ### By tag
 
@@ -602,7 +605,7 @@ Tags on two or more decisions. Search the headers for the rest: `rg -l '^tags: .
 - `Configure`: [21](021-configuration-runs-when-a-context-opens.md) [66](066-several-models-can-share-a-table.md) [83](083-antvet-judges-only-what-it-can-see.md) [107](107-hot-paths-allocate-for-the-operation-not-for-each-row.md)
 - `CTE`: [36](036-derived-tables-keep-the-models-name.md) [88](088-sql-server-recurses-with-union-all-and-a-path-of-keys.md)
 - `decimal`: [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) [145](145-helpers-take-a-field-of-any-type.md)
-- `default`: [51](051-modeling-added-for-migrations.md) [52](052-new-not-null-columns-fill-existing-rows.md) [119](119-an-upserts-update-writes-the-zero-a-default-field-holds.md)
+- `default`: [51](051-modeling-added-for-migrations.md) [52](052-new-not-null-columns-fill-existing-rows.md) [119](119-an-upserts-update-writes-the-zero-a-default-field-holds.md) [150](150-a-zero-key-nothing-fills-is-refused.md)
 - `Delete`: [23](023-guarding-bulk-writes.md) [38](038-bulk-writes.md)
 - `DeletedAt`: [40](040-soft-deletes-are-a-filter.md) [84](084-every-time-is-bound-in-utc-where-columns-keep-no-zone.md) [139](139-a-field-can-not-ask-for-two-things-ant-can-not-both-do.md)
 - `derived-table`: [36](036-derived-tables-keep-the-models-name.md) [81](081-a-set-operations-members-keep-their-own-paging.md) [85](085-mysql-reads-the-table-it-writes-through-a-derived-table.md)
@@ -680,6 +683,7 @@ Tags on two or more decisions. Search the headers for the rest: `rg -l '^tags: .
 - `pivot`: [44](044-many-to-many.md) [64](064-through-relations-are-read-only-pivots.md)
 - `pointer`: [7](007-eq-with-a-nil-pointer.md) [87](087-an-embedded-field-must-be-a-struct-value.md)
 - `postgres`: [26](026-feature-examples-run-on-postgresql-only.md) [43](043-database-specific-helpers.md) [49](049-postgresql-first.md) [50](050-three-layers-for-migrations.md) [72](072-partitions-are-not-migrations.md) [94](094-migrations-keep-a-columns-dependents-working-while-it.md) [114](114-an-identity-columns-default-is-not-ants-to-change.md) [137](137-stored-tsvector-columns-have-a-separate-match-helper.md)
+- `primary-key`: [19](019-a-zero-generated-key-means-assign-one.md) [150](150-a-zero-key-nothing-fills-is-refused.md)
 - `probe`: [100](100-probes-are-named-after-their-model-in-the-plural.md) [101](101-probes-are-pinned.md)
 - `probes`: [4](004-conditions-are-not-tied-to-a-model.md) [18](018-wrong-model-detection.md) [21](021-configuration-runs-when-a-context-opens.md) [34](034-self-joins.md) [37](037-references-to-outer-queries.md)
 - `Project`: [5](005-select-closures-run-client-side.md) [35](035-typed-expressions.md) [147](147-a-projection-reads-null-into-a-plain-field-as-zero.md)
@@ -734,7 +738,7 @@ Tags on two or more decisions. Search the headers for the rest: `rg -l '^tags: .
 - `UseTx`: [79](079-a-tracking-context-serves-one-operation-at-a-time.md) [141](141-a-statement-inside-an-each-loop-on-one-connection-is-refused.md)
 - `utc`: [41](041-automatic-timestamps.md) [76](076-one-clock-for-times-without-a-zone.md) [84](084-every-time-is-bound-in-utc-where-columns-keep-no-zone.md)
 - `UTCTimes`: [74](074-dialects-state-their-differences.md) [76](076-one-clock-for-times-without-a-zone.md)
-- `uuid`: [131](131-a-foreign-key-column-follows-its-target.md) [145](145-helpers-take-a-field-of-any-type.md)
+- `uuid`: [131](131-a-foreign-key-column-follows-its-target.md) [145](145-helpers-take-a-field-of-any-type.md) [150](150-a-zero-key-nothing-fills-is-refused.md)
 - `valuer`: [42](042-converters-are-scanner-and-valuer.md) [92](092-tracked-values-compare-as-stored.md)
 - `version`: [80](080-every-write-moves-the-version-on.md) [90](090-merge-keeps-what-other-writes-keep.md) [91](091-an-upsert-checks-a-copys-version-on-mysql-and-mariadb.md) [93](093-tracking-follows-what-a-save-wrote.md) [102](102-updatemany-keeps-what-a-bulk-update-keeps.md) [110](110-a-version-the-application-sets-is-the-one-checked.md) [139](139-a-field-can-not-ask-for-two-things-ant-can-not-both-do.md) [140](140-an-update-that-changed-nothing-is-checked-against-the-row.md)
 - `warning`: [52](052-new-not-null-columns-fill-existing-rows.md) [55](055-renames.md)
@@ -746,6 +750,6 @@ Tags on two or more decisions. Search the headers for the rest: `rg -l '^tags: .
 - `WithoutAutoTx`: [31](031-failed-saves.md) [63](063-savechanges-batches-inserts.md)
 - `WithReplicas`: [48](048-replicas.md) [61](061-sessions-take-options.md)
 - `WithTracking`: [29](029-sessions.md) [61](061-sessions-take-options.md) [79](079-a-tracking-context-serves-one-operation-at-a-time.md) [120](120-the-root-does-not-track-and-a-session-does.md)
-- `zero-value`: [19](019-a-zero-generated-key-means-assign-one.md) [52](052-new-not-null-columns-fill-existing-rows.md) [119](119-an-upserts-update-writes-the-zero-a-default-field-holds.md) [147](147-a-projection-reads-null-into-a-plain-field-as-zero.md)
+- `zero-value`: [19](019-a-zero-generated-key-means-assign-one.md) [52](052-new-not-null-columns-fill-existing-rows.md) [119](119-an-upserts-update-writes-the-zero-a-default-field-holds.md) [147](147-a-projection-reads-null-into-a-plain-field-as-zero.md) [150](150-a-zero-key-nothing-fills-is-refused.md)
 
 <!-- end of index -->

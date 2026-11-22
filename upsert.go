@@ -405,6 +405,10 @@ func (t *Table[T]) Upsert(ctx context.Context, e *T, conflict *Conflict) (bool, 
 		}
 	}
 
+	if err := zeroKey(model, n.entity); err != nil {
+		return false, err
+	}
+
 	u := newUnit(t.state)
 	u.stamp(n)
 
@@ -623,6 +627,12 @@ func (t *Table[T]) InsertMany(
 
 	if o.conflict != nil {
 		if _, err := o.conflict.clause(model, time.Time{}, nil); err != nil {
+			return 0, err
+		}
+	}
+
+	for _, e := range entities {
+		if err := zeroKey(model, unsafe.Pointer(e)); err != nil {
 			return 0, err
 		}
 	}

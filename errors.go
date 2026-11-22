@@ -34,6 +34,10 @@ var (
 	ErrNoKey = errors.New("ant: model has no primary key")
 	// ErrKeyType reports a key whose type does not match the primary key.
 	ErrKeyType = errors.New("ant: key type does not match the primary key")
+	// ErrZeroKey reports an insert of an entity whose key is its type's zero
+	// value when nothing fills it: a uuid.UUID or string key with no
+	// GenerateKey and no default. An integer key is never refused.
+	ErrZeroKey = errors.New("ant: the key is zero and nothing generates it")
 	// ErrNoForeignKey reports a relation whose foreign key cannot be found by
 	// convention. Name it in Configure.
 	ErrNoForeignKey = errs.ErrNoForeignKey

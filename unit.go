@@ -1406,6 +1406,38 @@ func timeValue(f *meta.Field, now time.Time) reflect.Value {
 	return reflect.ValueOf(now)
 }
 
+// zeroKey refuses an insert whose single-column key holds its type's zero value
+// when nothing fills it: no generator in Go and no default in the database. Such
+// a key was written as it was, and the next insert collided with it. An integer
+// key is the database's to generate, or one where zero is a key the application
+// chose.
+func zeroKey(model *meta.Model, entity unsafe.Pointer) error {
+	if len(model.Keys) != 1 {
+		return nil
+	}
+
+	f := model.Keys[0]
+
+	switch {
+	case f.Generator != nil, f.FromDatabase(), f.ReadOnly, meta.IsInteger(f.Type):
+		return nil
+	case !f.Value(entity).IsZero():
+		return nil
+	}
+
+	return fmt.Errorf(
+		"%w: %s.%s is the zero %s, and nothing generates it: set it before the insert, "+
+			"generate it with ant.GenerateKey in Configure (for a uuid.UUID, "+
+			"ant.GenerateKey(b, &<probe>.%s, uuid.New)), or give the column a default, "+
+			"such as ant:\"default=gen_random_uuid()\" on PostgreSQL",
+		ErrZeroKey,
+		model.Type.Name(),
+		f.Name,
+		f.Type,
+		f.Name,
+	)
+}
+
 // stamp fills automatic values before an insert.
 func (u *unit) stamp(n *node) {
 	if v := n.model.Version; v != nil && v.Value(n.entity).IsZero() {
@@ -1438,6 +1470,10 @@ func (u *unit) stamp(n *node) {
 func (u *unit) create(ctx context.Context, to exec.Executor, n *node) error {
 	if n.model.ReadOnly {
 		return fmt.Errorf("%w: %s", ErrReadOnly, n.model.Type.Name())
+	}
+
+	if err := zeroKey(n.model, n.entity); err != nil {
+		return err
 	}
 
 	u.stamp(n)
@@ -1740,6 +1776,10 @@ func (u *unit) createMany(ctx context.Context, to exec.Executor, batch []*node) 
 		}
 
 		if err := n.checkRules(ctx); err != nil {
+			return err
+		}
+
+		if err := zeroKey(n.model, n.entity); err != nil {
 			return err
 		}
 
