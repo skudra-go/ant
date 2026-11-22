@@ -183,6 +183,16 @@ Conditions: `ant.Eq`, `Ne`, `Gt`, `Gte`, `Lt`, `Lte`, `Between`, `In`, `NotIn`,
 `InTuples`, `AnyOf`. Several conditions in one `Where`, or several `Where` calls, are
 joined with `AND`. `ant.In(&Users.Age)` with no values matches nothing.
 
+Every helper takes a field of any type, and the database checks that it can
+order, compare or add it up: `OrderBy`, `ThenBy`, `Latest`, `Gt` to `Between`,
+`Like`, `ILike`, `Lower`, `Past`, `Future`, `Today`, `DatePart`, `Sum`, `Avg`, `Min`,
+`Max`, `SumOf`, `MaxOf`, `SumRelated` and `Inc` work on a `*time.Time`, `*string`,
+`*int`, `sql.Null[T]`, `uuid.UUID`, `decimal.Decimal` or `ant.DeletedAt` field as
+on a plain one. Model money as `decimal.Decimal`. A comparison with a nil pointer
+matches nothing, as in SQL: only `Eq`, `Ne` and `In` turn nil into `IS NULL`.
+`ant.Inc(&Posts.Votes, 1)` on a `Votes *int` counts a NULL from 0, and
+`SumOf` over no rows returns the zero value (nil for a pointer field).
+
 On PostgreSQL, `postgres.Match(&Posts.Title, "english", query)` converts a text
 column with `to_tsvector`, writing the configuration into the SQL, so an index on
 `to_tsvector('english', title)` serves it. For a stored `tsvector` column, use

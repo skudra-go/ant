@@ -80,13 +80,16 @@ func (q *Query[T]) Unfiltered() *Query[T] {
 }
 
 // OrderBy orders results by field, ascending, replacing any earlier ordering.
-func (q *Query[T]) OrderBy[V Ordered](field *V) *Query[T] {
+// The field is of any type the database orders, such as a number, text, a
+// time, a uuid, a decimal, or a pointer or sql.Null of one. Where NULLs go
+// depends on the database; Order with NullsFirst or NullsLast says.
+func (q *Query[T]) OrderBy[V any](field *V) *Query[T] {
 	return q.Order(Col(field).Asc())
 }
 
 // OrderByDesc orders results by field, descending, replacing any earlier
 // ordering.
-func (q *Query[T]) OrderByDesc[V Ordered](field *V) *Query[T] {
+func (q *Query[T]) OrderByDesc[V any](field *V) *Query[T] {
 	return q.Order(Col(field).Desc())
 }
 
@@ -101,10 +104,10 @@ func (q *Query[T]) Order(terms ...Sort) *Query[T] {
 }
 
 // ThenBy adds an ascending ordering after OrderBy.
-func (q *Query[T]) ThenBy[V Ordered](field *V) *Query[T] { return then(q, Col(field).Asc()) }
+func (q *Query[T]) ThenBy[V any](field *V) *Query[T] { return then(q, Col(field).Asc()) }
 
 // ThenByDesc adds a descending ordering after OrderBy.
-func (q *Query[T]) ThenByDesc[V Ordered](field *V) *Query[T] { return then(q, Col(field).Desc()) }
+func (q *Query[T]) ThenByDesc[V any](field *V) *Query[T] { return then(q, Col(field).Desc()) }
 
 func then[T any](q *Query[T], term Sort) *Query[T] {
 	n := q.next()
@@ -218,11 +221,12 @@ func (q *Query[T]) OrderByRandom() *Query[T] {
 	return q.Order(Expr[float64]{node: qb.Func{Name: "RANDOM"}}.Asc())
 }
 
-// Latest orders by a time column, newest first.
-func (q *Query[T]) Latest(field *time.Time) *Query[T] { return q.OrderByDesc(field) }
+// Latest orders by a time column, newest first. The field is a time of any Go
+// type, such as a time.Time, a *time.Time or an sql.Null[time.Time].
+func (q *Query[T]) Latest[V any](field *V) *Query[T] { return q.OrderByDesc(field) }
 
 // Oldest orders by a time column, oldest first.
-func (q *Query[T]) Oldest(field *time.Time) *Query[T] { return q.OrderBy(field) }
+func (q *Query[T]) Oldest[V any](field *V) *Query[T] { return q.OrderBy(field) }
 
 // WithDeleted includes soft-deleted rows.
 func (q *Query[T]) WithDeleted() *Query[T] { return q.IgnoreFilters(meta.SoftDeleteFilter) }

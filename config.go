@@ -983,12 +983,12 @@ func (r *RelationBuilder) Morph[V comparable](field *V, value V) *RelationBuilde
 
 // Latest makes a has-one relation the newest of many, by field: Include reads
 // that row for each parent.
-func (r *RelationBuilder) Latest[V Ordered](field *V) *RelationBuilder {
+func (r *RelationBuilder) Latest[V any](field *V) *RelationBuilder {
 	return r.pick(Col(field).Desc())
 }
 
 // Oldest makes a has-one relation the oldest of many, by field.
-func (r *RelationBuilder) Oldest[V Ordered](field *V) *RelationBuilder {
+func (r *RelationBuilder) Oldest[V any](field *V) *RelationBuilder {
 	return r.pick(Col(field).Asc())
 }
 

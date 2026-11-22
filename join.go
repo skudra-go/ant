@@ -36,11 +36,11 @@ func (j *Join2[A, B]) Where(c ...Cond) *Join2[A, B] {
 
 // OrderBy orders results by a field of any joined model, ascending, replacing
 // any earlier ordering.
-func (j *Join2[A, B]) OrderBy[V Ordered](field *V) *Join2[A, B] { return j.Order(Col(field).Asc()) }
+func (j *Join2[A, B]) OrderBy[V any](field *V) *Join2[A, B] { return j.Order(Col(field).Asc()) }
 
 // OrderByDesc orders results by a field of any joined model, descending,
 // replacing any earlier ordering.
-func (j *Join2[A, B]) OrderByDesc[V Ordered](field *V) *Join2[A, B] {
+func (j *Join2[A, B]) OrderByDesc[V any](field *V) *Join2[A, B] {
 	return j.Order(Col(field).Desc())
 }
 
@@ -166,13 +166,13 @@ func (j *Join3[A, B, C]) Where(c ...Cond) *Join3[A, B, C] {
 
 // OrderBy orders results by a field of any joined model, ascending, replacing
 // any earlier ordering.
-func (j *Join3[A, B, C]) OrderBy[V Ordered](field *V) *Join3[A, B, C] {
+func (j *Join3[A, B, C]) OrderBy[V any](field *V) *Join3[A, B, C] {
 	return j.Order(Col(field).Asc())
 }
 
 // OrderByDesc orders results by a field of any joined model, descending,
 // replacing any earlier ordering.
-func (j *Join3[A, B, C]) OrderByDesc[V Ordered](field *V) *Join3[A, B, C] {
+func (j *Join3[A, B, C]) OrderByDesc[V any](field *V) *Join3[A, B, C] {
 	return j.Order(Col(field).Desc())
 }
 
@@ -298,13 +298,13 @@ func (j *Join4[A, B, C, D]) Where(c ...Cond) *Join4[A, B, C, D] {
 
 // OrderBy orders results by a field of any joined model, ascending, replacing
 // any earlier ordering.
-func (j *Join4[A, B, C, D]) OrderBy[V Ordered](field *V) *Join4[A, B, C, D] {
+func (j *Join4[A, B, C, D]) OrderBy[V any](field *V) *Join4[A, B, C, D] {
 	return j.Order(Col(field).Asc())
 }
 
 // OrderByDesc orders results by a field of any joined model, descending,
 // replacing any earlier ordering.
-func (j *Join4[A, B, C, D]) OrderByDesc[V Ordered](field *V) *Join4[A, B, C, D] {
+func (j *Join4[A, B, C, D]) OrderByDesc[V any](field *V) *Join4[A, B, C, D] {
 	return j.Order(Col(field).Desc())
 }
 

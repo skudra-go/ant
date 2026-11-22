@@ -84,6 +84,7 @@ Error helpers mean the same everywhere. `ant.IsUniqueViolation` works on all fiv
 
 **Values the drivers cannot take.** These are limits of `database/sql` or of a driver, which ant does not work around:
 
+- SQLite has no decimal type. A `decimal.Decimal` in a `NUMERIC` column with a fraction is stored as a `REAL`, so `SumOf` and `Sum` add floats there: 1.10 + 2.20 reads back as 3.3000000000000003. The other four databases add decimals exactly. On SQLite, keep money in integer cents, or in a `TEXT` column summed in Go.
 - A `uint64` above `math.MaxInt64` is refused by the SQLite and SQL Server drivers, through `database/sql`: `uint64 values with high bit set are not supported`. pgx and the MySQL driver take one, into PostgreSQL's `numeric(20,0)`, which ant makes for a `uint64`, and MySQL's `BIGINT UNSIGNED`. pgx still refuses one in an `sql.Null[uint64]`; a `*uint64` or a bare `uint64` field takes it. A key the database generates stays `bigint` on PostgreSQL, as an identity must be an integer, and a foreign key takes the type of the key it refers to.
 - `ant.JSON` and `secure.Value` refuse text that is not valid UTF-8, as a text column does: `encoding/json` would store U+FFFD in its place.
 - pgx writes a pointer to a nil `json.RawMessage` as the JSON `null`, not as `NULL`.

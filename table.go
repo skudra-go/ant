@@ -311,10 +311,10 @@ func (t *Table[T]) Where(c ...Cond) *Query[T] { return t.query().Where(c...) }
 func (t *Table[T]) Unfiltered() *Query[T] { return t.query().Unfiltered() }
 
 // OrderBy starts a query ordered by field, ascending.
-func (t *Table[T]) OrderBy[V Ordered](field *V) *Query[T] { return t.query().OrderBy(field) }
+func (t *Table[T]) OrderBy[V any](field *V) *Query[T] { return t.query().OrderBy(field) }
 
 // OrderByDesc starts a query ordered by field, descending.
-func (t *Table[T]) OrderByDesc[V Ordered](
+func (t *Table[T]) OrderByDesc[V any](
 	field *V,
 ) *Query[T] {
 	return t.query().OrderByDesc(field)

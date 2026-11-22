@@ -129,11 +129,37 @@ func castCaseIntoEnum(node qb.Expr, enum *meta.Enum) qb.Expr {
 	return out
 }
 
-// Inc adds n to a numeric column, in the database.
-func Inc[V Number](field *V, n V) Assignment { return SetExpr(field, Col(field).Plus(n)) }
+// Inc adds n to a column, in the database. The field is of any type the
+// database adds to, such as a number, a decimal, or a pointer or sql.Null of
+// one, and n is a value of the type it holds: Inc(&Posts.Votes, 1) for a Votes
+// *int. A column that can hold NULL counts from zero, so Inc on a NULL sets n.
+func Inc[V, N any](field *V, n N) Assignment { return step(field, "+", n) }
 
-// Dec subtracts n from a numeric column, in the database.
-func Dec[V Number](field *V, n V) Assignment { return SetExpr(field, Col(field).Minus(n)) }
+// Dec subtracts n from a column, in the database, as Inc adds it: a NULL
+// counts from zero.
+func Dec[V, N any](field *V, n N) Assignment { return step(field, "-", n) }
+
+// step is Inc and Dec: column op n, with COALESCE(column, 0) for a column that
+// can hold NULL, which would otherwise stay NULL.
+func step[V, N any](field *V, op string, n N) Assignment {
+	col, f, model, err := columnExpr(field)
+	if err != nil {
+		return Assignment{err: err}
+	}
+
+	left := col
+
+	if canBeNull(f) {
+		left = qb.Func{Name: "COALESCE", Args: []qb.Expr{col, qb.Fragment{SQL: "0"}}}
+	}
+
+	refs := model.Self()
+
+	return SetExpr(field, Expr[V]{
+		node: qb.Binary{Left: left, Op: op, Right: hidden(n, readsSensitive(col, refs))},
+		refs: refs,
+	})
+}
 
 // assignedTwice refuses a write that gives one column two values. PostgreSQL and
 // SQL Server refuse it, and MySQL keeps the last, so ant refuses it everywhere,

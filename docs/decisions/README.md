@@ -110,7 +110,7 @@ On 2026-11-20 the decisions moved from one file, `docs/DECISIONS.md`, to a file 
 
 | # | Decision | Status | Tags |
 |---|---|---|---|
-| [1](001-ant-ordered-replaces-cmp-ordered.md) | `ant.Ordered` replaces `cmp.Ordered` | active | `Ordered` `time` `OrderBy` `Gt` `cmp-ordered` |
+| [1](001-ant-ordered-replaces-cmp-ordered.md) | `ant.Ordered` replaces `cmp.Ordered` | superseded by [145](145-helpers-take-a-field-of-any-type.md) | `Ordered` `time` `OrderBy` `Gt` `cmp-ordered` |
 | [3](003-find-takes-a-generic-key.md) | `Find` takes a generic key | active | `Find` `generic-key` `comparable` `checkKey` |
 | [4](004-conditions-are-not-tied-to-a-model.md) | Conditions are not tied to a model | active | `Cond` `ErrWrongModel` `antvet` `probes` `go-vet` |
 | [5](005-select-closures-run-client-side.md) | `Select` closures run client-side | active | `Select` `Join2` `closure` `Project` `client-side` |
@@ -128,6 +128,7 @@ On 2026-11-20 the decisions moved from one file, `docs/DECISIONS.md`, to a file 
 | [136](136-an-outer-joins-side-reads-what-only-the-driver-converts.md) | An outer join's side reads what only the driver converts | active | `IncludeJoined` `LeftJoin` `Select` `nullableColumn` `netip` `arrays` `Scanner` |
 | [141](141-a-statement-inside-an-each-loop-on-one-connection-is-refused.md) | A statement inside an Each loop on one connection is refused | active | `Each` `ErrQueryInEach` `transactions` `UseConn` `UseTx` `Begin` `RunsWhileStreaming` `streaming` |
 | [143](143-paging-arguments-out-of-range-are-errpaging.md) | Paging arguments out of range are ErrPaging | active | `Page` `Chunk` `ChunkByKey` `After` `Limit` `Offset` `ErrPaging` `ErrCursor` `errors` |
+| [145](145-helpers-take-a-field-of-any-type.md) | Helpers take a field of any type, and the database checks it | active | `Ordered` `Number` `OrderBy` `Gt` `Between` `Like` `Inc` `SumOf` `MaxOf` `Past` `nullable` `decimal` `uuid` |
 
 #### Writes
 
@@ -309,14 +310,14 @@ Before changing a file, read the decisions about it.
 | `.github/workflows/pr-ci.yml` | [15](015-integration-failures-do-not-fail-ci-yet.md) |
 | `.golangci.yml` | [77](077-layout-is-enforced-by-tools.md) |
 | `Makefile` | [77](077-layout-is-enforced-by-tools.md) [83](083-antvet-judges-only-what-it-can-see.md) |
-| `aggregate.go` | [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) |
+| `aggregate.go` | [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) [145](145-helpers-take-a-field-of-any-type.md) |
 | `ant.go` | [12](012-additions-to-the-dialect-contract.md) [21](021-configuration-runs-when-a-context-opens.md) [29](029-sessions.md) [40](040-soft-deletes-are-a-filter.md) [61](061-sessions-take-options.md) [66](066-several-models-can-share-a-table.md) [67](067-naming-and-conventions-are-global.md) [79](079-a-tracking-context-serves-one-operation-at-a-time.md) [120](120-the-root-does-not-track-and-a-session-does.md) [121](121-a-rollback-forgets-what-its-transaction-began-tracking.md) [125](125-open-refuses-a-model-it-would-misread.md) |
 | `ant_test.go` | [1](001-ant-ordered-replaces-cmp-ordered.md) [4](004-conditions-are-not-tied-to-a-model.md) [17](017-implemented-ahead-of-the-skeleton.md) [18](018-wrong-model-detection.md) [100](100-probes-are-named-after-their-model-in-the-plural.md) |
 | `anttest/anttest.go` | [121](121-a-rollback-forgets-what-its-transaction-began-tracking.md) |
-| `assign.go` | [89](089-one-column-one-value.md) |
+| `assign.go` | [89](089-one-column-one-value.md) [145](145-helpers-take-a-field-of-any-type.md) |
 | `builder.go` | [4](004-conditions-are-not-tied-to-a-model.md) [18](018-wrong-model-detection.md) [20](020-queries-are-immutable.md) [34](034-self-joins.md) [37](037-references-to-outer-queries.md) [143](143-paging-arguments-out-of-range-are-errpaging.md) |
-| `cond.go` | [1](001-ant-ordered-replaces-cmp-ordered.md) [4](004-conditions-are-not-tied-to-a-model.md) [7](007-eq-with-a-nil-pointer.md) [23](023-guarding-bulk-writes.md) [68](068-sensitive-values-are-wrapped-when-bound.md) [95](095-in-means-eq-and-other-value-rules.md) |
-| `config.go` | [19](019-a-zero-generated-key-means-assign-one.md) [21](021-configuration-runs-when-a-context-opens.md) [41](041-automatic-timestamps.md) [51](051-modeling-added-for-migrations.md) [54](054-foreign-keys.md) [64](064-through-relations-are-read-only-pivots.md) [65](065-scoped-relations-use-the-same-filter-path.md) [119](119-an-upserts-update-writes-the-zero-a-default-field-holds.md) |
+| `cond.go` | [1](001-ant-ordered-replaces-cmp-ordered.md) [4](004-conditions-are-not-tied-to-a-model.md) [7](007-eq-with-a-nil-pointer.md) [23](023-guarding-bulk-writes.md) [68](068-sensitive-values-are-wrapped-when-bound.md) [95](095-in-means-eq-and-other-value-rules.md) [145](145-helpers-take-a-field-of-any-type.md) |
+| `config.go` | [19](019-a-zero-generated-key-means-assign-one.md) [21](021-configuration-runs-when-a-context-opens.md) [41](041-automatic-timestamps.md) [51](051-modeling-added-for-migrations.md) [54](054-foreign-keys.md) [64](064-through-relations-are-read-only-pivots.md) [65](065-scoped-relations-use-the-same-filter-path.md) [119](119-an-upserts-update-writes-the-zero-a-default-field-holds.md) [145](145-helpers-take-a-field-of-any-type.md) |
 | `contrib/otel` | [46](046-interceptors.md) [71](071-dependencies-stay-out-of-the-root-package.md) |
 | `contrib/otel/otel.go` | [97](097-spans-name-the-database-the-dialect-talks-to.md) |
 | `contrib/otel/otel_test.go` | [97](097-spans-name-the-database-the-dialect-talks-to.md) |
@@ -333,7 +334,7 @@ Before changing a file, read the decisions about it.
 | `dialect/postgres/ddl.go` | [50](050-three-layers-for-migrations.md) [52](052-new-not-null-columns-fill-existing-rows.md) [78](078-a-replaced-column-takes-its-dependents-along-and-they.md) [114](114-an-identity-columns-default-is-not-ants-to-change.md) [130](130-partitioning-is-part-of-the-table.md) [131](131-a-foreign-key-column-follows-its-target.md) [133](133-a-concurrent-build-clears-its-leftover.md) [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) [135](135-a-column-ant-made-for-an-earlier-default-is-converted-as-ant-stored-it.md) [138](138-a-uint64-column-on-postgresql-is-numeric.md) |
 | `dialect/postgres/ddl_test.go` | [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) [135](135-a-column-ant-made-for-an-earlier-default-is-converted-as-ant-stored-it.md) [138](138-a-uint64-column-on-postgresql-is-numeric.md) |
 | `dialect/postgres/expression.go` | [57](057-drift-compares-what-the-server-stored.md) |
-| `dialect/postgres/functions.go` | [42](042-converters-are-scanner-and-valuer.md) [43](043-database-specific-helpers.md) [137](137-stored-tsvector-columns-have-a-separate-match-helper.md) |
+| `dialect/postgres/functions.go` | [42](042-converters-are-scanner-and-valuer.md) [43](043-database-specific-helpers.md) [137](137-stored-tsvector-columns-have-a-separate-match-helper.md) [145](145-helpers-take-a-field-of-any-type.md) |
 | `dialect/postgres/inspect.go` | [57](057-drift-compares-what-the-server-stored.md) [72](072-partitions-are-not-migrations.md) [73](073-drift-compares-what-models-declare.md) [114](114-an-identity-columns-default-is-not-ants-to-change.md) [133](133-a-concurrent-build-clears-its-leftover.md) |
 | `dialect/postgres/partitions.go` | [72](072-partitions-are-not-migrations.md) |
 | `dialect/postgres/pgxext` | [71](071-dependencies-stay-out-of-the-root-package.md) |
@@ -354,7 +355,7 @@ Before changing a file, read the decisions about it.
 | `errors.go` | [17](017-implemented-ahead-of-the-skeleton.md) [18](018-wrong-model-detection.md) [31](031-failed-saves.md) [65](065-scoped-relations-use-the-same-filter-path.md) [110](110-a-version-the-application-sets-is-the-one-checked.md) [120](120-the-root-does-not-track-and-a-session-does.md) [143](143-paging-arguments-out-of-range-are-errpaging.md) |
 | `errors_kind.go` | [45](045-errors-are-classified-not-wrapped.md) [69](069-errors-carry-their-sql.md) |
 | `example_test.go` | [100](100-probes-are-named-after-their-model-in-the-plural.md) |
-| `expr.go` | [35](035-typed-expressions.md) [43](043-database-specific-helpers.md) [68](068-sensitive-values-are-wrapped-when-bound.md) |
+| `expr.go` | [35](035-typed-expressions.md) [43](043-database-specific-helpers.md) [68](068-sensitive-values-are-wrapped-when-bound.md) [145](145-helpers-take-a-field-of-any-type.md) |
 | `go.mod` | [10](010-module-path.md) |
 | `graph.go` | [93](093-tracking-follows-what-a-save-wrote.md) [120](120-the-root-does-not-track-and-a-session-does.md) |
 | `hooks.go` | [47](047-hooks-run-inside-the-write.md) [105](105-read-mostly-registries-are-copy-on-write-snapshots.md) [123](123-an-after-hooks-edit-is-a-change-to-save.md) |
@@ -377,7 +378,7 @@ Before changing a file, read the decisions about it.
 | `internal/track/snapshot.go` | [92](092-tracked-values-compare-as-stored.md) |
 | `internal/track/track.go` | [27](027-all-returns-t.md) [28](028-identity-and-relation-slices.md) [30](030-tracking-follows-keys-not-addresses.md) [32](032-navigation-and-foreign-key-changes.md) [79](079-a-tracking-context-serves-one-operation-at-a-time.md) [92](092-tracked-values-compare-as-stored.md) [93](093-tracking-follows-what-a-save-wrote.md) [99](099-a-retried-attempt-leaves-nothing-in-the-tracker.md) [107](107-hot-paths-allocate-for-the-operation-not-for-each-row.md) [108](108-kept-sql-by-shape-unboxed-keys-compact-snapshots-and.md) [121](121-a-rollback-forgets-what-its-transaction-began-tracking.md) [123](123-an-after-hooks-edit-is-a-change-to-save.md) [142](142-chunk-lets-go-of-a-group-that-has-nothing-to-save.md) |
 | `internal/track/track_test.go` | [79](079-a-tracking-context-serves-one-operation-at-a-time.md) [92](092-tracked-values-compare-as-stored.md) [121](121-a-rollback-forgets-what-its-transaction-began-tracking.md) |
-| `join.go` | [5](005-select-closures-run-client-side.md) [9](009-owner-review-of-step-1.md) [34](034-self-joins.md) |
+| `join.go` | [5](005-select-closures-run-client-side.md) [9](009-owner-review-of-step-1.md) [34](034-self-joins.md) [145](145-helpers-take-a-field-of-any-type.md) |
 | `joined.go` | [136](136-an-outer-joins-side-reads-what-only-the-driver-converts.md) |
 | `json.go` | [42](042-converters-are-scanner-and-valuer.md) [95](095-in-means-eq-and-other-value-rules.md) [109](109-numbers-inside-an-interface-read-as-json-number.md) |
 | `json_test.go` | [42](042-converters-are-scanner-and-valuer.md) [95](095-in-means-eq-and-other-value-rules.md) [109](109-numbers-inside-an-interface-read-as-json-number.md) |
@@ -399,7 +400,7 @@ Before changing a file, read the decisions about it.
 | `projection.go` | [5](005-select-closures-run-client-side.md) [35](035-typed-expressions.md) [136](136-an-outer-joins-side-reads-what-only-the-driver-converts.md) [141](141-a-statement-inside-an-each-loop-on-one-connection-is-refused.md) |
 | `qb/aliased_test.go` | [14](014-the-dialect-interface-exposes-an-internal-type.md) [62](062-the-statement-ast-is-public.md) |
 | `qb/qb.go` | [14](014-the-dialect-interface-exposes-an-internal-type.md) [39](039-global-filters-are-lazy.md) [62](062-the-statement-ast-is-public.md) [68](068-sensitive-values-are-wrapped-when-bound.md) [88](088-sql-server-recurses-with-union-all-and-a-path-of-keys.md) [107](107-hot-paths-allocate-for-the-operation-not-for-each-row.md) [124](124-a-conflict-target-repeats-a-partial-indexs-predicate.md) |
-| `query.go` | [1](001-ant-ordered-replaces-cmp-ordered.md) [3](003-find-takes-a-generic-key.md) [6](006-return-shapes-and-tracking.md) [18](018-wrong-model-detection.md) [20](020-queries-are-immutable.md) [23](023-guarding-bulk-writes.md) [27](027-all-returns-t.md) [28](028-identity-and-relation-slices.md) [33](033-include-shape-functions.md) [36](036-derived-tables-keep-the-models-name.md) [37](037-references-to-outer-queries.md) [38](038-bulk-writes.md) [40](040-soft-deletes-are-a-filter.md) [80](080-every-write-moves-the-version-on.md) [81](081-a-set-operations-members-keep-their-own-paging.md) [98](098-an-explicit-write-refuses-the-columns-ant-keeps.md) [102](102-updatemany-keeps-what-a-bulk-update-keeps.md) [107](107-hot-paths-allocate-for-the-operation-not-for-each-row.md) [112](112-a-locking-read-puts-the-row-into-the-tracked-instance.md) [141](141-a-statement-inside-an-each-loop-on-one-connection-is-refused.md) |
+| `query.go` | [1](001-ant-ordered-replaces-cmp-ordered.md) [3](003-find-takes-a-generic-key.md) [6](006-return-shapes-and-tracking.md) [18](018-wrong-model-detection.md) [20](020-queries-are-immutable.md) [23](023-guarding-bulk-writes.md) [27](027-all-returns-t.md) [28](028-identity-and-relation-slices.md) [33](033-include-shape-functions.md) [36](036-derived-tables-keep-the-models-name.md) [37](037-references-to-outer-queries.md) [38](038-bulk-writes.md) [40](040-soft-deletes-are-a-filter.md) [80](080-every-write-moves-the-version-on.md) [81](081-a-set-operations-members-keep-their-own-paging.md) [98](098-an-explicit-write-refuses-the-columns-ant-keeps.md) [102](102-updatemany-keeps-what-a-bulk-update-keeps.md) [107](107-hot-paths-allocate-for-the-operation-not-for-each-row.md) [112](112-a-locking-read-puts-the-row-into-the-tracked-instance.md) [141](141-a-statement-inside-an-each-loop-on-one-connection-is-refused.md) [145](145-helpers-take-a-field-of-any-type.md) |
 | `raw.go` | [24](024-raw-sql-arguments.md) [27](027-all-returns-t.md) [87](087-an-embedded-field-must-be-a-struct-value.md) |
 | `run.go` | [48](048-replicas.md) [138](138-a-uint64-column-on-postgresql-is-numeric.md) [141](141-a-statement-inside-an-each-loop-on-one-connection-is-refused.md) |
 | `schema.go` | [21](021-configuration-runs-when-a-context-opens.md) [51](051-modeling-added-for-migrations.md) [54](054-foreign-keys.md) [66](066-several-models-can-share-a-table.md) [94](094-migrations-keep-a-columns-dependents-working-while-it.md) [117](117-the-migrate-program-takes-the-applications-options.md) [125](125-open-refuses-a-model-it-would-misread.md) [131](131-a-foreign-key-column-follows-its-target.md) [132](132-default-names-are-valid-and-distinct.md) [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) [138](138-a-uint64-column-on-postgresql-is-numeric.md) |
@@ -422,7 +423,8 @@ Before changing a file, read the decisions about it.
 | `shape_internal_test.go` | [108](108-kept-sql-by-shape-unboxed-keys-compact-snapshots-and.md) |
 | `skills/ant/SKILL.md` | [104](104-a-skill-for-coding-agents-ships-in-the-module.md) |
 | `subquery.go` | [37](037-references-to-outer-queries.md) [81](081-a-set-operations-members-keep-their-own-paging.md) |
-| `table.go` | [3](003-find-takes-a-generic-key.md) [6](006-return-shapes-and-tracking.md) [22](022-inserts-run-one-statement-per-row.md) [39](039-global-filters-are-lazy.md) [40](040-soft-deletes-are-a-filter.md) [80](080-every-write-moves-the-version-on.md) |
+| `table.go` | [3](003-find-takes-a-generic-key.md) [6](006-return-shapes-and-tracking.md) [22](022-inserts-run-one-statement-per-row.md) [39](039-global-filters-are-lazy.md) [40](040-soft-deletes-are-a-filter.md) [80](080-every-write-moves-the-version-on.md) [145](145-helpers-take-a-field-of-any-type.md) |
+| `tests/any_column_test.go` | [145](145-helpers-take-a-field-of-any-type.md) |
 | `tests/api/api_test.go` | [71](071-dependencies-stay-out-of-the-root-package.md) |
 | `tests/api/skill_test.go` | [104](104-a-skill-for-coding-agents-ships-in-the-module.md) |
 | `tests/benchmarks/budget_test.go` | [107](107-hot-paths-allocate-for-the-operation-not-for-each-row.md) [108](108-kept-sql-by-shape-unboxed-keys-compact-snapshots-and.md) |
@@ -492,6 +494,7 @@ Before changing a file, read the decisions about it.
 | `tests/features/performance/chunk_test.go` | [142](142-chunk-lets-go-of-a-group-that-has-nothing-to-save.md) [143](143-paging-arguments-out-of-range-are-errpaging.md) |
 | `tests/features/performance/paging_test.go` | [143](143-paging-arguments-out-of-range-are-errpaging.md) |
 | `tests/features/querying/all_test.go` | [27](027-all-returns-t.md) |
+| `tests/features/querying/any_column_test.go` | [145](145-helpers-take-a-field-of-any-type.md) |
 | `tests/features/querying/cte_test.go` | [36](036-derived-tables-keep-the-models-name.md) |
 | `tests/features/querying/derived_joins_test.go` | [36](036-derived-tables-keep-the-models-name.md) |
 | `tests/features/querying/each_test.go` | [6](006-return-shapes-and-tracking.md) [27](027-all-returns-t.md) |
@@ -588,6 +591,7 @@ Tags on two or more decisions. Search the headers for the rest: `rg -l '^tags: .
 - `CONCURRENTLY`: [56](056-failure.md) [78](078-a-replaced-column-takes-its-dependents-along-and-they.md)
 - `Configure`: [21](021-configuration-runs-when-a-context-opens.md) [66](066-several-models-can-share-a-table.md) [83](083-antvet-judges-only-what-it-can-see.md) [107](107-hot-paths-allocate-for-the-operation-not-for-each-row.md)
 - `CTE`: [36](036-derived-tables-keep-the-models-name.md) [88](088-sql-server-recurses-with-union-all-and-a-path-of-keys.md)
+- `decimal`: [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) [145](145-helpers-take-a-field-of-any-type.md)
 - `default`: [51](051-modeling-added-for-migrations.md) [52](052-new-not-null-columns-fill-existing-rows.md) [119](119-an-upserts-update-writes-the-zero-a-default-field-holds.md)
 - `Delete`: [23](023-guarding-bulk-writes.md) [38](038-bulk-writes.md)
 - `DeletedAt`: [40](040-soft-deletes-are-a-filter.md) [84](084-every-time-is-bound-in-utc-where-columns-keep-no-zone.md) [139](139-a-field-can-not-ask-for-two-things-ant-can-not-both-do.md)
@@ -618,6 +622,7 @@ Tags on two or more decisions. Search the headers for the rest: `rg -l '^tags: .
 - `generated-key`: [19](019-a-zero-generated-key-means-assign-one.md) [22](022-inserts-run-one-statement-per-row.md) [90](090-merge-keeps-what-other-writes-keep.md)
 - `global-filter`: [39](039-global-filters-are-lazy.md) [102](102-updatemany-keeps-what-a-bulk-update-keeps.md)
 - `go-vet`: [4](004-conditions-are-not-tied-to-a-model.md) [83](083-antvet-judges-only-what-it-can-see.md)
+- `Gt`: [1](001-ant-ordered-replaces-cmp-ordered.md) [145](145-helpers-take-a-field-of-any-type.md)
 - `history`: [8](008-step-1-file-count.md) [17](017-implemented-ahead-of-the-skeleton.md) [56](056-failure.md) [115](115-a-file-outside-a-transaction-is-recorded-before-it-runs.md)
 - `hooks`: [47](047-hooks-run-inside-the-write.md) [63](063-savechanges-batches-inserts.md) [79](079-a-tracking-context-serves-one-operation-at-a-time.md) [123](123-an-after-hooks-edit-is-a-change-to-save.md)
 - `identity`: [94](094-migrations-keep-a-columns-dependents-working-while-it.md) [114](114-an-identity-columns-default-is-not-ants-to-change.md) [138](138-a-uint64-column-on-postgresql-is-numeric.md)
@@ -645,12 +650,14 @@ Tags on two or more decisions. Search the headers for the rest: `rg -l '^tags: .
 - `netip`: [125](125-open-refuses-a-model-it-would-misread.md) [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) [136](136-an-outer-joins-side-reads-what-only-the-driver-converts.md)
 - `no-transaction`: [115](115-a-file-outside-a-transaction-is-recorded-before-it-runs.md) [126](126-a-migration-runs-as-it-says-or-not-at-all.md) [144](144-script-stops-before-a-go-migration.md)
 - `null`: [30](030-tracking-follows-keys-not-addresses.md) [95](095-in-means-eq-and-other-value-rules.md)
+- `nullable`: [51](051-modeling-added-for-migrations.md) [145](145-helpers-take-a-field-of-any-type.md)
 - `numeric`: [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) [138](138-a-uint64-column-on-postgresql-is-numeric.md)
 - `on-conflict`: [44](044-many-to-many.md) [103](103-an-upserts-update-stamps-updatedat.md)
 - `on-duplicate-key`: [75](075-generated-values-without-returning.md) [85](085-mysql-reads-the-table-it-writes-through-a-derived-table.md) [91](091-an-upsert-checks-a-copys-version-on-mysql-and-mariadb.md)
 - `Open`: [12](012-additions-to-the-dialect-contract.md) [21](021-configuration-runs-when-a-context-opens.md) [66](066-several-models-can-share-a-table.md) [67](067-naming-and-conventions-are-global.md) [125](125-open-refuses-a-model-it-would-misread.md) [139](139-a-field-can-not-ask-for-two-things-ant-can-not-both-do.md)
 - `optimistic-concurrency`: [80](080-every-write-moves-the-version-on.md) [91](091-an-upsert-checks-a-copys-version-on-mysql-and-mariadb.md) [110](110-a-version-the-application-sets-is-the-one-checked.md)
-- `OrderBy`: [1](001-ant-ordered-replaces-cmp-ordered.md) [20](020-queries-are-immutable.md)
+- `OrderBy`: [1](001-ant-ordered-replaces-cmp-ordered.md) [20](020-queries-are-immutable.md) [145](145-helpers-take-a-field-of-any-type.md)
+- `Ordered`: [1](001-ant-ordered-replaces-cmp-ordered.md) [145](145-helpers-take-a-field-of-any-type.md)
 - `otel`: [46](046-interceptors.md) [97](097-spans-name-the-database-the-dialect-talks-to.md)
 - `Page`: [81](081-a-set-operations-members-keep-their-own-paging.md) [143](143-paging-arguments-out-of-range-are-errpaging.md)
 - `partitions`: [72](072-partitions-are-not-migrations.md) [130](130-partitioning-is-part-of-the-table.md)
@@ -710,6 +717,7 @@ Tags on two or more decisions. Search the headers for the rest: `rg -l '^tags: .
 - `UseTx`: [79](079-a-tracking-context-serves-one-operation-at-a-time.md) [141](141-a-statement-inside-an-each-loop-on-one-connection-is-refused.md)
 - `utc`: [41](041-automatic-timestamps.md) [76](076-one-clock-for-times-without-a-zone.md) [84](084-every-time-is-bound-in-utc-where-columns-keep-no-zone.md)
 - `UTCTimes`: [74](074-dialects-state-their-differences.md) [76](076-one-clock-for-times-without-a-zone.md)
+- `uuid`: [131](131-a-foreign-key-column-follows-its-target.md) [145](145-helpers-take-a-field-of-any-type.md)
 - `valuer`: [42](042-converters-are-scanner-and-valuer.md) [92](092-tracked-values-compare-as-stored.md)
 - `version`: [80](080-every-write-moves-the-version-on.md) [90](090-merge-keeps-what-other-writes-keep.md) [91](091-an-upsert-checks-a-copys-version-on-mysql-and-mariadb.md) [93](093-tracking-follows-what-a-save-wrote.md) [102](102-updatemany-keeps-what-a-bulk-update-keeps.md) [110](110-a-version-the-application-sets-is-the-one-checked.md) [139](139-a-field-can-not-ask-for-two-things-ant-can-not-both-do.md) [140](140-an-update-that-changed-nothing-is-checked-against-the-row.md)
 - `warning`: [52](052-new-not-null-columns-fill-existing-rows.md) [55](055-renames.md)

@@ -2,11 +2,11 @@
 id: 1
 title: "`ant.Ordered` replaces `cmp.Ordered`"
 area: queries
-status: active
+status: superseded
 tags: [Ordered, time, OrderBy, Gt, cmp-ordered]
 issues: []
 related: []
-changed_by: []
+changed_by: [145]
 code: [cond.go, query.go]
 tests: [ant_test.go]
 ---
@@ -14,6 +14,8 @@ tests: [ant_test.go]
 # 1. `ant.Ordered` replaces `cmp.Ordered`
 
 **In short:** Ordering and comparison conditions accept time.Time as well as cmp.Ordered types through ant.Ordered.
+
+> **Superseded.** Decision 145 makes these helpers take a field of any type, as uuid, decimal, pointer and `sql.Null` columns need, and deprecates `ant.Ordered`.
 
 ## Decision
 

@@ -13,8 +13,11 @@ import (
 	"github.com/skudra-go/ant/qb"
 )
 
-// Ordered is a type with a database ordering. It extends cmp.Ordered with
-// time.Time, which cmp.Ordered excludes.
+// Ordered is cmp.Ordered with time.Time.
+//
+// Deprecated: ant's ordering and comparison helpers take a field of any type,
+// as the database orders a pointer, an sql.Null, a uuid or a decimal as well,
+// so none of them uses Ordered any more. It is kept for code that names it.
 type Ordered interface {
 	cmp.Ordered | time.Time
 }
@@ -169,17 +172,21 @@ func Ne[V comparable](field *V, v V) Cond {
 	return compare(field, qb.OpNe, v)
 }
 
-// Gt matches rows where field is greater than v.
-func Gt[V Ordered](field *V, v V) Cond { return compare(field, qb.OpGt, v) }
+// Gt matches rows where field is greater than v. The field can be of any type
+// the database orders, such as a number, text, a time, a uuid, a decimal, or a
+// pointer or sql.Null of one: the database, not Go, decides the order. As in
+// SQL, a NULL column, or a v stored as NULL, matches nothing. Gte, Lt, Lte and
+// Between are the same.
+func Gt[V any](field *V, v V) Cond { return compare(field, qb.OpGt, v) }
 
 // Gte matches rows where field is greater than or equal to v.
-func Gte[V Ordered](field *V, v V) Cond { return compare(field, qb.OpGte, v) }
+func Gte[V any](field *V, v V) Cond { return compare(field, qb.OpGte, v) }
 
 // Lt matches rows where field is less than v.
-func Lt[V Ordered](field *V, v V) Cond { return compare(field, qb.OpLt, v) }
+func Lt[V any](field *V, v V) Cond { return compare(field, qb.OpLt, v) }
 
 // Lte matches rows where field is less than or equal to v.
-func Lte[V Ordered](field *V, v V) Cond { return compare(field, qb.OpLte, v) }
+func Lte[V any](field *V, v V) Cond { return compare(field, qb.OpLte, v) }
 
 // In matches rows where field equals one of values, as Eq would. With no
 // values, it matches nothing. A nil value matches NULL, as with Eq.
@@ -191,20 +198,27 @@ func In[V comparable](field *V, values ...V) Cond { return membership(field, val
 func NotIn[V comparable](field *V, values ...V) Cond { return membership(field, values, true) }
 
 // Between matches rows where field is within low and high, inclusive.
-func Between[V Ordered](field *V, low, high V) Cond {
+func Between[V any](field *V, low, high V) Cond {
 	return on(field, func(c qb.Expr) qb.Cond {
 		return qb.Between{Left: c, Low: qb.Param{Value: low}, High: qb.Param{Value: high}}
 	})
 }
 
 // Like matches rows where field matches a SQL LIKE pattern, in which % matches
-// any text and _ matches one character.
-func Like[V ~string](field *V, pattern V) Cond { return compare(field, qb.OpLike, string(pattern)) }
+// any text and _ matches one character. The field is a text column of any Go
+// type, such as a string, a *string or an sql.Null[string], and a NULL one
+// matches nothing.
+func Like[V any, P ~string](
+	field *V,
+	pattern P,
+) Cond {
+	return compare(field, qb.OpLike, string(pattern))
+}
 
 // ILike is Like ignoring case.
-func ILike[V ~string](
+func ILike[V any, P ~string](
 	field *V,
-	pattern V,
+	pattern P,
 ) Cond {
 	return compare(field, qb.OpILike, string(pattern))
 }
@@ -229,13 +243,16 @@ func eachField[V comparable](v V, fields []*V) []Cond {
 }
 
 // Past matches rows where a time column is before the database's current time.
-func Past(field *time.Time) Cond { return Col(field).LtExpr(SQL[time.Time]("CURRENT_TIMESTAMP")) }
+// The field is a time of any Go type, such as a time.Time, a *time.Time, an
+// sql.Null[time.Time] or ant.DeletedAt, and a NULL one matches nothing, here
+// and in Future and Today.
+func Past[V any](field *V) Cond { return Col(field).LtExpr(SQL[V]("CURRENT_TIMESTAMP")) }
 
 // Future matches rows where a time column is after the database's current time.
-func Future(field *time.Time) Cond { return Col(field).GtExpr(SQL[time.Time]("CURRENT_TIMESTAMP")) }
+func Future[V any](field *V) Cond { return Col(field).GtExpr(SQL[V]("CURRENT_TIMESTAMP")) }
 
 // Today matches rows where a time column falls on the database's current date.
-func Today(field *time.Time) Cond {
+func Today[V any](field *V) Cond {
 	c := SQLCond("CAST(? AS date) = CURRENT_DATE", Col(field))
 	c.node = needing(c.node, dialect.DateCast)
 
