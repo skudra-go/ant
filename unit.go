@@ -521,8 +521,10 @@ func (u *unit) reconcile(n *node, claimed map[rowID]unsafe.Pointer) error {
 
 	// A has-one pointer is the truth about its relation, as a slice is. One
 	// that picks a row of many is a view of them, and one through another
-	// table does not own its row.
-	for r, key := range n.entry.Parents {
+	// table does not own its row. The model's relations, in their order, keep
+	// the order of the statements the same from one save to the next.
+	for _, r := range n.model.Relations {
+		key := n.entry.Parents[r]
 		if key == nil || r.Pick != nil || r.ThroughKey != nil || r.Pivot != nil {
 			continue
 		}
