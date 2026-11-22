@@ -444,7 +444,8 @@ func sqlWrites(t reflect.Type) bool {
 	case reflect.Slice:
 		return t.Elem().Kind() == reflect.Uint8
 	case reflect.Struct:
-		return t.ConvertibleTo(timeType)
+		// database/sql takes time.Time itself, not a type defined on it.
+		return t == timeType
 	}
 
 	return false

@@ -2,6 +2,7 @@ package tests
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -12,12 +13,16 @@ import (
 // Street is a plain struct, with no driver.Valuer and no sql.Scanner.
 type Street struct{ City string }
 
+// MovedAt is a time.Time by another name, which database/sql does not take as one.
+type MovedAt time.Time
+
 // Resident has a field of each type only pgx converts.
 type Resident struct {
 	ID    int64
 	Home  Street
 	Tags  []string
 	Attrs map[string]string
+	Moved MovedAt
 }
 
 type ResidentDB struct {
@@ -63,7 +68,7 @@ func TestConformanceOpenRefusesValuesTheDriverCannotTake(t *testing.T) {
 
 			require.Error(t, err)
 
-			for _, field := range []string{"Resident.Home", "Resident.Tags", "Resident.Attrs"} {
+			for _, field := range []string{"Resident.Home", "Resident.Tags", "Resident.Attrs", "Resident.Moved"} {
 				require.ErrorContains(t, err, field)
 			}
 
