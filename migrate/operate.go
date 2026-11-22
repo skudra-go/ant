@@ -288,6 +288,29 @@ func (e *engine) seed(ctx context.Context, names []string) error {
 	return nil
 }
 
+// pendingNote says how many migrations are still to run, in the singular
+// when there is one.
+func pendingNote(pending int) string {
+	if pending == 1 {
+		return "1 migration is pending, so the database is expected to differ. Run up first."
+	}
+
+	return fmt.Sprintf(
+		"%d migrations are pending, so the database is expected to differ. Run up first.",
+		pending,
+	)
+}
+
+// driftNote says how many differences drift found, in the singular when
+// there is one.
+func driftNote(differences int) string {
+	if differences == 1 {
+		return "1 difference"
+	}
+
+	return fmt.Sprintf("%d differences", differences)
+}
+
 // drift compares the live database with what migrations describe. Both sides are
 // read back from the server itself, so a difference is a real one, not a matter of
 // how an expression is spelled.
@@ -362,10 +385,7 @@ func (e *engine) drift(
 	}
 
 	if pending > 0 {
-		e.say(
-			"%d migrations are pending, so the database is expected to differ. Run up first.",
-			pending,
-		)
+		e.say("%s", pendingNote(pending))
 	}
 
 	if plan.Empty() {
@@ -395,7 +415,7 @@ func (e *engine) drift(
 		e.say("\n%s", text)
 	}
 
-	return fmt.Errorf("%w: %d differences", ErrDrift, len(plan.Changes))
+	return fmt.Errorf("%w: %s", ErrDrift, driftNote(len(plan.Changes)))
 }
 
 // reconcile makes live use expected's text wherever the two mean the same, so
