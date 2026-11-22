@@ -234,7 +234,7 @@ func wrap[DB any](
 		)
 	}
 
-	if err := checkModels(new(DB)); err != nil {
+	if err := checkModels(new(DB), d); err != nil {
 		return nil, err
 	}
 

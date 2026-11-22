@@ -148,6 +148,11 @@ Calls that take columns of mixed types take `ant.FieldRef`, made with
   `numeric(20,0)` (a key the database generates stays `bigint`), and a plain slice
   is an array, as `[]string` is `text[]`. A type with no column type fails with
   `ant.ErrNoColumnType` until `b.Column(&...).Type("...")` names one.
+- Only pgx converts slices, maps and plain structs. On MySQL, MariaDB, SQLite and
+  SQL Server, `Open` refuses such a field with `ant.ErrNoColumnType`, naming it:
+  wrap it as `ant.JSON[T]`, or give the type a `driver.Valuer` and `sql.Scanner`.
+- Declare each table as a value, `Users ant.Table[User]`; `Open` refuses a
+  `*ant.Table[User]` field.
 - Everything else is configured in typed Go, with a `Configure` method on the model:
 
 ```go

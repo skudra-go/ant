@@ -43,6 +43,7 @@ var syntax = dialect.Syntax{
 	Functions:          map[string]string{"LENGTH": "LEN", "RANDOM": "NEWID"},
 	MaxParameters:      2000, // 2100, less what the driver's sp_executesql call uses
 	NoArrayParams:      true,
+	PlainValues:        true,
 }
 
 func (impl) Name() string       { return "sqlserver" }

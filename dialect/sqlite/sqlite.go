@@ -38,6 +38,7 @@ var syntax = dialect.Syntax{
 	// A statement on the connection steps its own cursor, beside the open one.
 	RunsWhileStreaming: true,
 	NoArrayParams:      true,
+	PlainValues:        true,
 }
 
 func (impl) Name() string       { return "sqlite" }

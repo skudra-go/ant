@@ -65,6 +65,7 @@ func shared(missing ...dialect.Feature) dialect.Syntax {
 		HintInSelect:  true,
 		Functions:     map[string]string{"RANDOM": "RAND"},
 		NoArrayParams: true,
+		PlainValues:   true,
 	}
 }
 

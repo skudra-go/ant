@@ -108,6 +108,11 @@ type Syntax struct {
 	// UTCTimes binds times in UTC, for a database whose columns drop the zone, so
 	// that every stored time is on one clock.
 	UTCTimes bool
+	// PlainValues says the driver writes and reads only what database/sql
+	// converts, where pgx converts slices, maps and structs itself. Open then
+	// refuses a field of a type database/sql can't pass or fill, naming it,
+	// rather than leave the first write to fail with the driver's message.
+	PlainValues bool
 
 	// Functions renames functions, such as LENGTH to LEN.
 	Functions map[string]string

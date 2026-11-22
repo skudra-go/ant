@@ -415,6 +415,41 @@ func (d *mapDest) Scan(src any) error {
 // sqlConverts reports whether database/sql converts a driver's value into a t
 // by itself, as it does what pgx's stdlib driver leaves to it: a Scanner, a
 // scalar, bytes, a time, an interface, or a pointer to one of these.
+// Plain reports whether database/sql alone writes the field, and whether it or
+// ant's own readers read it: what a driver that converts nothing of its own,
+// unlike pgx, takes and gives.
+func (f *Field) Plain() (writes, reads bool) { return sqlWrites(f.Type), !f.driverOnly }
+
+// sqlWrites reports whether database/sql passes a value of type t to any
+// driver: a driver.Valuer, or a kind its default converter takes, behind any
+// number of pointers.
+func sqlWrites(t reflect.Type) bool {
+	for range 64 {
+		if t.Implements(valuerType) || reflect.PointerTo(t).Implements(valuerType) {
+			return true
+		}
+
+		if t.Kind() != reflect.Pointer {
+			break
+		}
+
+		t = t.Elem()
+	}
+
+	switch t.Kind() {
+	case reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64, reflect.String, reflect.Interface:
+		return true
+	case reflect.Slice:
+		return t.Elem().Kind() == reflect.Uint8
+	case reflect.Struct:
+		return t.ConvertibleTo(timeType)
+	}
+
+	return false
+}
+
 func sqlConverts(t reflect.Type) bool {
 	for range 64 {
 		if reflect.PointerTo(t).Implements(scannerType) {
