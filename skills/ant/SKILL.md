@@ -281,7 +281,7 @@ every database, and pass values as arguments, never in the text:
 
 ```go
 rows, err := ant.Raw[User](db, `SELECT * FROM users WHERE age > ?`, 18).All(ctx) // []User
-count, err := ant.Raw[int](db, `SELECT count(*) FROM users`).First(ctx)
+countPtr, err := ant.Raw[int](db, `SELECT count(*) FROM users`).First(ctx) // *int
 ```
 
 ## Writes
@@ -372,7 +372,7 @@ err = session.SaveChanges(ctx)
   changing them saves nothing. `With` rows are tracked; their computed fields are
   never compared or written.
 - A context holds one instance per row: a second query for the same row returns the
-  same pointer, unsaved changes included. `Reload(ctx, e)` rereads it. A locking
+  same pointer, unsaved changes included. `db.Users.Reload(ctx, e)` rereads it. A locking
   read (`ForUpdate`, `ForShare`) puts the row into that instance, or returns
   `ErrConcurrency` if the instance has unsaved changes and the row has moved.
 - That one instance can make a loaded graph a **cycle**: with users' posts and the
