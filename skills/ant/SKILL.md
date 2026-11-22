@@ -373,6 +373,11 @@ err = session.SaveChanges(ctx)
   same pointer, unsaved changes included. `Reload(ctx, e)` rereads it. A locking
   read (`ForUpdate`, `ForShare`) puts the row into that instance, or returns
   `ErrConcurrency` if the instance has unsaved changes and the row has moved.
+- That one instance can make a loaded graph a **cycle**: with users' posts and the
+  posts' authors included, `user.Posts[0].User` is `user`, and `json.Marshal`
+  fails with "encountered a cycle". A context that does not track returns a tree.
+  To encode, read with `NoTracking()`, map to a DTO, or tag the back reference
+  `json:"-"`.
 - `SaveChanges` returns `ant.ErrConcurrency` when the row was deleted, or its
   version changed, since it was loaded. A version set on a loaded entity, such
   as the one a client sent back, is the one checked.
