@@ -396,6 +396,7 @@ ant: func Has[R any](rel *[]R, conds ...Cond) Cond
 ant: func ILike[V any, P ~string](field *V, pattern P) Cond
 ant: func InSub[V any](field *V, sub Sub[V]) Cond
 ant: func InTuples(fields []FieldRef, tuples ...[]any) Cond
+ant: func InTx(ctx context.Context, h Handle) context.Context
 ant: func In[V comparable](field *V, values ...V) Cond
 ant: func Inc[V, N any](field *V, n N) Assignment
 ant: func IncrementBy(n int64) SequenceOption

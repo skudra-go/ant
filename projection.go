@@ -366,8 +366,9 @@ func (p *Projection[R]) Each(ctx context.Context) iter.Seq2[R, error] {
 		defer rows.Close()
 
 		// As in Query.Each, the connection streams until the loop ends.
-		p.state.streams.start()
-		defer p.state.streams.stop()
+		on := p.state.streamsOf(ctx)
+		on.start()
+		defer on.stop()
 
 		for rows.Next() {
 			v, err := read()

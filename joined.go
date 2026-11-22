@@ -1,6 +1,7 @@
 package ant
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"slices"
@@ -89,7 +90,7 @@ func (q *Query[T]) addJoined(stmt *qb.Select) {
 }
 
 // collectJoined reads rows that hold the root's columns, then each joined model's.
-func (q *Query[T]) collectJoined(rows *sql.Rows) (out []*T, err error) {
+func (q *Query[T]) collectJoined(ctx context.Context, rows *sql.Rows) (out []*T, err error) {
 	defer func() { err = errors.Join(err, rows.Close()) }()
 
 	model := q.model()
@@ -175,7 +176,7 @@ func (q *Query[T]) collectJoined(rows *sql.Rows) (out []*T, err error) {
 	}
 
 	if tracked {
-		if err := q.rememberJoined(out); err != nil {
+		if err := q.rememberJoined(ctx, out); err != nil {
 			return nil, err
 		}
 	}
@@ -186,7 +187,7 @@ func (q *Query[T]) collectJoined(rows *sql.Rows) (out []*T, err error) {
 // rememberJoined records loaded parents on tracked entities, as IncludeOne does.
 // The root instance can be an earlier one, so that one gets the relation too,
 // and the row, if the query locked it.
-func (q *Query[T]) rememberJoined(items []*T) error {
+func (q *Query[T]) rememberJoined(ctx context.Context, items []*T) error {
 	model := q.model()
 
 	for i, item := range items {
@@ -195,7 +196,7 @@ func (q *Query[T]) rememberJoined(items []*T) error {
 		items[i] = (*T)(instance)
 		q.keepComputed((*T)(instance), item)
 
-		if err := q.refreshLocked((*T)(instance), item); err != nil {
+		if err := q.refreshLocked(ctx, (*T)(instance), item); err != nil {
 			return err
 		}
 

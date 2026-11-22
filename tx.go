@@ -112,20 +112,181 @@ type undoStep struct {
 	change  track.Change
 }
 
-// record hands tracker changes to the transaction, which settles them when it
-// ends. A change made outside a transaction stands at once, and is kept, as is
-// one made where ant cannot see the transaction end: holding it would keep its
-// history for good.
-func (s *state) record(changes ...track.Change) {
+// record hands tracker changes to the transaction the write ran in, s's own or
+// the one ctx is bound to, which settles them when it ends. A change made
+// outside a transaction stands at once, and is kept, as is one made where ant
+// cannot see the transaction end: holding it would keep its history for good.
+func (s *state) record(ctx context.Context, changes ...track.Change) {
+	t := s.txOf(ctx)
+
 	for _, c := range changes {
-		if s.tx == nil || !s.tx.sees() {
+		if t == nil || !t.sees() {
 			c.Keep()
 
 			continue
 		}
 
-		s.tx.undo = append(s.tx.undo, undoStep{s.tracker, c})
+		t.undo = append(t.undo, undoStep{s.tracker, c})
 	}
+}
+
+// boundKey is the context.Context key for the transaction a ctx is bound to,
+// by InTx or by ant for a hook.
+type boundKey struct{}
+
+// binding is a transaction that a ctx carries to every context on its pool.
+type binding struct {
+	db      *sql.DB
+	tx      *txState
+	streams *streams
+	exec    exec.Executor // runs on the transaction, with no interceptors
+}
+
+// InTx returns ctx bound to the transaction h is in. Any context on the same
+// connection pool that is in no transaction of its own, such as the root from
+// Open, a repository or service built with it, or a session, runs what it is
+// given the result for in that transaction: its queries and writes, and its
+// SaveChanges and Tx in a savepoint there. A transaction's end settles what
+// they did to their trackers, as it does for the transaction's own context.
+// Inside Tx, which passes on the caller's ctx, bind it for code that holds
+// another context:
+//
+//	db.Tx(ctx, func(tx *AppDB) error {
+//		ctx := ant.InTx(ctx, tx)
+//
+//		return accounts.Close(ctx, id) // holds db, runs in tx
+//	})
+//
+// The ctx a hook gets is bound to the transaction of its write already. A
+// context in a transaction of its own, or on a connection from UseConn, keeps
+// to it. Given h in no transaction, InTx returns ctx bound to none, so what it
+// runs goes to the pool, as for writing what must stay if the transaction rolls
+// back. A ctx is bound to one transaction, which runs one statement at a time,
+// so goroutines that share the ctx take turns, as with tx. Once the transaction
+// ends, statements given the ctx fail with ErrTxDone or sql.ErrTxDone rather
+// than run outside it (#144, #146).
+func InTx(ctx context.Context, h Handle) context.Context {
+	s := h.context().state
+
+	switch {
+	case s == nil:
+		return ctx
+	case s.tx == nil:
+		return context.WithValue(ctx, boundKey{}, (*binding)(nil))
+	}
+
+	return s.bound(ctx)
+}
+
+// bound returns ctx bound to the transaction s is in, or ctx outside one.
+func (s *state) bound(ctx context.Context) context.Context {
+	if s.tx == nil {
+		return ctx
+	}
+
+	return s.bind(ctx, s.tx, s.streams, s.exec)
+}
+
+// bind returns ctx bound to t, which runs statements through e.
+func (s *state) bind(ctx context.Context, t *txState, on *streams, e exec.Executor) context.Context {
+	return context.WithValue(ctx, boundKey{}, &binding{s.db, t, on, bare(e)})
+}
+
+// bare returns e without the interceptors and error detail it was wrapped in,
+// for a context that wraps it in its own, keeping a savepoint's guard.
+func bare(e exec.Executor) exec.Executor {
+	switch e := e.(type) {
+	case savepointExec:
+		return savepointExec{bare(e.Executor), e.sp}
+	case *exec.Plain:
+		return e.Executor
+	case *exec.Observed:
+		return e.Executor
+	}
+
+	return e
+}
+
+// boundOn returns the transaction ctx is bound to, if it is one on pool.
+func boundOn(ctx context.Context, pool *sql.DB) *binding {
+	b, _ := ctx.Value(boundKey{}).(*binding)
+	if b == nil || b.db != pool {
+		return nil
+	}
+
+	return b
+}
+
+// boundIn returns the transaction ctx binds s to: one on s's pool, when s is in
+// no transaction of its own and on no connection from UseConn.
+func (s *state) boundIn(ctx context.Context) *binding {
+	if s == nil || s.tx != nil || s.conn != nil {
+		return nil
+	}
+
+	return boundOn(ctx, s.db)
+}
+
+// txOf returns the transaction s runs in for ctx: its own, the one ctx binds it
+// to, or nil.
+func (s *state) txOf(ctx context.Context) *txState {
+	if s.tx != nil {
+		return s.tx
+	}
+
+	if b := s.boundIn(ctx); b != nil {
+		return b.tx
+	}
+
+	return nil
+}
+
+// streamsOf returns the count of Each loops on the connection s runs on for ctx.
+func (s *state) streamsOf(ctx context.Context) *streams {
+	if b := s.boundIn(ctx); b != nil {
+		return b.streams
+	}
+
+	return s.streams
+}
+
+// joined returns s as a context of the transaction ctx binds it to, so that its
+// writes take savepoints there and the transaction's end settles its tracker,
+// or s itself. It keeps s's tracker, settings and interceptors.
+func (s *state) joined(ctx context.Context) *state {
+	b := s.boundIn(ctx)
+	if b == nil {
+		return s
+	}
+
+	c := *s
+	c.tx, c.streams, c.begun = b.tx, b.streams, nil
+	c.exec = exec.Wrap(b.exec, s.settings.interceptors, false, s.settings.detailed)
+
+	return &c
+}
+
+// routed runs a context's statements on its pool, or in the transaction ctx is
+// bound to when that is one on the same pool.
+type routed struct {
+	pool *sql.DB
+	exec.Executor
+}
+
+func (r routed) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	if b := boundOn(ctx, r.pool); b != nil {
+		return b.exec.ExecContext(ctx, query, args...)
+	}
+
+	return r.Executor.ExecContext(ctx, query, args...)
+}
+
+func (r routed) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	if b := boundOn(ctx, r.pool); b != nil {
+		return b.exec.QueryContext(ctx, query, args...)
+	}
+
+	return r.Executor.QueryContext(ctx, query, args...)
 }
 
 // committed keeps the tracker changes the transaction made and runs what was
@@ -351,14 +512,39 @@ func (t *txState) giveBack() {
 }
 
 // transact runs write. With several set, it uses a transaction of its own, or
-// a savepoint in an open one, so that it either finishes or leaves no trace.
+// a savepoint in an open one, so that it either finishes or leaves no trace. A
+// ctx bound to a transaction on s's pool puts it in that one.
 func (s *state) transact(ctx context.Context, several bool, write func(exec.Executor) error) error {
+	return s.transactHooked(
+		ctx,
+		several,
+		false,
+		func(_ context.Context, to exec.Executor) error { return write(to) },
+	)
+}
+
+// transactHooked is transact for a write whose hooks run, if hooked: write gets
+// ctx bound to the transaction it runs in, so that what a hook runs with it,
+// through any context on the pool, sees the write and waits on none of its
+// locks (#144).
+func (s *state) transactHooked(
+	ctx context.Context,
+	several, hooked bool,
+	write func(context.Context, exec.Executor) error,
+) error {
+	s = s.joined(ctx)
+
+	inner := ctx
+	if hooked {
+		inner = s.bound(ctx)
+	}
+
 	if !several || !s.settings.autoTx {
-		return write(s.exec)
+		return write(inner, s.exec)
 	}
 
 	if s.tx != nil {
-		return s.savepoint(ctx, func() error { return write(s.exec) })
+		return s.savepoint(ctx, func() error { return write(inner, s.exec) })
 	}
 
 	t, err := s.begin(ctx, txOptions{})
@@ -366,13 +552,30 @@ func (s *state) transact(ctx context.Context, several bool, write func(exec.Exec
 		return err
 	}
 
+	if hooked {
+		inner = s.bind(ctx, t, newStreams(s.dialect), t.tx)
+	}
+
+	// What a hook did through its bound ctx is settled with the write: the
+	// tracker changes of its writes, and the entities it began tracking.
 	if err := write(
+		inner,
 		exec.Wrap(t.tx, s.settings.interceptors, false, s.settings.detailed),
 	); err != nil {
+		t.abort(ctx)
+
 		return errors.Join(err, t.rollback())
 	}
 
-	return t.commit()
+	if err := t.commit(); err != nil {
+		t.abort(ctx)
+
+		return err
+	}
+
+	t.committed(ctx)
+
+	return nil
 }
 
 // nestedTx runs f in a savepoint, honouring the options it was given. A
@@ -637,6 +840,10 @@ func Attempts(n int) TxOption { return func(o *txOptions) { o.attempts = max(n, 
 // A transaction is one connection, which runs one statement at a time, so use
 // tx from one goroutine at a time, as with a *sql.Tx: goroutines that share it
 // take turns. Give each goroutine a transaction of its own to work at once.
+//
+// f is given the caller's ctx, so code that holds another context, such as the
+// root, runs outside the transaction unless given ant.InTx(ctx, tx). Given a
+// ctx bound to a transaction already, Tx is a savepoint in that one.
 func (c *Context) Tx[DB any](ctx context.Context, f func(tx *DB) error, options ...TxOption) error {
 	s := c.state
 	if s == nil {
@@ -645,6 +852,16 @@ func (c *Context) Tx[DB any](ctx context.Context, f func(tx *DB) error, options 
 
 	if _, ok := s.self.(*DB); !ok {
 		return fmt.Errorf("%w: %T", ErrTxType, new(DB))
+	}
+
+	// Given a ctx bound to a transaction on its pool, Tx is a savepoint there,
+	// with f given a context of that transaction (#146).
+	if joined := s.joined(ctx); joined != s {
+		if _, err := bindState[DB](joined); err != nil {
+			return err
+		}
+
+		s = joined
 	}
 
 	if s.tx != nil {
@@ -753,6 +970,17 @@ func Begin[DB any](ctx context.Context, db *DB, options ...TxOption) (*DB, error
 		return nil, ErrNotOpen
 	case s.tx != nil:
 		return beginSavepoint[DB](ctx, h.context())
+	}
+
+	// Given a ctx bound to a transaction on its pool, Begin opens a savepoint
+	// there (#146).
+	if joined := s.joined(ctx); joined != s {
+		bound, err := bindState[DB](joined)
+		if err != nil {
+			return nil, err
+		}
+
+		return beginSavepoint[DB](ctx, any(bound).(Handle).context())
 	}
 
 	t, err := s.begin(ctx, resolveTx(options))

@@ -539,7 +539,7 @@ func (q *Query[T]) fetchWith(
 	var items []*T
 
 	if len(q.inJoin) > 0 {
-		items, err = q.collectJoined(rows)
+		items, err = q.collectJoined(ctx, rows)
 	} else {
 		most := 0
 
@@ -559,6 +559,9 @@ func (q *Query[T]) fetchWith(
 	}
 
 	if _, hooked := any(new(T)).(AfterLoader); hooked {
+		// In a transaction, what the hook runs with its ctx runs there (#144).
+		ctx := q.state.bound(ctx)
+
 		for _, item := range items {
 			if err := any(item).(AfterLoader).AfterLoad(ctx); err != nil {
 				return nil, err
@@ -584,7 +587,7 @@ func (q *Query[T]) fetchWith(
 		for i, row := range read {
 			q.keepComputed(items[i], row)
 
-			if err := q.refreshLocked(items[i], row); err != nil {
+			if err := q.refreshLocked(ctx, items[i], row); err != nil {
 				return nil, err
 			}
 		}
@@ -595,6 +598,8 @@ func (q *Query[T]) fetchWith(
 	}
 
 	if _, hooked := any(new(T)).(AfterIncluder); hooked && ctx.Value(skipHooks{}) == nil {
+		ctx := q.state.bound(ctx)
+
 		for _, item := range items {
 			if err := any(item).(AfterIncluder).AfterInclude(ctx); err != nil {
 				return nil, err
@@ -612,7 +617,7 @@ func (q *Query[T]) fetchWith(
 // way. An instance with unsaved changes, edits or a removal, keeps them while
 // its row is still as it was loaded, and is a ConcurrencyError once the row
 // moved, since those changes were made to values the row no longer holds.
-func (q *Query[T]) refreshLocked(instance, row *T) error {
+func (q *Query[T]) refreshLocked(ctx context.Context, instance, row *T) error {
 	if q.lock == nil || instance == row {
 		return nil
 	}
@@ -642,7 +647,7 @@ func (q *Query[T]) refreshLocked(instance, row *T) error {
 		f.Value(unsafe.Pointer(instance)).Set(f.Value(unsafe.Pointer(row)))
 	}
 
-	q.state.record(q.state.tracker.Reloaded(entry, unsafe.Pointer(&before)))
+	q.state.record(ctx, q.state.tracker.Reloaded(entry, unsafe.Pointer(&before)))
 
 	return nil
 }
@@ -859,8 +864,9 @@ func (q *Query[T]) Each(ctx context.Context) iter.Seq2[T, error] {
 
 		// The connection streams until the loop ends, so in a transaction it
 		// refuses the loop's own statements meanwhile.
-		q.state.streams.start()
-		defer q.state.streams.stop()
+		on := q.state.streamsOf(ctx)
+		on.start()
+		defer on.stop()
 
 		stream(rows, yield)
 	}

@@ -372,7 +372,9 @@ err = session.SaveChanges(ctx)
   as the one a client sent back, is the one checked.
 - Hooks are methods on the model: `BeforeInsert(ctx context.Context) error`,
   `AfterLoad`, `BeforeUpdate`, `BeforeDelete` and the rest. A query made in a hook
-  must use the hook's `ctx`, or it fails with `ErrConcurrentUse`.
+  must use the hook's `ctx`, or it fails with `ErrConcurrentUse`. That `ctx` is
+  bound to the write's transaction, so a query through any context on the pool,
+  even a global `db`, sees the write and runs in it.
 
 ## Transactions
 
@@ -388,7 +390,10 @@ err := db.Tx(ctx, func(tx *AppDB) error {
 ```
 
 - Inside the function use `tx`, not `db`; work on `db` runs outside the transaction.
-  `tx` is your own `*AppDB` type.
+  `tx` is your own `*AppDB` type. Code that holds `db`, such as a repository built
+  at startup, or a session, runs in the transaction when given
+  `ctx := ant.InTx(ctx, tx)`: its writes, and its `SaveChanges` and `Tx` as a
+  savepoint. Once the transaction ends, a kept bound `ctx` runs nothing.
 - It commits on `nil` and rolls back on an error or panic. A `Tx` inside a `Tx` is a
   savepoint. `SaveChanges` inside one uses a savepoint, and a rollback undoes the
   tracker's view of the save too: it forgets what the transaction began tracking,

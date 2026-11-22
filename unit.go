@@ -1177,7 +1177,7 @@ func (u *unit) run(ctx context.Context) error {
 	// unit records it, for the reads that must see what the write saw.
 	u.inTx = !standing
 
-	err = u.s.transact(ctx, several, func(to exec.Executor) error {
+	err = u.s.transactHooked(ctx, several, u.hooks(ctx), func(ctx context.Context, to exec.Executor) error {
 		if err := u.remove(ctx, to, removals, true); err != nil {
 			return err
 		}
@@ -1245,7 +1245,7 @@ func (u *unit) run(ctx context.Context) error {
 		// only the rest instead of inserting those rows again.
 		if standing {
 			u.order = slices.DeleteFunc(u.order, func(n *node) bool { return !n.wrote })
-			u.commit()
+			u.commit(ctx)
 			u.notify(ctx)
 		}
 
@@ -1256,7 +1256,7 @@ func (u *unit) run(ctx context.Context) error {
 		return err
 	}
 
-	u.commit()
+	u.commit(ctx)
 	u.notify(ctx)
 
 	if f := u.s.settings.events.Saved; f != nil {
@@ -1346,6 +1346,14 @@ func (u *unit) hooked() bool {
 		h := hooksOf(n.model)
 
 		return h.afterInsert || h.afterUpdate || h.afterDelete
+	})
+}
+
+// hooks reports whether any write hook may run for the unit's nodes, Before and
+// After ones and Validate, which get a ctx bound to the write's transaction.
+func (u *unit) hooks(ctx context.Context) bool {
+	return ctx.Value(skipHooks{}) == nil && slices.ContainsFunc(u.order, func(n *node) bool {
+		return hooksOf(n.model).writes()
 	})
 }
 
@@ -2250,7 +2258,7 @@ func (u *unit) matchesOne(
 
 // commit brings the tracker up to date after a successful write. Rows that left
 // go first, because a new entity may have taken over a removed one's address.
-func (u *unit) commit() {
+func (u *unit) commit(ctx context.Context) {
 	tracker := u.s.tracker
 
 	var undo []track.Change
@@ -2302,7 +2310,7 @@ func (u *unit) commit() {
 		}
 	}
 
-	u.s.record(undo...)
+	u.s.record(ctx, undo...)
 }
 
 // remember records what a node's relations hold now: those the tracker saw
@@ -2405,6 +2413,10 @@ func (c *Context) SaveChanges(ctx context.Context) error {
 	case !s.settings.tracking:
 		return ErrNoTracking
 	}
+
+	// Given a ctx bound to a transaction on its pool, the save is part of it
+	// (#146).
+	s = s.joined(ctx)
 
 	ctx, release, err := s.claim(ctx, true)
 	if err != nil {

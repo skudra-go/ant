@@ -124,7 +124,7 @@ func (s *state) claim(ctx context.Context, on bool) (context.Context, func(), er
 
 	// In a transaction whose end ant sees, the entries this operation begins
 	// tracking are noted, for its rollback to forget.
-	if t := s.tx; t != nil && t.sees() {
+	if t := s.txOf(ctx); t != nil && t.sees() {
 		from := s.tracker.Mark()
 
 		release = func() {
@@ -224,7 +224,8 @@ func wrap[DB any](
 
 	s.settings.events.attach(s.tracker)
 
-	s.exec = exec.Wrap(to, s.settings.interceptors, false, s.settings.detailed)
+	// A ctx bound to a transaction on the pool runs the statements there (#146).
+	s.exec = exec.Wrap(routed{pool, to}, s.settings.interceptors, false, s.settings.detailed)
 
 	for _, replica := range s.settings.replicas {
 		s.replicas = append(

@@ -16,9 +16,11 @@ import (
 
 // A model implements these on its pointer type to run code around writes through
 // Insert, Upsert, and SaveChanges. They run inside the write's transaction, so an
-// error cancels the whole write. Upsert runs the insert hooks whichever way the
-// database goes. Bulk Update and Delete, InsertMany, UpdateMany, Merge, and Raw
-// load no entities and do not run them.
+// error cancels the whole write. The ctx they get is bound to that transaction,
+// as by InTx: what a hook runs with it, through any context on the same pool,
+// such as a global root, runs there and sees the write. Upsert runs the insert
+// hooks whichever way the database goes. Bulk Update and Delete, InsertMany,
+// UpdateMany, Merge, and Raw load no entities and do not run them.
 type (
 	// Validator checks an entity before Insert, Upsert, or SaveChanges writes it.
 	Validator interface {
@@ -74,6 +76,12 @@ func WithoutHooks(ctx context.Context) context.Context {
 // hookKinds records which hooks a model has, so that models with none pay nothing.
 type hookKinds struct {
 	validate, beforeInsert, afterInsert, beforeUpdate, afterUpdate, beforeDelete, afterDelete bool
+}
+
+// writes reports whether the model has a hook that runs around a write.
+func (h hookKinds) writes() bool {
+	return h.validate || h.beforeInsert || h.afterInsert || h.beforeUpdate || h.afterUpdate ||
+		h.beforeDelete || h.afterDelete
 }
 
 var hookCache sync.Map // reflect.Type to hookKinds

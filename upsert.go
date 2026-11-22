@@ -380,6 +380,7 @@ func (t *Table[T]) Upsert(ctx context.Context, e *T, conflict *Conflict) (bool, 
 		return false, fmt.Errorf("%w: %s", ErrReadOnly, model.Type.Name())
 	}
 
+	t = t.in(ctx)
 	now := t.state.settings.timestamp()
 
 	if _, err := conflict.clause(model, now, nil); err != nil {
@@ -393,8 +394,17 @@ func (t *Table[T]) Upsert(ctx context.Context, e *T, conflict *Conflict) (bool, 
 
 	defer release()
 
+	// The hooks run in the write's transaction, the context's or the one ctx is
+	// bound to, and what they run with their ctx does too (#144).
+	hooked := ctx.Value(skipHooks{}) == nil && hooksOf(model).writes()
+
+	hookCtx := ctx
+	if hooked {
+		hookCtx = t.state.bound(ctx)
+	}
+
 	n := &node{model: model, entity: unsafe.Pointer(e)}
-	if err := n.beforeInsert(ctx); err != nil {
+	if err := n.beforeInsert(hookCtx); err != nil {
 		return false, err
 	}
 
@@ -428,7 +438,7 @@ func (t *Table[T]) Upsert(ctx context.Context, e *T, conflict *Conflict) (bool, 
 	stmt.Conflict = clause
 
 	// An AfterInsert error has to undo the write, which a transaction covers.
-	err = t.state.transact(ctx, hooksOf(model).afterInsert, func(to exec.Executor) error {
+	err = t.state.transactHooked(ctx, hooksOf(model).afterInsert, hooked, func(ctx context.Context, to exec.Executor) error {
 		rows, err := t.upsertRows(ctx, to, model, stmt, unsafe.Pointer(e), checked)
 		if err == nil {
 			err = readInto(rows, e)
@@ -463,11 +473,11 @@ func (t *Table[T]) Upsert(ctx context.Context, e *T, conflict *Conflict) (bool, 
 		tracker := t.state.tracker
 
 		if entry := tracker.Get(unsafe.Pointer(e)); entry != nil {
-			t.state.record(tracker.Saved(entry, track.Unchanged, u.undoing(n)))
+			t.state.record(ctx, tracker.Saved(entry, track.Unchanged, u.undoing(n)))
 			entry.Stored(n.written)
 			tracker.Rekey(entry)
 		} else {
-			t.state.record(tracker.Added(model, unsafe.Pointer(e), u.undoing(n)))
+			t.state.record(ctx, tracker.Added(model, unsafe.Pointer(e), u.undoing(n)))
 
 			if added := tracker.Get(unsafe.Pointer(e)); added != nil {
 				added.Stored(n.written)
@@ -922,6 +932,8 @@ func (t *Table[T]) FirstOrCreate(ctx context.Context, e *T, conds ...Cond) (*T, 
 	if e == nil {
 		return nil, false, ErrNilEntity
 	}
+
+	t = t.in(ctx)
 
 	q := t.query().Where(conds...)
 
