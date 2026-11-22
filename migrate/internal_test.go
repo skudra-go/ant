@@ -140,6 +140,50 @@ func TestRenamePrompt(t *testing.T) {
 	require.Contains(t, text, `RENAME COLUMN "age" TO "years"`, "as a suggestion in a comment")
 }
 
+func TestDriftMessagesUseTheSingular(t *testing.T) {
+	require.Equal(
+		t,
+		"1 migration is pending, so the database is expected to differ. Run up first.",
+		pendingNote(1),
+	)
+	require.Equal(
+		t,
+		"2 migrations are pending, so the database is expected to differ. Run up first.",
+		pendingNote(2),
+	)
+
+	require.Equal(t, "1 difference", driftNote(1))
+	require.Equal(t, "2 differences", driftNote(2))
+}
+
+func TestCheckNamesBothCausesWhenSnapshotIsBehind(t *testing.T) {
+	snap := &schema.Schema{Latest: "0009_foo"}
+
+	data, err := snap.Encode()
+	require.NoError(t, err)
+
+	d, err := schema.Of(postgres.Dialect)
+	require.NoError(t, err)
+
+	store := &memoryStore{
+		snapshot: data,
+		saved: []Migration{
+			{Version: "0009", Name: "foo", File: "0009_foo.up.sql", SQL: "SELECT 1;"},
+			{Version: "0010", Name: "hand", File: "0010_hand.up.sql", SQL: "SELECT 1;"},
+		},
+	}
+
+	tool := &tool{d: d, source: store}
+
+	c, err := tool.drafts(t.Context())
+	require.NoError(t, err)
+
+	err = tool.inStep(t.Context(), c)
+	require.ErrorIs(t, err, ErrStaleSnapshot)
+	require.Contains(t, err.Error(), "If a file was added by hand, start it with diff --empty <name>")
+	require.Contains(t, err.Error(), "if a merge added it, renumber if needed, then run snapshot")
+}
+
 type memoryStore struct {
 	saved    []Migration
 	snapshot []byte
