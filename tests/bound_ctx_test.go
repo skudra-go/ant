@@ -196,7 +196,10 @@ func TestConformanceBoundContextRunsInTheTransaction(t *testing.T) {
 					return err
 				}
 
-				if err := begun.Signups.Insert(ctx, &Signup{Email: "begun@x", root: db}); err != nil {
+				if err := begun.Signups.Insert(
+					ctx,
+					&Signup{Email: "begun@x", root: db},
+				); err != nil {
 					return err
 				}
 
@@ -239,7 +242,10 @@ func TestConformanceBoundContextRunsInTheTransaction(t *testing.T) {
 			err = db.Tx(ctx, func(tx *SignupDB) error {
 				ctx := ant.InTx(ctx, tx)
 
-				if err := joined.Signups.Insert(ctx, &Signup{Email: "own@x", root: db}); err != nil {
+				if err := joined.Signups.Insert(
+					ctx,
+					&Signup{Email: "own@x", root: db},
+				); err != nil {
 					return err
 				}
 

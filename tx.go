@@ -561,17 +561,25 @@ func (s *state) transactHooked(
 		return err
 	}
 
-	// The write and its hooks run as a Tx's would: a failure that ends the
-	// transaction stops what follows, and an Each loop guards its connection.
-	in := s.child(t)
+	// The write runs as a Tx's would: a failure that ends the transaction stops
+	// what follows. Hooks get the state a Tx gives, whose Each loops also guard
+	// the connection; a write with none runs no loop, so it skips that copy.
+	run := exec.Wrap(
+		txExec{t, dialect.SyntaxOf(s.dialect).RetryEndsTx},
+		s.settings.interceptors,
+		false,
+		s.settings.detailed,
+	)
 
 	if hooked {
+		in := s.child(t)
 		inner = in.bound(ctx)
+		run = in.exec
 	}
 
 	// What a hook did through its bound ctx is settled with the write: the
 	// tracker changes of its writes, and the entities it began tracking.
-	if err := write(inner, in.exec); err != nil {
+	if err := write(inner, run); err != nil {
 		t.abort(ctx)
 
 		return errors.Join(err, t.rollback())
