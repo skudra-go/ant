@@ -54,6 +54,31 @@ func TestOrderBy(t *testing.T) {
 			})
 		}
 
+		// A list endpoint takes the column to sort by from the request. A map of
+		// FieldRef, which holds a column of any type, is the list it may name.
+		t.Run("a column chosen at run time", func(t *testing.T) {
+			sorts := map[string]ant.FieldRef{
+				"name": ant.F(&Users.Name),
+				"age":  ant.F(&Users.Age),
+			}
+
+			by, desc := "age", true // from the request
+			ref, ok := sorts[by]
+			require.True(t, ok, "refuse a column that isn't in the map")
+
+			order := ref.Asc()
+			if desc {
+				order = ref.Desc()
+			}
+
+			got, err := db.Users.Order(order, sorts["name"].Asc()).All(ctx)
+			require.NoError(t, err)
+			require.Equal(t, []string{"Abe", "Bea", "Cal"}, fixture.Names(got))
+
+			_, err = db.Users.Order(ant.F(new(int)).Asc()).All(ctx)
+			require.ErrorIs(t, err, ant.ErrNotProbe, "a FieldRef of no column")
+		})
+
 		t.Run("ThenBy needs an OrderBy", func(t *testing.T) {
 			_, err := db.Users.Where(ant.Gt(&Users.Age, 0)).ThenBy(&Users.Name).All(ctx)
 			require.ErrorIs(t, err, ant.ErrThenWithoutOrder)
