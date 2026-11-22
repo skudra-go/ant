@@ -193,6 +193,7 @@ func (q *Query[T]) rememberJoined(items []*T) error {
 		loaded := unsafe.Pointer(item)
 		instance := q.state.tracker.Load(model, loaded)
 		items[i] = (*T)(instance)
+		q.keepComputed((*T)(instance), item)
 
 		if err := q.refreshLocked((*T)(instance), item); err != nil {
 			return err

@@ -335,7 +335,9 @@ func (q *Query[T]) Omit[V any](field *V) *Query[T] {
 }
 
 // With fills a field tagged ant:"computed" from an expression, such as a count
-// of related rows.
+// of related rows. The rows are whole, so a session tracks them: the computed
+// field is neither compared nor written, and an entity the session already
+// holds gets the new value and keeps its unsaved changes.
 func (q *Query[T]) With[V any](field *V, value Expr[V]) *Query[T] {
 	n := q.next()
 
@@ -356,10 +358,26 @@ func (q *Query[T]) With[V any](field *V, value Expr[V]) *Query[T] {
 
 // tracked reports whether results go to the change tracker. A partial row
 // cannot be tracked, because its missing fields would look like real values, and
-// a derived row may not match any stored row.
+// a derived row may not match any stored row. With only adds computed fields to
+// a whole row, and the tracker never compares them.
 func (q *Query[T]) tracked() bool {
 	return !q.noTracking && q.state.settings.tracking && q.from == nil &&
-		len(q.selected) == 0 && len(q.omitted) == 0 && len(q.computed) == 0
+		len(q.selected) == 0 && len(q.omitted) == 0
+}
+
+// keepComputed copies the values With computed from a row the query read into
+// the instance the tracker already held for it, which the caller gets instead.
+func (q *Query[T]) keepComputed(instance, row *T) {
+	if instance == row {
+		return
+	}
+
+	model := q.model()
+
+	for _, c := range q.computed {
+		f := model.Column(c.Alias)
+		f.Value(unsafe.Pointer(instance)).Set(f.Value(unsafe.Pointer(row)))
+	}
 }
 
 // columns returns the fields the query reads: those Column chose, or all of
@@ -552,7 +570,7 @@ func (q *Query[T]) fetchWith(
 		var read []*T
 
 		// A joined query swaps in the tracked instances as it reads.
-		if q.lock != nil && len(q.inJoin) == 0 {
+		if (q.lock != nil || len(q.computed) > 0) && len(q.inJoin) == 0 {
 			read = slices.Clone(items)
 		}
 
@@ -564,6 +582,8 @@ func (q *Query[T]) fetchWith(
 		)
 
 		for i, row := range read {
+			q.keepComputed(items[i], row)
+
 			if err := q.refreshLocked(items[i], row); err != nil {
 				return nil, err
 			}

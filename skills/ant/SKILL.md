@@ -340,7 +340,8 @@ err = session.SaveChanges(ctx)
   is left alone.
 - `NoTracking()` on a query skips tracking for read-only work and is faster. `Each`,
   `Column`, `Omit`, `Raw`, `Select` and `Project` results are never tracked, so
-  changing them saves nothing.
+  changing them saves nothing. `With` rows are tracked; their computed fields are
+  never compared or written.
 - A context holds one instance per row: a second query for the same row returns the
   same pointer, unsaved changes included. `Reload(ctx, e)` rereads it. A locking
   read (`ForUpdate`, `ForShare`) puts the row into that instance, or returns
