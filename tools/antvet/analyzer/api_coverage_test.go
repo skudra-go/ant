@@ -270,6 +270,7 @@ func splitParams(list string) []string {
 			}
 
 			pending = nil
+
 			out = append(out, typ)
 
 			return
