@@ -396,7 +396,9 @@ func (t *Table[T]) Upsert(ctx context.Context, e *T, conflict *Conflict) (bool, 
 
 	// The hooks run in the write's transaction, the context's or the one ctx is
 	// bound to, and what they run with their ctx does too (#144). BeforeInsert
-	// runs in it as well, so what it writes is undone with the upsert.
+	// runs in it as well, so what it writes is undone with the upsert. Outside a
+	// transaction, only an AfterInsert opens one: with Before hooks alone, one
+	// row opens none, as Insert does, and what BeforeInsert writes stands.
 	hooked := ctx.Value(skipHooks{}) == nil && hooksOf(model).writes()
 
 	n := &node{model: model, entity: unsafe.Pointer(e)}
