@@ -67,6 +67,7 @@ func TestOrderBy(t *testing.T) {
 			require.True(t, ok, "refuse a column that isn't in the map")
 
 			order := ref.Asc()
+
 			if desc {
 				order = ref.Desc()
 			}
@@ -74,6 +75,9 @@ func TestOrderBy(t *testing.T) {
 			got, err := db.Users.Order(order, sorts["name"].Asc()).All(ctx)
 			require.NoError(t, err)
 			require.Equal(t, []string{"Abe", "Bea", "Cal"}, fixture.Names(got))
+
+			_, err = db.Users.Order(sorts["email"].Desc()).All(ctx)
+			require.ErrorIs(t, err, ant.ErrNotProbe, "a lookup that misses gives the zero FieldRef")
 
 			_, err = db.Users.Order(ant.F(new(int)).Asc()).All(ctx)
 			require.ErrorIs(t, err, ant.ErrNotProbe, "a FieldRef of no column")

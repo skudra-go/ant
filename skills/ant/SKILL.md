@@ -218,6 +218,20 @@ users, err := db.Users.
 	All(ctx)
 ```
 
+To sort by a column a request names, list the names it may use in a
+`map[string]ant.FieldRef` and order by the entry's `Asc()` or `Desc()`. Refuse a
+name that isn't in the map: its zero `FieldRef` makes the query fail with
+`ant.ErrNotProbe`.
+
+```go
+sorts := map[string]ant.FieldRef{
+	"name": ant.F(&Users.Name),
+	"age":  ant.F(&Users.Age),
+}
+
+users, err := db.Users.Order(sorts["age"].Desc(), sorts["name"].Asc()).All(ctx)
+```
+
 Relations load only when asked. An unloaded relation is `nil`; a loaded one with no
 rows is an empty slice. There is no lazy loading. `Include` (for `[]T`) and
 `IncludeOne` (for `*T`) add one query per relation, however many parents:

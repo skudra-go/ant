@@ -55,6 +55,22 @@ func (NotAProbeKey) Configure(b *ant.ModelBuilder[NotAProbeKey]) {
 	b.Key(&id)
 }
 
+// The zero FieldRef names no column.
+type EmptyRefKey struct{ ID int64 }
+
+func (EmptyRefKey) Configure(b *ant.ModelBuilder[EmptyRefKey]) { b.CompositeKey(ant.FieldRef{}) }
+
+type EmptyRefTarget struct {
+	ID       int64
+	PlanSlug string
+}
+
+func (EmptyRefTarget) Configure(b *ant.ModelBuilder[EmptyRefTarget]) {
+	b.ForeignKey(ant.F(&EmptyRefTargets.PlanSlug)).References(ant.FieldRef{})
+}
+
+var EmptyRefTargets = ant.Fields[EmptyRefTarget]()
+
 func openErr[DB any](t *testing.T, target testdb.Target) error {
 	_, err := ant.Open[DB](t.Context(), target.Dialect, target.DSN)
 
@@ -103,6 +119,20 @@ func TestConfigureErrors(t *testing.T) {
 				Rows ant.Table[NotAProbeKey]
 			}](t, target)
 			require.ErrorIs(t, err, ant.ErrNotProbe)
+		})
+
+		t.Run("an empty FieldRef", func(t *testing.T) {
+			err := openErr[struct {
+				ant.Context
+				Rows ant.Table[EmptyRefKey]
+			}](t, target)
+			require.ErrorIs(t, err, ant.ErrNotProbe, "CompositeKey")
+
+			err = openErr[struct {
+				ant.Context
+				Rows ant.Table[EmptyRefTarget]
+			}](t, target)
+			require.ErrorIs(t, err, ant.ErrNotProbe, "References")
 		})
 	})
 }

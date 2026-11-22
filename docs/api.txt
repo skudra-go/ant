@@ -286,6 +286,8 @@ ant: func (r *RelationBuilder) References[V any](field *V) *RelationBuilder
 ant: func (r *RelationBuilder) Through(table string) *RelationBuilder
 ant: func (r *RelationBuilder) Touch() *RelationBuilder
 ant: func (r *RelationBuilder) Where(conds ...Cond) *RelationBuilder
+ant: func (r FieldRef) Asc() Sort
+ant: func (r FieldRef) Desc() Sort
 ant: func (s Sort) NullsFirst() Sort
 ant: func (s Sort) NullsLast() Sort
 ant: func (s Sub[V]) Expr() Expr[V]

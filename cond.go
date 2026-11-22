@@ -494,8 +494,8 @@ func InTuples(fields []FieldRef, tuples ...[]any) Cond {
 	left := qb.Row{}
 
 	for _, ref := range fields {
-		if ref.err != nil {
-			return Cond{err: ref.err}
+		if err := ref.fault(); err != nil {
+			return Cond{err: err}
 		}
 
 		out.refs = append(out.refs, ref.model)

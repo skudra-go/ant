@@ -31,6 +31,49 @@ func F[V any](field *V) FieldRef {
 	return FieldRef{f, model, err}
 }
 
+// errEmptyFieldRef reports the zero FieldRef, which a map lookup that misses
+// returns.
+var errEmptyFieldRef = fmt.Errorf(
+	"%w: the FieldRef is empty, as a map lookup that misses returns",
+	ErrNotProbe,
+)
+
+// fault returns why the reference names no column, or nil.
+func (r FieldRef) fault() error {
+	if r.err == nil && r.field == nil {
+		return errEmptyFieldRef
+	}
+
+	return r.err
+}
+
+// Asc orders by the column, ascending, as Col(field).Asc() does. A map from the
+// names a request may sort by to FieldRef holds columns of different types, and
+// a name that is not in it is refused:
+//
+//	sorts := map[string]ant.FieldRef{"name": ant.F(&Users.Name), "age": ant.F(&Users.Age)}
+//	if ref, ok := sorts[orderBy]; ok {
+//		q = q.Order(ref.Asc())
+//	}
+//
+// The zero FieldRef, from a lookup that misses, makes the query fail with
+// ErrNotProbe.
+func (r FieldRef) Asc() Sort { return r.sort(false) }
+
+// Desc orders by the column, descending.
+func (r FieldRef) Desc() Sort { return r.sort(true) }
+
+func (r FieldRef) sort(desc bool) Sort {
+	if err := r.fault(); err != nil {
+		return Sort{err: err}
+	}
+
+	return Sort{
+		order: qb.Order{Value: r.model.ColumnOf(r.field), Desc: desc},
+		refs:  r.model.Self(),
+	}
+}
+
 // Conflict says what to do when an insert hits a unique constraint. Start one
 // with OnConflict.
 type Conflict struct {
@@ -48,8 +91,8 @@ func (c *Conflict) add(ref FieldRef) *Conflict {
 	n := *c
 	n.columns = slices.Clone(c.columns)
 
-	if ref.err != nil {
-		n.err = errors.Join(n.err, ref.err)
+	if err := ref.fault(); err != nil {
+		n.err = errors.Join(n.err, err)
 
 		return &n
 	}
@@ -78,8 +121,8 @@ func (c *Conflict) DoUpdate(fields ...FieldRef) *Conflict {
 	n.update = slices.Clone(c.update)
 
 	for _, ref := range fields {
-		if ref.err != nil {
-			n.err = errors.Join(n.err, ref.err)
+		if err := ref.fault(); err != nil {
+			n.err = errors.Join(n.err, err)
 
 			continue
 		}
@@ -960,10 +1003,11 @@ func (t *Table[T]) UpdateMany(
 	columns := make([]string, 0, len(fields))
 
 	for _, ref := range fields {
-		switch {
-		case ref.err != nil:
-			return 0, ref.err
-		case ref.model != model:
+		if err := ref.fault(); err != nil {
+			return 0, err
+		}
+
+		if ref.model != model {
 			return 0, ErrWrongModel
 		}
 
