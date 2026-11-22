@@ -260,6 +260,7 @@ On 2026-11-20 the decisions moved from one file, `docs/DECISIONS.md`, to a file 
 | [133](133-a-concurrent-build-clears-its-leftover.md) | A concurrent index build clears its own leftover | active | `Concurrently` `CREATE INDEX CONCURRENTLY` `invalid index` `drift` `Inspect` |
 | [135](135-a-column-ant-made-for-an-earlier-default-is-converted-as-ant-stored-it.md) | A column ant made for an earlier default is converted as ant stored it | active | `AlterColumn` `USING` `interval` `inet` `jsonb` `bigint` `bytea` `Type` `upgrade` |
 | [144](144-script-stops-before-a-go-migration.md) | script stops before a Go migration, and starts from a version | active | `script` `Go-migrations` `no-transaction` `from` `guarded` `OutOfOrder` |
+| [156](156-a-boolean-changes-to-an-integer-through-integer-and-back-through-a-comparison.md) | A boolean changes to an integer through integer, and back through a comparison | active | `AlterColumn` `USING` `boolean` `integer` `smallint` `bigint` `Type` |
 
 #### Performance
 
@@ -341,8 +342,8 @@ Before changing a file, read the decisions about it.
 | `dialect/mysql/mysql.go` | [13](013-mariadb-shares-the-mysql-package.md) [71](071-dependencies-stay-out-of-the-root-package.md) [74](074-dialects-state-their-differences.md) [75](075-generated-values-without-returning.md) [85](085-mysql-reads-the-table-it-writes-through-a-derived-table.md) [140](140-an-update-that-changed-nothing-is-checked-against-the-row.md) [152](152-open-refuses-values-the-driver-cannot-take.md) |
 | `dialect/mysql/mysql_test.go` | [13](013-mariadb-shares-the-mysql-package.md) |
 | `dialect/postgres/array_test.go` | [43](043-database-specific-helpers.md) |
-| `dialect/postgres/ddl.go` | [50](050-three-layers-for-migrations.md) [52](052-new-not-null-columns-fill-existing-rows.md) [78](078-a-replaced-column-takes-its-dependents-along-and-they.md) [114](114-an-identity-columns-default-is-not-ants-to-change.md) [130](130-partitioning-is-part-of-the-table.md) [131](131-a-foreign-key-column-follows-its-target.md) [133](133-a-concurrent-build-clears-its-leftover.md) [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) [135](135-a-column-ant-made-for-an-earlier-default-is-converted-as-ant-stored-it.md) [138](138-a-uint64-column-on-postgresql-is-numeric.md) |
-| `dialect/postgres/ddl_test.go` | [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) [135](135-a-column-ant-made-for-an-earlier-default-is-converted-as-ant-stored-it.md) [138](138-a-uint64-column-on-postgresql-is-numeric.md) |
+| `dialect/postgres/ddl.go` | [50](050-three-layers-for-migrations.md) [52](052-new-not-null-columns-fill-existing-rows.md) [78](078-a-replaced-column-takes-its-dependents-along-and-they.md) [114](114-an-identity-columns-default-is-not-ants-to-change.md) [130](130-partitioning-is-part-of-the-table.md) [131](131-a-foreign-key-column-follows-its-target.md) [133](133-a-concurrent-build-clears-its-leftover.md) [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) [135](135-a-column-ant-made-for-an-earlier-default-is-converted-as-ant-stored-it.md) [138](138-a-uint64-column-on-postgresql-is-numeric.md) [156](156-a-boolean-changes-to-an-integer-through-integer-and-back-through-a-comparison.md) |
+| `dialect/postgres/ddl_test.go` | [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) [135](135-a-column-ant-made-for-an-earlier-default-is-converted-as-ant-stored-it.md) [138](138-a-uint64-column-on-postgresql-is-numeric.md) [156](156-a-boolean-changes-to-an-integer-through-integer-and-back-through-a-comparison.md) |
 | `dialect/postgres/expression.go` | [57](057-drift-compares-what-the-server-stored.md) |
 | `dialect/postgres/functions.go` | [42](042-converters-are-scanner-and-valuer.md) [43](043-database-specific-helpers.md) [137](137-stored-tsvector-columns-have-a-separate-match-helper.md) [145](145-helpers-take-a-field-of-any-type.md) |
 | `dialect/postgres/inspect.go` | [57](057-drift-compares-what-the-server-stored.md) [72](072-partitions-are-not-migrations.md) [73](073-drift-compares-what-models-declare.md) [114](114-an-identity-columns-default-is-not-ants-to-change.md) [133](133-a-concurrent-build-clears-its-leftover.md) |
@@ -423,7 +424,7 @@ Before changing a file, read the decisions about it.
 | `schema/naming_test.go` | [132](132-default-names-are-valid-and-distinct.md) |
 | `schema/probes_test.go` | [52](052-new-not-null-columns-fill-existing-rows.md) [53](053-names-follow-postgresqls-defaults.md) [78](078-a-replaced-column-takes-its-dependents-along-and-they.md) [94](094-migrations-keep-a-columns-dependents-working-while-it.md) |
 | `schema/rename.go` | [55](055-renames.md) [82](082-a-rename-must-land-on-a-name-the-models-have.md) [94](094-migrations-keep-a-columns-dependents-working-while-it.md) |
-| `schema/retype_test.go` | [94](094-migrations-keep-a-columns-dependents-working-while-it.md) |
+| `schema/retype_test.go` | [94](094-migrations-keep-a-columns-dependents-working-while-it.md) [156](156-a-boolean-changes-to-an-integer-through-integer-and-back-through-a-comparison.md) |
 | `schema/schema.go` | [51](051-modeling-added-for-migrations.md) [54](054-foreign-keys.md) [130](130-partitioning-is-part-of-the-table.md) [133](133-a-concurrent-build-clears-its-leftover.md) |
 | `schema/script.go` | [11](011-migration-model.md) [94](094-migrations-keep-a-columns-dependents-working-while-it.md) [131](131-a-foreign-key-column-follows-its-target.md) [132](132-default-names-are-valid-and-distinct.md) |
 | `secure/secure.go` | [95](095-in-means-eq-and-other-value-rules.md) [105](105-read-mostly-registries-are-copy-on-write-snapshots.md) [109](109-numbers-inside-an-interface-read-as-json-number.md) |
@@ -595,6 +596,7 @@ Tags on two or more decisions. Search the headers for the rest: `rg -l '^tags: .
 - `AfterInsert`: [47](047-hooks-run-inside-the-write.md) [123](123-an-after-hooks-edit-is-a-change-to-save.md)
 - `aggregate`: [35](035-typed-expressions.md) [147](147-a-projection-reads-null-into-a-plain-field-as-zero.md)
 - `All`: [6](006-return-shapes-and-tracking.md) [27](027-all-returns-t.md)
+- `AlterColumn`: [135](135-a-column-ant-made-for-an-earlier-default-is-converted-as-ant-stored-it.md) [156](156-a-boolean-changes-to-an-integer-through-integer-and-back-through-a-comparison.md)
 - `antvet`: [4](004-conditions-are-not-tied-to-a-model.md) [71](071-dependencies-stay-out-of-the-root-package.md) [83](083-antvet-judges-only-what-it-can-see.md) [153](153-changes-saved-through-another-context-are-reported-by-antvet.md)
 - `arrays`: [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) [136](136-an-outer-joins-side-reads-what-only-the-driver-converts.md)
 - `Attach`: [110](110-a-version-the-application-sets-is-the-one-checked.md) [153](153-changes-saved-through-another-context-are-reported-by-antvet.md)
@@ -602,7 +604,7 @@ Tags on two or more decisions. Search the headers for the rest: `rg -l '^tags: .
 - `baseline`: [58](058-squashing-needs-no-coordination.md) [59](059-adopting-an-existing-database.md) [127](127-commands-refuse-to-guess-which-migration-is-meant.md) [128](128-adopt-leaves-out-roles.md)
 - `Batch`: [22](022-inserts-run-one-statement-per-row.md) [71](071-dependencies-stay-out-of-the-root-package.md)
 - `Begin`: [106](106-begin-inside-a-transaction-opens-a-savepoint.md) [141](141-a-statement-inside-an-each-loop-on-one-connection-is-refused.md)
-- `bigint`: [135](135-a-column-ant-made-for-an-earlier-default-is-converted-as-ant-stored-it.md) [138](138-a-uint64-column-on-postgresql-is-numeric.md)
+- `bigint`: [135](135-a-column-ant-made-for-an-earlier-default-is-converted-as-ant-stored-it.md) [138](138-a-uint64-column-on-postgresql-is-numeric.md) [156](156-a-boolean-changes-to-an-integer-through-integer-and-back-through-a-comparison.md)
 - `bulk-write`: [23](023-guarding-bulk-writes.md) [38](038-bulk-writes.md)
 - `change-tracking`: [92](092-tracked-values-compare-as-stored.md) [93](093-tracking-follows-what-a-save-wrote.md)
 - `check`: [127](127-commands-refuse-to-guess-which-migration-is-meant.md) [130](130-partitioning-is-part-of-the-table.md)
@@ -740,7 +742,7 @@ Tags on two or more decisions. Search the headers for the rest: `rg -l '^tags: .
 - `tracking`: [6](006-return-shapes-and-tracking.md) [142](142-chunk-lets-go-of-a-group-that-has-nothing-to-save.md) [148](148-a-query-with-computed-fields-stays-tracked.md)
 - `transaction`: [22](022-inserts-run-one-statement-per-row.md) [47](047-hooks-run-inside-the-write.md) [56](056-failure.md)
 - `Tx`: [2](002-tx-is-a-generic-method-on-context.md) [106](106-begin-inside-a-transaction-opens-a-savepoint.md) [154](154-the-ctx-carries-the-transaction.md)
-- `Type`: [131](131-a-foreign-key-column-follows-its-target.md) [135](135-a-column-ant-made-for-an-earlier-default-is-converted-as-ant-stored-it.md)
+- `Type`: [131](131-a-foreign-key-column-follows-its-target.md) [135](135-a-column-ant-made-for-an-earlier-default-is-converted-as-ant-stored-it.md) [156](156-a-boolean-changes-to-an-integer-through-integer-and-back-through-a-comparison.md)
 - `Union`: [36](036-derived-tables-keep-the-models-name.md) [81](081-a-set-operations-members-keep-their-own-paging.md)
 - `unit-of-work`: [29](029-sessions.md) [61](061-sessions-take-options.md) [120](120-the-root-does-not-track-and-a-session-does.md)
 - `UnixTime`: [92](092-tracked-values-compare-as-stored.md) [95](095-in-means-eq-and-other-value-rules.md)
@@ -751,6 +753,7 @@ Tags on two or more decisions. Search the headers for the rest: `rg -l '^tags: .
 - `Upsert`: [47](047-hooks-run-inside-the-write.md) [75](075-generated-values-without-returning.md) [80](080-every-write-moves-the-version-on.md) [85](085-mysql-reads-the-table-it-writes-through-a-derived-table.md) [89](089-one-column-one-value.md) [91](091-an-upsert-checks-a-copys-version-on-mysql-and-mariadb.md) [103](103-an-upserts-update-stamps-updatedat.md) [123](123-an-after-hooks-edit-is-a-change-to-save.md) [124](124-a-conflict-target-repeats-a-partial-indexs-predicate.md)
 - `UseConn`: [79](079-a-tracking-context-serves-one-operation-at-a-time.md) [141](141-a-statement-inside-an-each-loop-on-one-connection-is-refused.md)
 - `UseTx`: [79](079-a-tracking-context-serves-one-operation-at-a-time.md) [141](141-a-statement-inside-an-each-loop-on-one-connection-is-refused.md)
+- `USING`: [135](135-a-column-ant-made-for-an-earlier-default-is-converted-as-ant-stored-it.md) [156](156-a-boolean-changes-to-an-integer-through-integer-and-back-through-a-comparison.md)
 - `utc`: [41](041-automatic-timestamps.md) [76](076-one-clock-for-times-without-a-zone.md) [84](084-every-time-is-bound-in-utc-where-columns-keep-no-zone.md)
 - `UTCTimes`: [74](074-dialects-state-their-differences.md) [76](076-one-clock-for-times-without-a-zone.md)
 - `uuid`: [131](131-a-foreign-key-column-follows-its-target.md) [145](145-helpers-take-a-field-of-any-type.md) [150](150-a-zero-key-nothing-fills-is-refused.md)
