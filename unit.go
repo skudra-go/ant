@@ -32,6 +32,10 @@ type node struct {
 	// scratch says entity is a private copy of the entry's row, as orphan and
 	// vacate make, which the unit may write into as into the entity itself.
 	scratch bool
+	// first says the node's statement runs before every other: the row a
+	// has-one relation let go of gives its foreign key up before the row that
+	// replaces it takes the key, which a unique key on it needs.
+	first bool
 	// linked holds the foreign keys of an untracked row put into a loaded
 	// relation, written even if they hold the parent's key already, so a row
 	// that is gone, as one this context deleted, fails rather than vanishing.
@@ -126,6 +130,9 @@ type unit struct {
 	inTx bool
 	// dry plans the unit without changing any entity, for HasChanges.
 	dry bool
+	// held holds the rows the relations of tracked entities hold now, other
+	// than parents, made the first time a has-one relation lets go of one.
+	held map[rowID]bool
 }
 
 // pivotChange adds or removes one join table row.
@@ -512,7 +519,102 @@ func (u *unit) reconcile(n *node, claimed map[rowID]unsafe.Pointer) error {
 		}
 	}
 
+	// A has-one pointer is the truth about its relation, as a slice is. One
+	// that picks a row of many is a view of them, and one through another
+	// table does not own its row.
+	for r, key := range n.entry.Parents {
+		if key == nil || r.Pick != nil || r.ThroughKey != nil || r.Pivot != nil {
+			continue
+		}
+
+		link, err := linkFor(r)
+		if err != nil {
+			return err
+		}
+
+		if link.BelongsTo || holdsRow(r, link, n.entity, key) {
+			continue
+		}
+
+		if err := u.letGo(link, key); err != nil {
+			return err
+		}
+	}
+
 	return nil
+}
+
+// holdsRow reports whether entity's relation r holds the row with the key.
+func holdsRow(r *meta.Relation, link meta.Link, entity unsafe.Pointer, key any) bool {
+	for _, related := range r.Related(entity) {
+		if k, ok := link.Target.KeyOf(related); ok && k == key {
+			return true
+		}
+	}
+
+	return false
+}
+
+// letGo settles the row a has-one relation held when last loaded or saved, and
+// holds no longer. A row that another relation holds now has moved there, and
+// the new parent's link writes it. Any other is orphaned, as a child taken out
+// of a slice is: deleted, or unlinked if its key is nullable.
+func (u *unit) letGo(link meta.Link, key any) error {
+	entry := u.s.tracker.Find(link.Target, key)
+	if entry == nil || entry.State == track.Deleted {
+		return nil
+	}
+
+	held, err := u.heldRows()
+	if err != nil {
+		return err
+	}
+
+	if !held[rowID{link.Target, key}] {
+		u.orphan(link, entry).first = true
+	}
+
+	return nil
+}
+
+// heldRows returns the rows the relations of tracked entities hold now, other
+// than their parents. Like claims, it sees the relations of tracked entities,
+// new or loaded.
+func (u *unit) heldRows() (map[rowID]bool, error) {
+	if u.held != nil {
+		return u.held, nil
+	}
+
+	u.held = map[rowID]bool{}
+
+	for _, n := range u.order {
+		if n.entry == nil || !u.current(n) {
+			continue
+		}
+
+		for _, r := range n.model.Relations {
+			if r.Pivot != nil || r.Empty(n.entity) {
+				continue
+			}
+
+			link, err := linkFor(r)
+			if err != nil {
+				return nil, err
+			}
+
+			if link.BelongsTo {
+				continue
+			}
+
+			for _, entity := range r.Related(n.entity) {
+				if key, ok := link.Target.KeyOf(entity); ok {
+					u.held[rowID{link.Target, key}] = true
+				}
+			}
+		}
+	}
+
+	return u.held, nil
 }
 
 // vacate lets go of the node of a target unlinked from a many-to-many relation
@@ -728,7 +830,7 @@ func (u *unit) unmoved(n *node, r *meta.Relation, link meta.Link, entity unsafe.
 // version and UpdatedAt as any update does. Where the element still holds the
 // child, the copy is of what it holds, so an edit made before the child left
 // the slice is saved with the unlink; otherwise the copy is of the snapshot.
-func (u *unit) orphan(link meta.Link, entry *track.Entry) {
+func (u *unit) orphan(link meta.Link, entry *track.Entry) *node {
 	u.drop(entry)
 
 	copied, edited := entry.Scratch(), []*meta.Field(nil)
@@ -758,10 +860,12 @@ func (u *unit) orphan(link meta.Link, entry *track.Entry) {
 
 		n.forced = true
 
-		return
+		return n
 	}
 
 	n.remove = true
+
+	return n
 }
 
 // nullable reports whether a field's zero value is written as NULL, so that
@@ -843,7 +947,15 @@ func (u *unit) sorted() ([]*node, error) {
 	}
 
 	for _, n := range u.order {
-		if !n.remove {
+		if !n.remove && n.first {
+			if err := visit(n); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	for _, n := range u.order {
+		if !n.remove && !n.first {
 			if err := visit(n); err != nil {
 				return nil, err
 			}
@@ -1066,6 +1178,10 @@ func (u *unit) run(ctx context.Context) error {
 	u.inTx = !standing
 
 	err = u.s.transact(ctx, several, func(to exec.Executor) error {
+		if err := u.remove(ctx, to, removals, true); err != nil {
+			return err
+		}
+
 		for i := 0; i < len(order); {
 			if batch := u.insertBatch(ctx, order[i:]); len(batch) > 1 {
 				if err := u.createMany(ctx, to, batch); err != nil {
@@ -1100,20 +1216,8 @@ func (u *unit) run(ctx context.Context) error {
 			}
 		}
 
-		for _, n := range removals {
-			if err := n.beforeDelete(ctx); err != nil {
-				return err
-			}
-
-			if err := u.delete(ctx, to, n); err != nil {
-				return err
-			}
-
-			n.wrote = true
-
-			if err := n.afterDelete(ctx); err != nil {
-				return err
-			}
+		if err := u.remove(ctx, to, removals, false); err != nil {
+			return err
 		}
 
 		return u.touch(ctx, to)
@@ -1157,6 +1261,31 @@ func (u *unit) run(ctx context.Context) error {
 
 	if f := u.s.settings.events.Saved; f != nil {
 		f(ctx, u.changes())
+	}
+
+	return nil
+}
+
+// remove deletes the rows of the removals that run first, or of the others.
+func (u *unit) remove(ctx context.Context, to exec.Executor, removals []*node, first bool) error {
+	for _, n := range removals {
+		if n.first != first {
+			continue
+		}
+
+		if err := n.beforeDelete(ctx); err != nil {
+			return err
+		}
+
+		if err := u.delete(ctx, to, n); err != nil {
+			return err
+		}
+
+		n.wrote = true
+
+		if err := n.afterDelete(ctx); err != nil {
+			return err
+		}
 	}
 
 	return nil

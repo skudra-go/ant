@@ -192,6 +192,10 @@ func TestConformanceHasOneReplacedOrCleared(t *testing.T) {
 			h := load(t, s, id)
 			h.Pass = nil
 			h.Locker = nil
+
+			changed, err := s.HasChanges(ctx)
+			require.NoError(t, err)
+			require.True(t, changed)
 			require.NoError(t, s.SaveChanges(ctx))
 
 			require.Empty(t, passes(t, id))

@@ -337,7 +337,10 @@ err = session.SaveChanges(ctx)
 - **On a loaded relation, the slice is the truth.** Removing a post from
   `user.Posts` and calling `SaveChanges` deletes that post (or clears its foreign key
   if the key is nullable). Appending inserts. A relation that was never loaded (`nil`)
-  is left alone.
+  is left alone. A loaded has-one pointer works the same way: replacing or clearing
+  `user.Profile` deletes the old profile (or clears its key), unless another parent
+  holds it now. A has-one with `Latest` or `Oldest` is a view of many rows, so
+  replacing or clearing it deletes nothing.
 - `NoTracking()` on a query skips tracking for read-only work and is faster. `Each`,
   `Column`, `Omit`, `Raw`, `Select` and `Project` results are never tracked, so
   changing them saves nothing. `With` rows are tracked; their computed fields are
