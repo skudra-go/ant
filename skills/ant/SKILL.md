@@ -138,7 +138,8 @@ Calls that take columns of mixed types take `ant.FieldRef`, made with
   each other, such as `readonly,writeonly` or `version,immutable`, and two
   `version` or `ant.DeletedAt` fields in one model, fail at `Open` with
   `ant.ErrBadSchema`.
-- A field of type `ant.DeletedAt` turns on soft deletes. `ant.JSON[T]`
+- A field of type `ant.DeletedAt` turns on soft deletes. In JSON it is `null` for
+  a live row and the deletion time otherwise, as a `*time.Time` is. `ant.JSON[T]`
   stores a value as JSON. A number read into an interface (`map[string]any`)
   is a `json.Number`, not a `float64`.
 - On PostgreSQL, a standard type takes PostgreSQL's own column: `time.Duration` is

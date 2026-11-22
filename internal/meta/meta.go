@@ -3,9 +3,11 @@
 package meta
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"math"
@@ -945,9 +947,59 @@ type Filter struct {
 const SoftDeleteFilter = "ant.soft_delete"
 
 // DeletedAt is the type of a soft delete field. A model with one is deleted by
-// setting it, and queries skip rows where it is set.
+// setting it, and queries skip rows where it is set. In JSON it is null for a
+// live row and the time for a deleted one, as a *time.Time is.
 type DeletedAt struct {
 	sql.Null[time.Time]
+}
+
+// MarshalJSON writes null for a live row and the time for a deleted one.
+func (d DeletedAt) MarshalJSON() ([]byte, error) {
+	if !d.Valid {
+		return []byte("null"), nil
+	}
+
+	return d.V.MarshalJSON()
+}
+
+// UnmarshalJSON reads null, which makes the row live, a time, or the
+// {"V":...,"Valid":...} object DeletedAt was written as before it had
+// MarshalJSON.
+func (d *DeletedAt) UnmarshalJSON(data []byte) error {
+	data = bytes.TrimSpace(data)
+
+	switch {
+	case bytes.Equal(data, []byte("null")):
+		*d = DeletedAt{}
+
+		return nil
+	case len(data) > 0 && data[0] == '{':
+		var old struct {
+			V     time.Time
+			Valid bool
+		}
+
+		if err := json.Unmarshal(data, &old); err != nil {
+			return err
+		}
+
+		*d = DeletedAt{}
+
+		if old.Valid {
+			d.Null = sql.Null[time.Time]{V: old.V, Valid: true}
+		}
+
+		return nil
+	}
+
+	var at time.Time
+	if err := at.UnmarshalJSON(data); err != nil {
+		return err
+	}
+
+	*d = DeletedAt{Null: sql.Null[time.Time]{V: at, Valid: true}}
+
+	return nil
 }
 
 // UnixTime is a time stored as whole seconds since 1970, for a schema that keeps
