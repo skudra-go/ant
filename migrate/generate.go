@@ -462,6 +462,17 @@ func withoutMetaCommands(text string) string {
 	return b.String()
 }
 
+// staleSnapshotNote says why the snapshot is behind the newest migration
+// file: a file added by hand, or a merge. Each cause names its fix.
+func staleSnapshotNote(old, newest string) string {
+	return fmt.Sprintf(
+		"it was written for %s, and the newest file is %s. If a file was added by hand, "+
+			"start it with diff --empty <name>; if a merge added it, renumber if needed, then run snapshot",
+		old,
+		newest,
+	)
+}
+
 // inStep fails if the snapshot was not written for the newest migration file,
 // so a diff from it would be measured from the wrong place. A snapshot written
 // for a file that is gone is one whose change no file holds any more: diff
@@ -484,10 +495,9 @@ func (t *tool) inStep(ctx context.Context, c *catalog) error {
 
 	if last := c.lastFile(); last != nil && old.Latest != last.ID() {
 		return fmt.Errorf(
-			"%w: it was written for %s, and the newest file is %s. After a merge, renumber if needed, then run snapshot",
+			"%w: %s",
 			ErrStaleSnapshot,
-			old.Latest,
-			last.ID(),
+			staleSnapshotNote(old.Latest, last.ID()),
 		)
 	}
 
