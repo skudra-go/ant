@@ -1,6 +1,7 @@
 package ant
 
 import (
+	"reflect"
 	"unsafe"
 
 	"fmt"
@@ -133,6 +134,8 @@ func castCaseIntoEnum(node qb.Expr, enum *meta.Enum) qb.Expr {
 // database adds to, such as a number, a decimal, or a pointer or sql.Null of
 // one, and n is a value of the type it holds: Inc(&Posts.Votes, 1) for a Votes
 // *int. A column that can hold NULL counts from zero, so Inc on a NULL sets n.
+// An integer field refuses a step with a fraction, which the database would
+// round.
 func Inc[V, N any](field *V, n N) Assignment { return step(field, "+", n) }
 
 // Dec subtracts n from a column, in the database, as Inc adds it: a NULL
@@ -147,6 +150,19 @@ func step[V, N any](field *V, op string, n N) Assignment {
 		return Assignment{err: err}
 	}
 
+	// An integer column would round a fraction away, where Inc[V Number] did
+	// not compile.
+	if held := heldType(reflect.TypeFor[V]()); isInteger(held) && !isInteger(reflect.TypeFor[N]()) {
+		return Assignment{
+			err: fmt.Errorf(
+				"ant: %s holds %s, and a step of %T would be rounded: pass an integer",
+				f.Name,
+				held,
+				n,
+			),
+		}
+	}
+
 	left := col
 
 	if canBeNull(f) {
@@ -159,6 +175,34 @@ func step[V, N any](field *V, op string, n N) Assignment {
 		node: qb.Binary{Left: left, Op: op, Right: hidden(n, readsSensitive(col, refs))},
 		refs: refs,
 	})
+}
+
+// heldType is the value a field of type t holds: a pointer's element, or the
+// value of an sql.Null and the other nullable structs with a Valid flag.
+func heldType(t reflect.Type) reflect.Type {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+
+	if t.Kind() == reflect.Struct && t.NumField() == 2 {
+		if valid, ok := t.FieldByName("Valid"); ok && valid.Type.Kind() == reflect.Bool &&
+			valid.Index[0] == 1 {
+			return t.Field(0).Type
+		}
+	}
+
+	return t
+}
+
+// isInteger reports whether t is an integer type.
+func isInteger(t reflect.Type) bool {
+	switch t.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return true
+	}
+
+	return false
 }
 
 // assignedTwice refuses a write that gives one column two values. PostgreSQL and
