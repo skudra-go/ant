@@ -1,6 +1,7 @@
 package ant
 
 import (
+	"math"
 	"reflect"
 	"unsafe"
 
@@ -134,8 +135,8 @@ func castCaseIntoEnum(node qb.Expr, enum *meta.Enum) qb.Expr {
 // database adds to, such as a number, a decimal, or a pointer or sql.Null of
 // one, and n is a value of the type it holds: Inc(&Posts.Votes, 1) for a Votes
 // *int. A column that can hold NULL counts from zero, so Inc on a NULL sets n.
-// An integer field refuses a step with a fraction, which the database would
-// round.
+// An integer field takes a whole step, an integer or a float such as 2.0, and
+// refuses one with a fraction, which the database would round.
 func Inc[V, N any](field *V, n N) Assignment { return step(field, "+", n) }
 
 // Dec subtracts n from a column, in the database, as Inc adds it: a NULL
@@ -151,13 +152,14 @@ func step[V, N any](field *V, op string, n N) Assignment {
 	}
 
 	// An integer column would round a fraction away, where Inc[V Number] did
-	// not compile.
-	if held := heldType(reflect.TypeFor[V]()); isInteger(held) && !isInteger(reflect.TypeFor[N]()) {
+	// not compile. It took a whole constant such as 2.0, which is a float64 here.
+	if held := heldType(reflect.TypeFor[V]()); isInteger(held) && !whole(n) {
 		return Assignment{
 			err: fmt.Errorf(
-				"ant: %s holds %s, and a step of %T would be rounded: pass an integer",
+				"ant: %s holds %s, so a step must be an integer or a whole float, not %v of type %T",
 				f.Name,
 				held,
+				n,
 				n,
 			),
 		}
@@ -192,6 +194,27 @@ func heldType(t reflect.Type) reflect.Type {
 	}
 
 	return t
+}
+
+// whole reports whether n is a whole number: an integer, or a float with no
+// fraction, or a pointer to one.
+func whole(n any) bool {
+	v := reflect.ValueOf(n)
+
+	for v.Kind() == reflect.Pointer && !v.IsNil() {
+		v = v.Elem()
+	}
+
+	switch v.Kind() {
+	case reflect.Float32, reflect.Float64:
+		f := v.Float()
+
+		return f == math.Trunc(f) && !math.IsInf(f, 0)
+	case reflect.Invalid:
+		return false
+	}
+
+	return isInteger(v.Type())
 }
 
 // isInteger reports whether t is an integer type.

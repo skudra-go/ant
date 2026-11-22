@@ -512,14 +512,19 @@ func TestConformanceHelpersTakeAnyColumn(t *testing.T) {
 			requireDecimal(t, target, "12.75", got[0].Amount, "Inc on decimal.Decimal")
 			require.InDelta(t, 0.5, got[1].Score.V, 0.001, "Dec on sql.Null[float64]")
 
+			// A whole float is a whole step, as Inc[V Number] took the constant 2.0.
+			_, err = db.Tickets.Where(ant.Eq(&Tickets.ID, int64(1))).
+				Update(ctx, ant.Inc(&Tickets.Votes, 2.0))
+			require.NoError(t, err)
+
 			// An integer column would round a fraction away.
 			_, err = db.Tickets.Where(ant.Eq(&Tickets.ID, int64(1))).
 				Update(ctx, ant.Inc(&Tickets.Votes, 1.5))
-			require.ErrorContains(t, err, "would be rounded")
+			require.ErrorContains(t, err, "not 1.5")
 
 			again, err := db.Tickets.Find(ctx, int64(1))
 			require.NoError(t, err)
-			require.Equal(t, 6, *again.Votes, "the refused step wrote nothing")
+			require.Equal(t, 8, *again.Votes, "the refused step wrote nothing")
 		})
 	})
 }
