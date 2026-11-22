@@ -308,6 +308,12 @@ wrote, err := db.Users.Upsert(ctx, alice, ant.OnConflict(&Users.Email))
 - `Insert` also inserts the new entities a struct points at, parents first, and fills
   in foreign keys. `InsertOnly` leaves relations alone. `InsertMany` is for
   thousands of rows.
+- **From a request body**, decode into an input struct of the fields the client may
+  set, and copy them into the model. A body decoded straight into a model can set
+  its key (a non-zero key is inserted as given), `CreatedAt`, `Version`,
+  `DeletedAt`, and its relations, which `Insert` inserts too. `InsertOnly` drops
+  the relations, not the rest. Decoded into a tracked entity loaded with its posts,
+  `"Posts": []` deletes them at `SaveChanges`.
 - Bulk `Update` and `Delete` run no hooks and don't change tracked structs.
 - `FirstOrCreate(ctx, entity, conds...)` reads or inserts, safely under races when
   the condition is on a unique column. In a transaction, a row another writer
