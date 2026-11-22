@@ -261,12 +261,13 @@ func (b *ModelBuilder[E]) Filter(name string, filter func(context.Context) Cond)
 }
 
 func (b *ModelBuilder[E]) keyField(ref FieldRef) *meta.Field {
-	switch {
-	case ref.err != nil:
-		b.fail(ref.err)
+	if err := ref.fault(); err != nil {
+		b.fail(err)
 
 		return nil
-	case ref.model != b.model:
+	}
+
+	if ref.model != b.model {
 		b.fail(ErrWrongModel)
 
 		return nil
@@ -820,8 +821,8 @@ type ForeignKeyBuilder struct {
 // References names the columns the key points to, in order.
 func (k *ForeignKeyBuilder) References(fields ...FieldRef) *ForeignKeyBuilder {
 	for _, ref := range fields {
-		if ref.err != nil {
-			k.fail(ref.err)
+		if err := ref.fault(); err != nil {
+			k.fail(err)
 
 			continue
 		}
@@ -983,12 +984,12 @@ func (r *RelationBuilder) Morph[V comparable](field *V, value V) *RelationBuilde
 
 // Latest makes a has-one relation the newest of many, by field: Include reads
 // that row for each parent.
-func (r *RelationBuilder) Latest[V Ordered](field *V) *RelationBuilder {
+func (r *RelationBuilder) Latest[V any](field *V) *RelationBuilder {
 	return r.pick(Col(field).Desc())
 }
 
 // Oldest makes a has-one relation the oldest of many, by field.
-func (r *RelationBuilder) Oldest[V Ordered](field *V) *RelationBuilder {
+func (r *RelationBuilder) Oldest[V any](field *V) *RelationBuilder {
 	return r.pick(Col(field).Asc())
 }
 

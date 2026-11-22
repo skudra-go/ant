@@ -13,8 +13,11 @@ import (
 	"github.com/skudra-go/ant/qb"
 )
 
-// Ordered is a type with a database ordering. It extends cmp.Ordered with
-// time.Time, which cmp.Ordered excludes.
+// Ordered is cmp.Ordered with time.Time.
+//
+// Deprecated: ant's ordering and comparison helpers take a field of any type,
+// as the database orders a pointer, an sql.Null, a uuid or a decimal as well,
+// so none of them uses Ordered any more. It is kept for code that names it.
 type Ordered interface {
 	cmp.Ordered | time.Time
 }
@@ -25,6 +28,26 @@ type Cond struct {
 	node qb.Cond
 	refs []*meta.Model
 	err  error
+	// opposite builds what Not makes of the condition, where SQL's NOT would
+	// not match the rows it leaves out. Eq and Ne, and In and NotIn, on a
+	// column that can hold NULL, are each other's opposite, and And and Or
+	// pass theirs on by De Morgan. Nil means NOT node (decision 146).
+	opposite func() qb.Cond
+}
+
+// negation is what Not makes of c.
+func (c Cond) negation() qb.Cond {
+	if c.opposite != nil {
+		return c.opposite()
+	}
+
+	return qb.Not{Child: c.node}
+}
+
+// orNull is c OR column IS NULL, the form of Ne and NotIn on a column that can
+// hold NULL, which matches it as Go's != does.
+func orNull(c qb.Cond, column qb.Expr) qb.Cond {
+	return qb.Or{Children: []qb.Cond{c, qb.IsNull{Left: column}}}
 }
 
 // on builds a condition on one column.
@@ -72,9 +95,33 @@ func hideParams(c qb.Cond) qb.Cond {
 		c.Low, c.High = hide(c.Low), hide(c.High)
 
 		return c
+	case qb.And:
+		c.Children = hideEach(c.Children)
+
+		return c
+	case qb.Or:
+		c.Children = hideEach(c.Children)
+
+		return c
+	case qb.Not:
+		c.Child = hideParams(c.Child)
+
+		return c
 	}
 
 	return c
+}
+
+// hideEach is hideParams of each of conds, as In with nil and NotIn on a
+// nullable column join their comparison with an IS NULL.
+func hideEach(conds []qb.Cond) []qb.Cond {
+	out := make([]qb.Cond, len(conds))
+
+	for i, c := range conds {
+		out[i] = hideParams(c)
+	}
+
+	return out
 }
 
 // compare is on for a comparison with a value, written out so that the most
@@ -101,8 +148,15 @@ func nullCheck[V any](field *V, negate bool) Cond {
 
 // membership is In or NotIn. A value stored as NULL means what it means to Eq
 // and Ne, IS NULL or IS NOT NULL, which SQL's IN cannot say: NULL IN (NULL) is
-// unknown.
+// unknown. Without one, NotIn on a column that can hold NULL matches NULL, as
+// Ne does, and In and NotIn are each other's opposite under Not. With one, SQL's
+// NOT of either is already the other.
 func membership[V any](field *V, values []V, negate bool) Cond {
+	column, f, model, err := columnExpr(field)
+	if err != nil {
+		return Cond{err: err}
+	}
+
 	nodes := make([]qb.Expr, 0, len(values))
 	null := false
 
@@ -113,23 +167,42 @@ func membership[V any](field *V, values []V, negate bool) Cond {
 			continue
 		}
 
-		nodes = append(nodes, qb.Param{Value: v})
-	}
+		var value any = v
 
-	return on(field, func(c qb.Expr) qb.Cond {
-		in := qb.In{Left: c, Values: nodes, Negate: negate}
-
-		switch {
-		case !null:
-			return in
-		case len(nodes) == 0:
-			return qb.IsNull{Left: c, Negate: negate}
-		case negate:
-			return qb.And{Children: []qb.Cond{in, qb.IsNull{Left: c, Negate: true}}}
+		if f.Sensitive {
+			value = qb.Secret{V: value}
 		}
 
-		return qb.Or{Children: []qb.Cond{in, qb.IsNull{Left: c}}}
-	})
+		nodes = append(nodes, qb.Param{Value: value})
+	}
+
+	nullable := canBeNull(f)
+	c := Cond{node: inList(column, nodes, null, negate, nullable), refs: model.Self()}
+
+	if nullable && !null && len(nodes) > 0 {
+		c.opposite = func() qb.Cond { return inList(column, nodes, false, !negate, true) }
+	}
+
+	return c
+}
+
+// inList is In, or NotIn with negate, of values, with null for a value stored
+// as NULL among them, on a column that nullable says can hold NULL.
+func inList(column qb.Expr, values []qb.Expr, null, negate, nullable bool) qb.Cond {
+	in := qb.In{Left: column, Values: values, Negate: negate}
+
+	switch {
+	case !null && negate && nullable && len(values) > 0:
+		return orNull(in, column)
+	case !null:
+		return in
+	case len(values) == 0:
+		return qb.IsNull{Left: column, Negate: negate}
+	case negate:
+		return qb.And{Children: []qb.Cond{in, qb.IsNull{Left: column, Negate: true}}}
+	}
+
+	return orNull(in, column)
 }
 
 // isNull reports whether v is stored as NULL: a nil pointer, or a value such
@@ -151,60 +224,115 @@ func isNull(v any) bool {
 
 // Eq matches rows where field equals v. A v stored as NULL, such as a nil
 // pointer, matches NULL. A non-nil pointer compares the pointed-to value.
+// Not(Eq(field, v)) is Ne(field, v).
 func Eq[V comparable](field *V, v V) Cond {
 	if isNull(v) {
 		return nullCheck(field, false)
 	}
 
-	return compare(field, qb.OpEq, v)
+	return equality(field, v, false)
 }
 
-// Ne matches rows where field does not equal v. A v stored as NULL matches
-// non-NULL values. As in SQL, a NULL column never matches a non-NULL v.
+// Ne matches rows where field does not equal v, as Go's != does: on a column
+// that can hold NULL, a NULL matches a non-NULL v, as column <> v OR column IS
+// NULL. A v stored as NULL matches the non-NULL values. Not(Ne(field, v)) is
+// Eq(field, v).
 func Ne[V comparable](field *V, v V) Cond {
 	if isNull(v) {
 		return nullCheck(field, true)
 	}
 
-	return compare(field, qb.OpNe, v)
+	return equality(field, v, true)
 }
 
-// Gt matches rows where field is greater than v.
-func Gt[V Ordered](field *V, v V) Cond { return compare(field, qb.OpGt, v) }
+// equality is Eq, or Ne with ne, of a value not stored as NULL. On a column
+// that can hold NULL, Ne matches NULL too, and each is the other's opposite
+// under Not. A column that can't keeps its plain = or <>, which allocates no
+// closure.
+func equality[V any](field *V, v V, ne bool) Cond {
+	f, model, err := fieldOf(field)
+	if err != nil {
+		return Cond{err: err}
+	}
+
+	var value any = v
+
+	if f.Sensitive {
+		value = qb.Secret{V: value}
+	}
+
+	column := model.ColumnOf(f)
+	eq := qb.Compare{Left: column, Op: qb.OpEq, Right: qb.Param{Value: value}}
+	unequal := qb.Compare{Left: column, Op: qb.OpNe, Right: eq.Right}
+
+	switch {
+	case !canBeNull(f) && ne:
+		return Cond{node: unequal, refs: model.Self()}
+	case !canBeNull(f):
+		return Cond{node: eq, refs: model.Self()}
+	case ne:
+		return Cond{
+			node:     orNull(unequal, column),
+			refs:     model.Self(),
+			opposite: func() qb.Cond { return eq },
+		}
+	}
+
+	return Cond{
+		node:     eq,
+		refs:     model.Self(),
+		opposite: func() qb.Cond { return orNull(unequal, column) },
+	}
+}
+
+// Gt matches rows where field is greater than v. The field can be of any type
+// the database orders, such as a number, text, a time, a uuid, a decimal, or a
+// pointer or sql.Null of one: the database, not Go, decides the order. As in
+// SQL, a NULL column, or a v stored as NULL, matches nothing. Gte, Lt, Lte and
+// Between are the same.
+func Gt[V any](field *V, v V) Cond { return compare(field, qb.OpGt, v) }
 
 // Gte matches rows where field is greater than or equal to v.
-func Gte[V Ordered](field *V, v V) Cond { return compare(field, qb.OpGte, v) }
+func Gte[V any](field *V, v V) Cond { return compare(field, qb.OpGte, v) }
 
 // Lt matches rows where field is less than v.
-func Lt[V Ordered](field *V, v V) Cond { return compare(field, qb.OpLt, v) }
+func Lt[V any](field *V, v V) Cond { return compare(field, qb.OpLt, v) }
 
 // Lte matches rows where field is less than or equal to v.
-func Lte[V Ordered](field *V, v V) Cond { return compare(field, qb.OpLte, v) }
+func Lte[V any](field *V, v V) Cond { return compare(field, qb.OpLte, v) }
 
 // In matches rows where field equals one of values, as Eq would. With no
 // values, it matches nothing. A nil value matches NULL, as with Eq.
+// Not(In(field, values...)) is NotIn(field, values...).
 func In[V comparable](field *V, values ...V) Cond { return membership(field, values, false) }
 
 // NotIn matches rows where field equals none of values, as Ne would. With no
 // values, it matches everything, including NULL. A nil value leaves NULL out,
-// as with Ne, and otherwise, as in SQL, a NULL column matches no other value.
+// as with Ne, and otherwise a NULL column matches, as with Ne.
 func NotIn[V comparable](field *V, values ...V) Cond { return membership(field, values, true) }
 
 // Between matches rows where field is within low and high, inclusive.
-func Between[V Ordered](field *V, low, high V) Cond {
+func Between[V any](field *V, low, high V) Cond {
 	return on(field, func(c qb.Expr) qb.Cond {
 		return qb.Between{Left: c, Low: qb.Param{Value: low}, High: qb.Param{Value: high}}
 	})
 }
 
 // Like matches rows where field matches a SQL LIKE pattern, in which % matches
-// any text and _ matches one character.
-func Like[V ~string](field *V, pattern V) Cond { return compare(field, qb.OpLike, string(pattern)) }
+// any text and _ matches one character. The field is a text column of any Go
+// type, such as a string, a *string or an sql.Null[string], and a NULL one
+// matches nothing.
+func Like[V any, P ~string](
+	field *V,
+	pattern P,
+) Cond {
+	return compare(field, qb.OpLike, string(pattern))
+}
 
 // ILike is Like ignoring case.
-func ILike[V ~string](
+func ILike[V any, P ~string](
 	field *V,
-	pattern V,
+	pattern P,
 ) Cond {
 	return compare(field, qb.OpILike, string(pattern))
 }
@@ -229,13 +357,16 @@ func eachField[V comparable](v V, fields []*V) []Cond {
 }
 
 // Past matches rows where a time column is before the database's current time.
-func Past(field *time.Time) Cond { return Col(field).LtExpr(SQL[time.Time]("CURRENT_TIMESTAMP")) }
+// The field is a time of any Go type, such as a time.Time, a *time.Time, an
+// sql.Null[time.Time] or ant.DeletedAt, and a NULL one matches nothing, here
+// and in Future and Today.
+func Past[V any](field *V) Cond { return Col(field).LtExpr(SQL[V]("CURRENT_TIMESTAMP")) }
 
 // Future matches rows where a time column is after the database's current time.
-func Future(field *time.Time) Cond { return Col(field).GtExpr(SQL[time.Time]("CURRENT_TIMESTAMP")) }
+func Future[V any](field *V) Cond { return Col(field).GtExpr(SQL[V]("CURRENT_TIMESTAMP")) }
 
 // Today matches rows where a time column falls on the database's current date.
-func Today(field *time.Time) Cond {
+func Today[V any](field *V) Cond {
 	c := SQLCond("CAST(? AS date) = CURRENT_DATE", Col(field))
 	c.node = needing(c.node, dialect.DateCast)
 
@@ -288,6 +419,7 @@ func EqCol[V comparable](a, b *V) Cond {
 func And(conds ...Cond) Cond {
 	nodes, c := merge(conds)
 	c.node = qb.And{Children: nodes}
+	c.opposite = deMorgan(conds, false)
 
 	return c
 }
@@ -297,13 +429,54 @@ func And(conds ...Cond) Cond {
 func Or(conds ...Cond) Cond {
 	nodes, c := merge(conds)
 	c.node = qb.Or{Children: nodes}
+	c.opposite = deMorgan(conds, true)
 
 	return c
 }
 
-// Not matches rows where c does not match.
+// deMorgan is the opposite of And, or of Or with or, over conds, when one of
+// them has an opposite: Not(And(a, b)) is Or(Not(a), Not(b)), so each keeps its
+// own. It is nil when none has one, and Not writes NOT.
+func deMorgan(conds []Cond, or bool) func() qb.Cond {
+	for _, c := range conds {
+		if c.opposite == nil {
+			continue
+		}
+
+		conds = append([]Cond(nil), conds...)
+
+		return func() qb.Cond {
+			children := make([]qb.Cond, len(conds))
+
+			for i, c := range conds {
+				children[i] = c.negation()
+			}
+
+			if or {
+				return qb.And{Children: children}
+			}
+
+			return qb.Or{Children: children}
+		}
+	}
+
+	return nil
+}
+
+// Not matches rows where c does not match. Not of Eq, Ne, In or NotIn, and of
+// And and Or over them, is the opposite helper, so on a column that can hold
+// NULL, Not(Eq(field, v)) matches NULL, as Ne(field, v) does. Not of any other
+// condition is SQL's NOT, under which a comparison with NULL matches nothing
+// either way: Not(Gt(field, v)) leaves out a NULL field, as Gt does.
 func Not(c Cond) Cond {
-	return Cond{node: qb.Not{Child: c.node}, refs: c.refs, err: c.err}
+	out := Cond{node: c.negation(), refs: c.refs, err: c.err}
+
+	if c.opposite != nil {
+		node := c.node
+		out.opposite = func() qb.Cond { return node }
+	}
+
+	return out
 }
 
 // InTuples matches rows whose columns, taken together, equal one of the tuples:
@@ -321,8 +494,8 @@ func InTuples(fields []FieldRef, tuples ...[]any) Cond {
 	left := qb.Row{}
 
 	for _, ref := range fields {
-		if ref.err != nil {
-			return Cond{err: ref.err}
+		if err := ref.fault(); err != nil {
+			return Cond{err: err}
 		}
 
 		out.refs = append(out.refs, ref.model)

@@ -40,7 +40,7 @@ func (s *state) reader(ctx context.Context, stmt qb.Statement) exec.Executor {
 
 // selectReader is reader for a SELECT, which locked says takes row locks.
 func (s *state) selectReader(ctx context.Context, locked bool) exec.Executor {
-	if len(s.replicas) == 0 || s.tx != nil || locked || ctx.Value(primaryKey{}) != nil {
+	if len(s.replicas) == 0 || s.txOf(ctx) != nil || locked || ctx.Value(primaryKey{}) != nil {
 		return s.exec
 	}
 

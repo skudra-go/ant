@@ -1,6 +1,8 @@
 package ant
 
 import (
+	"math"
+	"reflect"
 	"unsafe"
 
 	"fmt"
@@ -129,11 +131,102 @@ func castCaseIntoEnum(node qb.Expr, enum *meta.Enum) qb.Expr {
 	return out
 }
 
-// Inc adds n to a numeric column, in the database.
-func Inc[V Number](field *V, n V) Assignment { return SetExpr(field, Col(field).Plus(n)) }
+// Inc adds n to a column, in the database. The field is of any type the
+// database adds to, such as a number, a decimal, or a pointer or sql.Null of
+// one, and n is a value of the type it holds: Inc(&Posts.Votes, 1) for a Votes
+// *int. A column that can hold NULL counts from zero, so Inc on a NULL sets n.
+// An integer field takes a whole step, an integer or a float such as 2.0, and
+// refuses one with a fraction, which the database would round.
+func Inc[V, N any](field *V, n N) Assignment { return step(field, "+", n) }
 
-// Dec subtracts n from a numeric column, in the database.
-func Dec[V Number](field *V, n V) Assignment { return SetExpr(field, Col(field).Minus(n)) }
+// Dec subtracts n from a column, in the database, as Inc adds it: a NULL
+// counts from zero.
+func Dec[V, N any](field *V, n N) Assignment { return step(field, "-", n) }
+
+// step is Inc and Dec: column op n, with COALESCE(column, 0) for a column that
+// can hold NULL, which would otherwise stay NULL.
+func step[V, N any](field *V, op string, n N) Assignment {
+	col, f, model, err := columnExpr(field)
+	if err != nil {
+		return Assignment{err: err}
+	}
+
+	// An integer column would round a fraction away, where Inc[V Number] did
+	// not compile. It took a whole constant such as 2.0, which is a float64 here.
+	if held := heldType(reflect.TypeFor[V]()); isInteger(held) && !whole(n) {
+		return Assignment{
+			err: fmt.Errorf(
+				"ant: %s holds %s, so a step must be an integer or a whole float, not %v of type %T",
+				f.Name,
+				held,
+				n,
+				n,
+			),
+		}
+	}
+
+	left := col
+
+	if canBeNull(f) {
+		left = qb.Func{Name: "COALESCE", Args: []qb.Expr{col, qb.Fragment{SQL: "0"}}}
+	}
+
+	refs := model.Self()
+
+	return SetExpr(field, Expr[V]{
+		node: qb.Binary{Left: left, Op: op, Right: hidden(n, readsSensitive(col, refs))},
+		refs: refs,
+	})
+}
+
+// heldType is the value a field of type t holds: a pointer's element, or the
+// value of an sql.Null and the other nullable structs with a Valid flag.
+func heldType(t reflect.Type) reflect.Type {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+
+	if t.Kind() == reflect.Struct && t.NumField() == 2 {
+		if valid, ok := t.FieldByName("Valid"); ok && valid.Type.Kind() == reflect.Bool &&
+			valid.Index[0] == 1 {
+			return t.Field(0).Type
+		}
+	}
+
+	return t
+}
+
+// whole reports whether n is a whole number: an integer, or a float with no
+// fraction, or a pointer to one.
+func whole(n any) bool {
+	v := reflect.ValueOf(n)
+
+	for v.Kind() == reflect.Pointer && !v.IsNil() {
+		v = v.Elem()
+	}
+
+	switch v.Kind() {
+	case reflect.Float32, reflect.Float64:
+		f := v.Float()
+
+		return f == math.Trunc(f) && !math.IsInf(f, 0)
+	case reflect.Invalid:
+		return false
+	}
+
+	return isInteger(v.Type())
+}
+
+// isInteger reports whether t is an integer type.
+func isInteger(t reflect.Type) bool {
+	switch t.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return true
+	}
+
+	return false
+}
 
 // assignedTwice refuses a write that gives one column two values. PostgreSQL and
 // SQL Server refuse it, and MySQL keeps the last, so ant refuses it everywhere,

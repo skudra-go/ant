@@ -80,13 +80,16 @@ func (q *Query[T]) Unfiltered() *Query[T] {
 }
 
 // OrderBy orders results by field, ascending, replacing any earlier ordering.
-func (q *Query[T]) OrderBy[V Ordered](field *V) *Query[T] {
+// The field is of any type the database orders, such as a number, text, a
+// time, a uuid, a decimal, or a pointer or sql.Null of one. Where NULLs go
+// depends on the database; Order with NullsFirst or NullsLast says.
+func (q *Query[T]) OrderBy[V any](field *V) *Query[T] {
 	return q.Order(Col(field).Asc())
 }
 
 // OrderByDesc orders results by field, descending, replacing any earlier
 // ordering.
-func (q *Query[T]) OrderByDesc[V Ordered](field *V) *Query[T] {
+func (q *Query[T]) OrderByDesc[V any](field *V) *Query[T] {
 	return q.Order(Col(field).Desc())
 }
 
@@ -101,10 +104,10 @@ func (q *Query[T]) Order(terms ...Sort) *Query[T] {
 }
 
 // ThenBy adds an ascending ordering after OrderBy.
-func (q *Query[T]) ThenBy[V Ordered](field *V) *Query[T] { return then(q, Col(field).Asc()) }
+func (q *Query[T]) ThenBy[V any](field *V) *Query[T] { return then(q, Col(field).Asc()) }
 
 // ThenByDesc adds a descending ordering after OrderBy.
-func (q *Query[T]) ThenByDesc[V Ordered](field *V) *Query[T] { return then(q, Col(field).Desc()) }
+func (q *Query[T]) ThenByDesc[V any](field *V) *Query[T] { return then(q, Col(field).Desc()) }
 
 func then[T any](q *Query[T], term Sort) *Query[T] {
 	n := q.next()
@@ -218,11 +221,12 @@ func (q *Query[T]) OrderByRandom() *Query[T] {
 	return q.Order(Expr[float64]{node: qb.Func{Name: "RANDOM"}}.Asc())
 }
 
-// Latest orders by a time column, newest first.
-func (q *Query[T]) Latest(field *time.Time) *Query[T] { return q.OrderByDesc(field) }
+// Latest orders by a time column, newest first. The field is a time of any Go
+// type, such as a time.Time, a *time.Time or an sql.Null[time.Time].
+func (q *Query[T]) Latest[V any](field *V) *Query[T] { return q.OrderByDesc(field) }
 
 // Oldest orders by a time column, oldest first.
-func (q *Query[T]) Oldest(field *time.Time) *Query[T] { return q.OrderBy(field) }
+func (q *Query[T]) Oldest[V any](field *V) *Query[T] { return q.OrderBy(field) }
 
 // WithDeleted includes soft-deleted rows.
 func (q *Query[T]) WithDeleted() *Query[T] { return q.IgnoreFilters(meta.SoftDeleteFilter) }
@@ -331,7 +335,9 @@ func (q *Query[T]) Omit[V any](field *V) *Query[T] {
 }
 
 // With fills a field tagged ant:"computed" from an expression, such as a count
-// of related rows.
+// of related rows. The rows are whole, so a session tracks them: the computed
+// field is neither compared nor written, and an entity the session already
+// holds gets the new value and keeps its unsaved changes.
 func (q *Query[T]) With[V any](field *V, value Expr[V]) *Query[T] {
 	n := q.next()
 
@@ -352,10 +358,26 @@ func (q *Query[T]) With[V any](field *V, value Expr[V]) *Query[T] {
 
 // tracked reports whether results go to the change tracker. A partial row
 // cannot be tracked, because its missing fields would look like real values, and
-// a derived row may not match any stored row.
+// a derived row may not match any stored row. With only adds computed fields to
+// a whole row, and the tracker never compares them.
 func (q *Query[T]) tracked() bool {
 	return !q.noTracking && q.state.settings.tracking && q.from == nil &&
-		len(q.selected) == 0 && len(q.omitted) == 0 && len(q.computed) == 0
+		len(q.selected) == 0 && len(q.omitted) == 0
+}
+
+// keepComputed copies the values With computed from a row the query read into
+// the instance the tracker already held for it, which the caller gets instead.
+func (q *Query[T]) keepComputed(instance, row *T) {
+	if instance == row {
+		return
+	}
+
+	model := q.model()
+
+	for _, c := range q.computed {
+		f := model.Column(c.Alias)
+		f.Value(unsafe.Pointer(instance)).Set(f.Value(unsafe.Pointer(row)))
+	}
 }
 
 // columns returns the fields the query reads: those Column chose, or all of
@@ -517,7 +539,7 @@ func (q *Query[T]) fetchWith(
 	var items []*T
 
 	if len(q.inJoin) > 0 {
-		items, err = q.collectJoined(rows)
+		items, err = q.collectJoined(ctx, rows)
 	} else {
 		most := 0
 
@@ -537,6 +559,9 @@ func (q *Query[T]) fetchWith(
 	}
 
 	if _, hooked := any(new(T)).(AfterLoader); hooked {
+		// In a transaction, what the hook runs with its ctx runs there (#144).
+		ctx := q.state.bound(ctx)
+
 		for _, item := range items {
 			if err := any(item).(AfterLoader).AfterLoad(ctx); err != nil {
 				return nil, err
@@ -548,7 +573,7 @@ func (q *Query[T]) fetchWith(
 		var read []*T
 
 		// A joined query swaps in the tracked instances as it reads.
-		if q.lock != nil && len(q.inJoin) == 0 {
+		if (q.lock != nil || len(q.computed) > 0) && len(q.inJoin) == 0 {
 			read = slices.Clone(items)
 		}
 
@@ -560,7 +585,9 @@ func (q *Query[T]) fetchWith(
 		)
 
 		for i, row := range read {
-			if err := q.refreshLocked(items[i], row); err != nil {
+			q.keepComputed(items[i], row)
+
+			if err := q.refreshLocked(ctx, items[i], row); err != nil {
 				return nil, err
 			}
 		}
@@ -571,6 +598,8 @@ func (q *Query[T]) fetchWith(
 	}
 
 	if _, hooked := any(new(T)).(AfterIncluder); hooked && ctx.Value(skipHooks{}) == nil {
+		ctx := q.state.bound(ctx)
+
 		for _, item := range items {
 			if err := any(item).(AfterIncluder).AfterInclude(ctx); err != nil {
 				return nil, err
@@ -588,7 +617,7 @@ func (q *Query[T]) fetchWith(
 // way. An instance with unsaved changes, edits or a removal, keeps them while
 // its row is still as it was loaded, and is a ConcurrencyError once the row
 // moved, since those changes were made to values the row no longer holds.
-func (q *Query[T]) refreshLocked(instance, row *T) error {
+func (q *Query[T]) refreshLocked(ctx context.Context, instance, row *T) error {
 	if q.lock == nil || instance == row {
 		return nil
 	}
@@ -618,7 +647,7 @@ func (q *Query[T]) refreshLocked(instance, row *T) error {
 		f.Value(unsafe.Pointer(instance)).Set(f.Value(unsafe.Pointer(row)))
 	}
 
-	q.state.record(q.state.tracker.Reloaded(entry, unsafe.Pointer(&before)))
+	q.state.record(ctx, q.state.tracker.Reloaded(entry, unsafe.Pointer(&before)))
 
 	return nil
 }
@@ -778,7 +807,7 @@ func (q *Query[T]) Explain(ctx context.Context) (string, error) {
 func (q *Query[T]) Find[K comparable](ctx context.Context, key K) (*T, error) {
 	field := q.model().Key()
 	if field == nil {
-		return nil, ErrNoKey
+		return nil, noKey(q.model())
 	}
 
 	if err := checkKey[K](field); err != nil {
@@ -835,8 +864,10 @@ func (q *Query[T]) Each(ctx context.Context) iter.Seq2[T, error] {
 
 		// The connection streams until the loop ends, so in a transaction it
 		// refuses the loop's own statements meanwhile.
-		q.state.streams.start()
-		defer q.state.streams.stop()
+		on := q.state.streamsOf(ctx)
+
+		on.start()
+		defer on.stop()
 
 		stream(rows, yield)
 	}
@@ -856,7 +887,7 @@ func (q *Query[T]) bulkTarget() ([]qb.Cond, error) {
 
 	key := model.Key()
 	if key == nil {
-		return nil, ErrNoKey
+		return nil, noKey(model)
 	}
 
 	// A source without the key cannot say which rows it came from, and some
@@ -932,7 +963,7 @@ func (q *Query[T]) update(a []Assignment) (*qb.Update, *Query[T], error) {
 	n := q.next()
 
 	if len(a) == 0 {
-		n.fail(ErrNoAssignment)
+		n.fail(fmt.Errorf("%w: pass what to set, as ant.Set(&...Name, value)", ErrNoAssignment))
 	}
 
 	set := make([]qb.Assignment, 0, len(a))

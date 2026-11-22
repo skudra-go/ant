@@ -93,3 +93,51 @@ func TestProject(t *testing.T) {
 		})
 	})
 }
+
+// Shelf is a user with their posts' newest title and number, if they have any.
+type Shelf struct {
+	Author string
+	Title  string          // "" for an author with no post
+	Newest sql.Null[int64] // not valid for an author with no post
+	Count  int64
+}
+
+var Shelves = ant.Fields[Shelf]()
+
+// A left join's side, and an aggregate over no rows, are NULL. A plain field
+// reads it as its zero value, as MaxOf does, and ant.Nullable keeps it, to tell
+// "no post" from a stored zero.
+func TestProjectNull(t *testing.T) {
+	fixture.Run(t, func(t *testing.T, db *fixture.AppDB) {
+		alice, _, _ := fixture.Seed(t, db)
+		ctx := t.Context()
+		post := &fixture.Post{UserID: alice.ID, Title: "Hello"}
+		require.NoError(t, db.Posts.Insert(ctx, post))
+
+		got, err := ant.Project[Shelf](
+			db.Users.Where(ant.In(&Users.Name, "Alice", "Bob")).
+				LeftJoinMany(&Users.Posts).
+				GroupBy(&Users.Name),
+			ant.Into(&Shelves.Author, &Users.Name),
+			ant.IntoExpr(&Shelves.Title, ant.Max(&Posts.Title)),
+			ant.IntoExpr(&Shelves.Newest, ant.Nullable(ant.Max(&Posts.ID))),
+			ant.IntoExpr(&Shelves.Count, ant.CountOf(&Posts.ID)),
+		).
+			All(ctx)
+		require.NoError(t, err)
+
+		require.ElementsMatch(
+			t,
+			[]Shelf{
+				{
+					Author: "Alice",
+					Title:  "Hello",
+					Newest: sql.Null[int64]{V: post.ID, Valid: true},
+					Count:  1,
+				},
+				{Author: "Bob"},
+			},
+			got,
+		)
+	})
+}

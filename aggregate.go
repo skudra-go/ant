@@ -177,9 +177,12 @@ func aggregateOf[T, V any](ctx context.Context, q *Query[T], value Expr[V]) (V, 
 	return out.V, nil
 }
 
-// SumOf adds up a column over matching rows, giving zero if there are none.
-// Limit, Offset, and Distinct are honored, by summing over a subquery.
-func SumOf[T any, V Number](ctx context.Context, q *Query[T], field *V) (V, error) {
+// SumOf adds up a column over matching rows, giving the zero value of V if
+// there are none or all are NULL: 0 for a number, nil for a pointer. The column
+// is of any type the database adds up, such as a number, a decimal, or a
+// pointer or sql.Null of one. Limit, Offset, and Distinct are honored, by
+// summing over a subquery.
+func SumOf[T, V any](ctx context.Context, q *Query[T], field *V) (V, error) {
 	return aggregateOf(ctx, q, Sum(field))
 }
 
@@ -187,19 +190,20 @@ func SumOf[T any, V Number](ctx context.Context, q *Query[T], field *V) (V, erro
 // Limit, Offset, and Distinct are honored, as with SumOf. The average of a
 // time.Duration is in nanoseconds, from an interval column as from an integer
 // one.
-func AvgOf[T any, V Number](ctx context.Context, q *Query[T], field *V) (float64, error) {
+func AvgOf[T, V any](ctx context.Context, q *Query[T], field *V) (float64, error) {
 	return aggregateOf(ctx, q, Avg(field))
 }
 
-// MinOf returns a column's smallest value, or zero if there are no rows.
+// MinOf returns a column's smallest value, or the zero value of V if there are
+// no rows. The column is of any type the database orders, as with OrderBy.
 // Limit, Offset, and Distinct are honored, as with SumOf.
-func MinOf[T any, V Ordered](ctx context.Context, q *Query[T], field *V) (V, error) {
+func MinOf[T, V any](ctx context.Context, q *Query[T], field *V) (V, error) {
 	return aggregateOf(ctx, q, Min(field))
 }
 
 // MaxOf returns a column's largest value, or zero if there are no rows.
 // Limit, Offset, and Distinct are honored, as with SumOf.
-func MaxOf[T any, V Ordered](ctx context.Context, q *Query[T], field *V) (V, error) {
+func MaxOf[T, V any](ctx context.Context, q *Query[T], field *V) (V, error) {
 	return aggregateOf(ctx, q, Max(field))
 }
 

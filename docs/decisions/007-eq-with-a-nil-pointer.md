@@ -2,11 +2,11 @@
 id: 7
 title: "`Eq` with a nil pointer"
 area: queries
-status: active
+status: amended
 tags: [Eq, Ne, nil, IS-NULL, pointer]
 issues: []
 related: [95]
-changed_by: []
+changed_by: [146]
 code: [cond.go]
 tests: [tests/features/querying/eq_test.go, tests/features/querying/is_null_test.go, tests/features/querying/ne_test.go]
 ---
@@ -16,6 +16,8 @@ tests: [tests/features/querying/eq_test.go, tests/features/querying/is_null_test
 **In short:** Eq and Ne with a nil or NULL-valued argument render IS NULL / IS NOT NULL; a non-nil pointer compares its pointee.
 
 > **Note.** Decision 95 extends the rule to In, NotIn and Expr methods.
+
+> **Amended.** Decision 146 makes `Ne` with a value, and `Not` of `Eq`, match NULL on a column that can hold it, as `column <> v OR column IS NULL`.
 
 ## Decision
 

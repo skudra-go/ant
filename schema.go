@@ -34,7 +34,7 @@ func (t *Table[T]) tableModel() *meta.Model { return configure[T]() }
 // migrate commands, passes them here.
 func SchemaOf[DB any](d dialect.Dialect, options ...Option) (*schema.Schema, error) {
 	if _, ok := any(new(DB)).(Handle); !ok {
-		return nil, fmt.Errorf("%w: %T", ErrNoContext, new(DB))
+		return nil, noContext[DB]()
 	}
 
 	unused := defaultSettings()
@@ -98,7 +98,7 @@ func models(db any) ([]*meta.Model, error) {
 // A relation that found no foreign key, or a join table with no name, passed
 // Open and failed the first request that touched it (#203). It reports every
 // problem it finds, not only the first, so a large model set is fixed in one go.
-func checkModels(db any) error {
+func checkModels(db any, d dialect.Dialect) error {
 	var (
 		seen     []*meta.Model
 		problems []error
@@ -150,6 +150,59 @@ func checkModels(db any) error {
 		problems = append(problems, err)
 	}
 
+	for _, m := range seen {
+		if m.Err() == nil {
+			problems = append(problems, plainValues(m, d))
+		}
+	}
+
+	return errors.Join(problems...)
+}
+
+// plainValues refuses the fields of m that database/sql can't write or read, on
+// a dialect whose driver converts nothing more, so that the mistake shows at
+// Open with the field named, not at the first write with the driver's message,
+// which names none (#300). A field only read needs only to be read, and one only
+// written, to be written.
+func plainValues(m *meta.Model, d dialect.Dialect) error {
+	if d == nil || !dialect.SyntaxOf(d).PlainValues {
+		return nil
+	}
+
+	var problems []error
+
+	for _, f := range m.Fields {
+		writes, reads := f.Plain()
+		writes = writes || m.ReadOnly || f.Computed || f.ReadOnly
+		reads = reads || f.WriteOnly
+
+		var cannot string
+
+		switch {
+		case !writes && !reads:
+			cannot = "write or read"
+		case !writes:
+			cannot = "write"
+		case !reads:
+			cannot = "read"
+		default:
+			continue
+		}
+
+		problems = append(problems, fmt.Errorf(
+			"%w: %s.%s has Go type %s, which the %s driver can't %s: implement "+
+				"driver.Valuer and sql.Scanner on it, store it as JSON with ant.JSON[%s], "+
+				"or leave it out with ant:\"-\"",
+			ErrNoColumnType,
+			m.Type.Name(),
+			f.Name,
+			f.Type,
+			d.Name(),
+			cannot,
+			f.Type,
+		))
+	}
+
 	return errors.Join(problems...)
 }
 
@@ -172,6 +225,14 @@ func walkTables(v reflect.Value, path string, reachable bool, visit func(any) er
 		name := path + field.Name
 
 		switch {
+		case field.Type.Kind() == reflect.Pointer && field.Type.Implements(tableType):
+			return fmt.Errorf(
+				"%w: table %s is a pointer, %s, which ant does not bind: declare it as %s",
+				ErrBadSchema,
+				name,
+				field.Type,
+				field.Type.Elem(),
+			)
 		case reflect.PointerTo(field.Type).Implements(tableType):
 			if !reachable || !field.IsExported() {
 				return fmt.Errorf(

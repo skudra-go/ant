@@ -32,6 +32,10 @@ type node struct {
 	// scratch says entity is a private copy of the entry's row, as orphan and
 	// vacate make, which the unit may write into as into the entity itself.
 	scratch bool
+	// first says the node's statement runs before every other: the row a
+	// has-one relation let go of gives its foreign key up before the row that
+	// replaces it takes the key, which a unique key on it needs.
+	first bool
 	// linked holds the foreign keys of an untracked row put into a loaded
 	// relation, written even if they hold the parent's key already, so a row
 	// that is gone, as one this context deleted, fails rather than vanishing.
@@ -126,6 +130,9 @@ type unit struct {
 	inTx bool
 	// dry plans the unit without changing any entity, for HasChanges.
 	dry bool
+	// held holds the rows the relations of tracked entities hold now, other
+	// than parents, made the first time a has-one relation lets go of one.
+	held map[rowID]bool
 }
 
 // pivotChange adds or removes one join table row.
@@ -512,7 +519,104 @@ func (u *unit) reconcile(n *node, claimed map[rowID]unsafe.Pointer) error {
 		}
 	}
 
+	// A has-one pointer is the truth about its relation, as a slice is. One
+	// that picks a row of many is a view of them, and one through another
+	// table does not own its row. The model's relations, in their order, keep
+	// the order of the statements the same from one save to the next.
+	for _, r := range n.model.Relations {
+		key := n.entry.Parents[r]
+		if key == nil || r.Pick != nil || r.ThroughKey != nil || r.Pivot != nil {
+			continue
+		}
+
+		link, err := linkFor(r)
+		if err != nil {
+			return err
+		}
+
+		if link.BelongsTo || holdsRow(r, link, n.entity, key) {
+			continue
+		}
+
+		if err := u.letGo(link, key); err != nil {
+			return err
+		}
+	}
+
 	return nil
+}
+
+// holdsRow reports whether entity's relation r holds the row with the key.
+func holdsRow(r *meta.Relation, link meta.Link, entity unsafe.Pointer, key any) bool {
+	for _, related := range r.Related(entity) {
+		if k, ok := link.Target.KeyOf(related); ok && k == key {
+			return true
+		}
+	}
+
+	return false
+}
+
+// letGo settles the row a has-one relation held when last loaded or saved, and
+// holds no longer. A row that another relation holds now has moved there, and
+// the new parent's link writes it. Any other is orphaned, as a child taken out
+// of a slice is: deleted, or unlinked if its key is nullable.
+func (u *unit) letGo(link meta.Link, key any) error {
+	entry := u.s.tracker.Find(link.Target, key)
+	if entry == nil || entry.State == track.Deleted {
+		return nil
+	}
+
+	held, err := u.heldRows()
+	if err != nil {
+		return err
+	}
+
+	if !held[rowID{link.Target, key}] {
+		u.orphan(link, entry).first = true
+	}
+
+	return nil
+}
+
+// heldRows returns the rows the relations of tracked entities hold now, other
+// than their parents. Like claims, it sees the relations of tracked entities,
+// new or loaded.
+func (u *unit) heldRows() (map[rowID]bool, error) {
+	if u.held != nil {
+		return u.held, nil
+	}
+
+	u.held = map[rowID]bool{}
+
+	for _, n := range u.order {
+		if n.entry == nil || !u.current(n) {
+			continue
+		}
+
+		for _, r := range n.model.Relations {
+			if r.Pivot != nil || r.Empty(n.entity) {
+				continue
+			}
+
+			link, err := linkFor(r)
+			if err != nil {
+				return nil, err
+			}
+
+			if link.BelongsTo {
+				continue
+			}
+
+			for _, entity := range r.Related(n.entity) {
+				if key, ok := link.Target.KeyOf(entity); ok {
+					u.held[rowID{link.Target, key}] = true
+				}
+			}
+		}
+	}
+
+	return u.held, nil
 }
 
 // vacate lets go of the node of a target unlinked from a many-to-many relation
@@ -728,7 +832,7 @@ func (u *unit) unmoved(n *node, r *meta.Relation, link meta.Link, entity unsafe.
 // version and UpdatedAt as any update does. Where the element still holds the
 // child, the copy is of what it holds, so an edit made before the child left
 // the slice is saved with the unlink; otherwise the copy is of the snapshot.
-func (u *unit) orphan(link meta.Link, entry *track.Entry) {
+func (u *unit) orphan(link meta.Link, entry *track.Entry) *node {
 	u.drop(entry)
 
 	copied, edited := entry.Scratch(), []*meta.Field(nil)
@@ -758,10 +862,12 @@ func (u *unit) orphan(link meta.Link, entry *track.Entry) {
 
 		n.forced = true
 
-		return
+		return n
 	}
 
 	n.remove = true
+
+	return n
 }
 
 // nullable reports whether a field's zero value is written as NULL, so that
@@ -843,7 +949,15 @@ func (u *unit) sorted() ([]*node, error) {
 	}
 
 	for _, n := range u.order {
-		if !n.remove {
+		if !n.remove && n.first {
+			if err := visit(n); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	for _, n := range u.order {
+		if !n.remove && !n.first {
 			if err := visit(n); err != nil {
 				return nil, err
 			}
@@ -1065,59 +1179,56 @@ func (u *unit) run(ctx context.Context) error {
 	// unit records it, for the reads that must see what the write saw.
 	u.inTx = !standing
 
-	err = u.s.transact(ctx, several, func(to exec.Executor) error {
-		for i := 0; i < len(order); {
-			if batch := u.insertBatch(ctx, order[i:]); len(batch) > 1 {
-				if err := u.createMany(ctx, to, batch); err != nil {
+	err = u.s.transactHooked(
+		ctx,
+		several,
+		u.hooks(ctx),
+		func(ctx context.Context, to exec.Executor) error {
+			if err := u.remove(ctx, to, removals, true); err != nil {
+				return err
+			}
+
+			for i := 0; i < len(order); {
+				if batch := u.insertBatch(ctx, order[i:]); len(batch) > 1 {
+					if err := u.createMany(ctx, to, batch); err != nil {
+						return err
+					}
+
+					for _, n := range batch {
+						n.wrote = true
+					}
+
+					i += len(batch)
+
+					continue
+				}
+
+				n := order[i]
+				i++
+
+				assigned, err := n.assignForeignKeys()
+				if err != nil {
 					return err
 				}
 
-				for _, n := range batch {
-					n.wrote = true
+				if err := u.write(ctx, to, n, assigned); err != nil {
+					return err
 				}
-
-				i += len(batch)
-
-				continue
 			}
 
-			n := order[i]
-			i++
+			for _, change := range u.pivots {
+				if err := change.run(ctx, u, to); err != nil {
+					return err
+				}
+			}
 
-			assigned, err := n.assignForeignKeys()
-			if err != nil {
+			if err := u.remove(ctx, to, removals, false); err != nil {
 				return err
 			}
 
-			if err := u.write(ctx, to, n, assigned); err != nil {
-				return err
-			}
-		}
-
-		for _, change := range u.pivots {
-			if err := change.run(ctx, u, to); err != nil {
-				return err
-			}
-		}
-
-		for _, n := range removals {
-			if err := n.beforeDelete(ctx); err != nil {
-				return err
-			}
-
-			if err := u.delete(ctx, to, n); err != nil {
-				return err
-			}
-
-			n.wrote = true
-
-			if err := n.afterDelete(ctx); err != nil {
-				return err
-			}
-		}
-
-		return u.touch(ctx, to)
-	})
+			return u.touch(ctx, to)
+		},
+	)
 	if err != nil {
 		for _, n := range u.order {
 			if standing && n.wrote {
@@ -1141,7 +1252,7 @@ func (u *unit) run(ctx context.Context) error {
 		// only the rest instead of inserting those rows again.
 		if standing {
 			u.order = slices.DeleteFunc(u.order, func(n *node) bool { return !n.wrote })
-			u.commit()
+			u.commit(ctx)
 			u.notify(ctx)
 		}
 
@@ -1152,11 +1263,36 @@ func (u *unit) run(ctx context.Context) error {
 		return err
 	}
 
-	u.commit()
+	u.commit(ctx)
 	u.notify(ctx)
 
 	if f := u.s.settings.events.Saved; f != nil {
 		f(ctx, u.changes())
+	}
+
+	return nil
+}
+
+// remove deletes the rows of the removals that run first, or of the others.
+func (u *unit) remove(ctx context.Context, to exec.Executor, removals []*node, first bool) error {
+	for _, n := range removals {
+		if n.first != first {
+			continue
+		}
+
+		if err := n.beforeDelete(ctx); err != nil {
+			return err
+		}
+
+		if err := u.delete(ctx, to, n); err != nil {
+			return err
+		}
+
+		n.wrote = true
+
+		if err := n.afterDelete(ctx); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -1220,6 +1356,14 @@ func (u *unit) hooked() bool {
 	})
 }
 
+// hooks reports whether any write hook may run for the unit's nodes, Before and
+// After ones and Validate, which get a ctx bound to the write's transaction.
+func (u *unit) hooks(ctx context.Context) bool {
+	return ctx.Value(skipHooks{}) == nil && slices.ContainsFunc(u.order, func(n *node) bool {
+		return hooksOf(n.model).writes()
+	})
+}
+
 func (u *unit) write(ctx context.Context, to exec.Executor, n *node, assigned []*meta.Field) error {
 	if n.insert {
 		if err := n.beforeInsert(ctx); err != nil {
@@ -1277,6 +1421,38 @@ func timeValue(f *meta.Field, now time.Time) reflect.Value {
 	return reflect.ValueOf(now)
 }
 
+// zeroKey refuses an insert whose single-column key holds its type's zero value
+// when nothing fills it: no generator in Go and no default in the database. Such
+// a key was written as it was, and the next insert collided with it. An integer
+// key is the database's to generate, or one where zero is a key the application
+// chose.
+func zeroKey(model *meta.Model, entity unsafe.Pointer) error {
+	if len(model.Keys) != 1 {
+		return nil
+	}
+
+	f := model.Keys[0]
+
+	switch {
+	case f.Generator != nil, f.FromDatabase(), f.ReadOnly, meta.IsInteger(f.Type):
+		return nil
+	case !f.Value(entity).IsZero():
+		return nil
+	}
+
+	return fmt.Errorf(
+		"%w: %s.%s is the zero %s, and nothing generates it: set it before the insert, "+
+			"generate it with ant.GenerateKey in Configure (for a uuid.UUID, "+
+			"ant.GenerateKey(b, &<probe>.%s, uuid.New)), or give the column a default, "+
+			"such as ant:\"default=gen_random_uuid()\" on PostgreSQL",
+		ErrZeroKey,
+		model.Type.Name(),
+		f.Name,
+		f.Type,
+		f.Name,
+	)
+}
+
 // stamp fills automatic values before an insert.
 func (u *unit) stamp(n *node) {
 	if v := n.model.Version; v != nil && v.Value(n.entity).IsZero() {
@@ -1309,6 +1485,10 @@ func (u *unit) stamp(n *node) {
 func (u *unit) create(ctx context.Context, to exec.Executor, n *node) error {
 	if n.model.ReadOnly {
 		return fmt.Errorf("%w: %s", ErrReadOnly, n.model.Type.Name())
+	}
+
+	if err := zeroKey(n.model, n.entity); err != nil {
+		return err
 	}
 
 	u.stamp(n)
@@ -1614,6 +1794,10 @@ func (u *unit) createMany(ctx context.Context, to exec.Executor, batch []*node) 
 			return err
 		}
 
+		if err := zeroKey(n.model, n.entity); err != nil {
+			return err
+		}
+
 		u.stamp(n)
 
 		stmt.Rows[i] = values.row(i, columns, n.entity)
@@ -1665,7 +1849,7 @@ func (u *unit) createMany(ctx context.Context, to exec.Executor, batch []*node) 
 // keyCondition finds the node's row by the key it was loaded with.
 func (n *node) keyCondition() ([]qb.Cond, error) {
 	if len(n.model.Keys) == 0 {
-		return nil, ErrNoKey
+		return nil, noKey(n.model)
 	}
 
 	if n.entry != nil && n.entry.HasOriginal() {
@@ -2081,7 +2265,7 @@ func (u *unit) matchesOne(
 
 // commit brings the tracker up to date after a successful write. Rows that left
 // go first, because a new entity may have taken over a removed one's address.
-func (u *unit) commit() {
+func (u *unit) commit(ctx context.Context) {
 	tracker := u.s.tracker
 
 	var undo []track.Change
@@ -2133,7 +2317,7 @@ func (u *unit) commit() {
 		}
 	}
 
-	u.s.record(undo...)
+	u.s.record(ctx, undo...)
 }
 
 // remember records what a node's relations hold now: those the tracker saw
@@ -2236,6 +2420,10 @@ func (c *Context) SaveChanges(ctx context.Context) error {
 	case !s.settings.tracking:
 		return ErrNoTracking
 	}
+
+	// Given a ctx bound to a transaction on its pool, the save is part of it
+	// (#146).
+	s = s.joined(ctx)
 
 	ctx, release, err := s.claim(ctx, true)
 	if err != nil {

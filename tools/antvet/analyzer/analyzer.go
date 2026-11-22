@@ -22,7 +22,8 @@ import (
 const antPath = "github.com/skudra-go/ant"
 
 // Analyzer reports field pointers that are not probes, probes of the wrong model,
-// and Find keys of the wrong type. A comment //antvet:ignore at the end of a
+// Find keys of the wrong type, and changes that a SaveChanges on another context
+// does not save. A comment //antvet:ignore at the end of a
 // report's line, or on a line of its own above it, silences it, for code that is
 // wrong on purpose.
 var Analyzer = &analysis.Analyzer{
@@ -260,6 +261,8 @@ func run(pass *analysis.Pass) (any, error) {
 			return true
 		},
 	)
+
+	checkSessions(pass, in)
 
 	return nil, nil
 }

@@ -29,9 +29,15 @@ func TestNotIn(t *testing.T) {
 			require.Len(t, got, 3)
 		})
 
-		// SQL rule: NULL is neither in nor not in a list.
-		t.Run("a NULL column does not match a non-empty list", func(t *testing.T) {
-			got, err := db.Users.Where(ant.NotIn(&Users.Bio, new("Other"))).All(ctx)
+		// As Ne does: no bio is not in the list. A nil in the list leaves it out.
+		t.Run("a NULL column matches a non-empty list", func(t *testing.T) {
+			got, err := db.Users.Where(ant.NotIn(&Users.Bio, new("Other"))).
+				OrderBy(&Users.Name).
+				All(ctx)
+			require.NoError(t, err)
+			require.Equal(t, []string{"Alice", "Bob", "Carol"}, fixture.Names(got))
+
+			got, err = db.Users.Where(ant.NotIn(&Users.Bio, nil, new("Other"))).All(ctx)
 			require.NoError(t, err)
 			require.Equal(t, []string{"Carol"}, fixture.Names(got))
 		})

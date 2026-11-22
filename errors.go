@@ -3,8 +3,11 @@ package ant
 import (
 	"errors"
 	"fmt"
+	"reflect"
+	"strings"
 
 	"github.com/skudra-go/ant/internal/errs"
+	"github.com/skudra-go/ant/internal/meta"
 )
 
 // Errors returned by terminal calls.
@@ -34,6 +37,10 @@ var (
 	ErrNoKey = errors.New("ant: model has no primary key")
 	// ErrKeyType reports a key whose type does not match the primary key.
 	ErrKeyType = errors.New("ant: key type does not match the primary key")
+	// ErrZeroKey reports an insert of an entity whose key is its type's zero
+	// value when nothing fills it: a uuid.UUID or string key with no
+	// GenerateKey and no default. An integer key is never refused.
+	ErrZeroKey = errors.New("ant: the key is zero and nothing generates it")
 	// ErrNoForeignKey reports a relation whose foreign key cannot be found by
 	// convention. Name it in Configure.
 	ErrNoForeignKey = errs.ErrNoForeignKey
@@ -44,7 +51,8 @@ var (
 	ErrBadSchema = errs.ErrBadSchema
 	// ErrUnknownColumn reports a result column with no field, under WithStrict.
 	ErrUnknownColumn = errors.New("ant: result column has no field")
-	// ErrNoRows reports an operation given no rows to work on.
+	// ErrNoRows reports PrepareBulk or Values given no rows. A write given no
+	// entities, such as Insert or InsertMany, does nothing and returns nil.
 	ErrNoRows = errors.New("ant: no rows given")
 	// ErrNilEntity reports a nil pointer passed to a write.
 	ErrNilEntity = errors.New("ant: entity is nil")
@@ -156,3 +164,57 @@ func (e *ValidationError) Error() string {
 
 // Unwrap returns the rule's error.
 func (e *ValidationError) Unwrap() error { return e.Err }
+
+// noKey reports an operation that needs model's primary key, and says how to
+// give it one. A field spelled Id, which is not taken as the key, is the usual
+// cause (#301). A composite key is a key, but not one these operations take.
+func noKey(model *meta.Model) error {
+	name := model.Type.Name()
+
+	if len(model.Keys) > 1 {
+		return fmt.Errorf(
+			"%w: %s has a composite key, and this needs a single-column one",
+			ErrNoKey,
+			name,
+		)
+	}
+
+	for _, f := range model.Fields {
+		if f.Short != "ID" && strings.EqualFold(f.Short, "id") {
+			return fmt.Errorf(
+				"%w: %s.%s is not the key: name it ID, or call b.Key(&...%s) in %s's Configure",
+				ErrNoKey,
+				name,
+				f.Name,
+				f.Short,
+				name,
+			)
+		}
+	}
+
+	return fmt.Errorf(
+		"%w: %s: a field named ID is the key; name another with b.Key in %s's Configure",
+		ErrNoKey,
+		name,
+		name,
+	)
+}
+
+// noContext reports a type given to Open, Wrap or SchemaOf that does not embed
+// Context. A pointer to one that does is the usual cause: Open takes the struct
+// type and returns the pointer (#301).
+func noContext[DB any]() error {
+	t := reflect.TypeFor[DB]()
+	if t.Kind() == reflect.Pointer && t.Elem().Kind() == reflect.Struct &&
+		t.Implements(reflect.TypeFor[Handle]()) {
+		return fmt.Errorf(
+			"%w: %s is a pointer: give the struct type, as Open[%s], which returns a %s",
+			ErrNoContext,
+			t,
+			t.Elem(),
+			t,
+		)
+	}
+
+	return fmt.Errorf("%w: %s: Open takes a struct type that embeds ant.Context", ErrNoContext, t)
+}

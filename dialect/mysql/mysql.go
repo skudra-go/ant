@@ -65,6 +65,7 @@ func shared(missing ...dialect.Feature) dialect.Syntax {
 		HintInSelect:  true,
 		Functions:     map[string]string{"RANDOM": "RAND"},
 		NoArrayParams: true,
+		PlainValues:   true,
 	}
 }
 
@@ -147,6 +148,8 @@ func state(err error) string {
 		return "23514"
 	case 1213:
 		return "40P01"
+	case 1146:
+		return "42P01"
 	case 1020:
 		// MariaDB, from 11.6 with innodb_snapshot_isolation on by default: a
 		// row changed since the transaction's snapshot. The transaction is

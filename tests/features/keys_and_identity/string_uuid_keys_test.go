@@ -3,13 +3,17 @@ package keys_and_identity
 import (
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/skudra-go/ant"
 	"github.com/skudra-go/ant/tests/features/fixture"
 )
 
-// Non-integer keys are never generated. The application supplies them.
+// The database generates integer keys only. A key of another type is the
+// application's to give, or ant.GenerateKey makes it in Go, or a database
+// default fills it. Inserting one at its zero value is an error, because the
+// next insert of it would collide.
 type Slug string
 
 type Page struct {
@@ -22,15 +26,35 @@ type Account struct {
 	Owner string
 }
 
+// Doc's uuid.UUID key is made in Go, by uuid.New, when it is zero.
+type Doc struct {
+	ID    uuid.UUID
+	Title string
+}
+
+func (Doc) Configure(b *ant.ModelBuilder[Doc]) { ant.GenerateKey(b, &Docs.ID, uuid.New) }
+
+// Draft's key is the database's default, read back after the insert.
+type Draft struct {
+	ID    uuid.UUID `ant:"default=gen_random_uuid()"`
+	Title string
+}
+
+var Docs = ant.Fields[Doc]()
+
 type SiteDB struct {
 	ant.Context
 	Pages    ant.Table[Page]
 	Accounts ant.Table[Account]
+	Docs     ant.Table[Doc]
+	Drafts   ant.Table[Draft]
 }
 
 func TestStringAndUUIDKeys(t *testing.T) {
 	ddl := `CREATE TABLE pages (id TEXT PRIMARY KEY, title TEXT NOT NULL);
-	        CREATE TABLE accounts (id UUID PRIMARY KEY, owner TEXT NOT NULL)`
+	        CREATE TABLE accounts (id UUID PRIMARY KEY, owner TEXT NOT NULL);
+	        CREATE TABLE docs (id UUID PRIMARY KEY, title TEXT NOT NULL);
+	        CREATE TABLE drafts (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), title TEXT NOT NULL)`
 	fixture.RunWith(t, ddl, func(t *testing.T, db *SiteDB) {
 		ctx := t.Context()
 
@@ -48,11 +72,22 @@ func TestStringAndUUIDKeys(t *testing.T) {
 			require.NoError(t, err)
 		})
 
-		t.Run("an empty key is written, not generated", func(t *testing.T) {
-			require.NoError(t, db.Pages.Insert(ctx, &Page{ID: "", Title: "Empty"}))
-			found, err := db.Pages.Find(ctx, Slug(""))
-			require.NoError(t, err)
-			require.Equal(t, "Empty", found.Title)
+		t.Run("an empty key is refused", func(t *testing.T) {
+			err := db.Pages.Insert(ctx, &Page{ID: "", Title: "Empty"})
+			require.ErrorIs(t, err, ant.ErrZeroKey)
+			require.ErrorContains(t, err, "Page.ID")
+		})
+
+		t.Run("a uuid.UUID key from GenerateKey", func(t *testing.T) {
+			doc := &Doc{Title: "a"}
+			require.NoError(t, db.Docs.Insert(ctx, doc))
+			require.NotEqual(t, uuid.Nil, doc.ID)
+		})
+
+		t.Run("a uuid.UUID key from a default", func(t *testing.T) {
+			draft := &Draft{Title: "a"}
+			require.NoError(t, db.Drafts.Insert(ctx, draft))
+			require.NotEqual(t, uuid.Nil, draft.ID, "read back")
 		})
 
 		t.Run("UUID key", func(t *testing.T) {

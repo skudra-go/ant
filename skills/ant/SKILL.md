@@ -77,7 +77,10 @@ adults, err := db.Users.
 - `ant.Open` fills in every `ant.Table` field and fails at startup if a model can't
   be mapped: an unknown tag key, two fields on one column, a relation with no
   foreign key, or `[]*Post` where `[]Post` is meant. It reports every broken model
-  at once. Open once per process. Never construct `AppDB` yourself.
+  at once, and each error says what to write instead: GORM's `primaryKey`,
+  `size:100` and `column:name` are refused with ant's equivalent. Open once per
+  process, as `ant.Open[AppDB]`, never `ant.Open[*AppDB]`. Never construct `AppDB`
+  yourself.
 - The application imports the driver: `_ "github.com/jackc/pgx/v5/stdlib"` for
   PostgreSQL, `_ "modernc.org/sqlite"`, `_ "github.com/go-sql-driver/mysql"` or
   `_ "github.com/microsoft/go-mssqldb"`.
@@ -116,7 +119,11 @@ Calls that take columns of mixed types take `ant.FieldRef`, made with
 - Table names are the struct name in snake case, plural: `OrderItem` is
   `order_items`. Columns are snake case: `UserID` is `user_id`.
 - A field named `ID` is the primary key. A zero integer key means "generate one",
-  and the database's key is copied back after an insert.
+  and the database's key is copied back after an insert. A key of another type,
+  such as `uuid.UUID` or `string`, is yours to fill: set it, generate it in
+  `Configure` with `ant.GenerateKey(b, &Docs.ID, uuid.New)`, or give it a default
+  (`ant:"default=gen_random_uuid()"`). Inserting one at its zero value returns
+  `ant.ErrZeroKey`.
 - `time.Time` fields named `CreatedAt` and `UpdatedAt` are maintained by ant, on any
   model. `ant.Base` is just `ID`, `CreatedAt` and `UpdatedAt`. A zero `UpdatedAt`,
   as in a struct decoded from a request body, is stamped on every save.
@@ -134,7 +141,8 @@ Calls that take columns of mixed types take `ant.FieldRef`, made with
   each other, such as `readonly,writeonly` or `version,immutable`, and two
   `version` or `ant.DeletedAt` fields in one model, fail at `Open` with
   `ant.ErrBadSchema`.
-- A field of type `ant.DeletedAt` turns on soft deletes. `ant.JSON[T]`
+- A field of type `ant.DeletedAt` turns on soft deletes. In JSON it is `null` for
+  a live row and the deletion time otherwise, as a `*time.Time` is. `ant.JSON[T]`
   stores a value as JSON. A number read into an interface (`map[string]any`)
   is a `json.Number`, not a `float64`.
 - On PostgreSQL, a standard type takes PostgreSQL's own column: `time.Duration` is
@@ -143,6 +151,11 @@ Calls that take columns of mixed types take `ant.FieldRef`, made with
   `numeric(20,0)` (a key the database generates stays `bigint`), and a plain slice
   is an array, as `[]string` is `text[]`. A type with no column type fails with
   `ant.ErrNoColumnType` until `b.Column(&...).Type("...")` names one.
+- Only pgx converts slices, maps and plain structs. On MySQL, MariaDB, SQLite and
+  SQL Server, `Open` refuses such a field with `ant.ErrNoColumnType`, naming it:
+  wrap it as `ant.JSON[T]`, or give the type a `driver.Valuer` and `sql.Scanner`.
+- Declare each table as a value, `Users ant.Table[User]`; `Open` refuses a
+  `*ant.Table[User]` field.
 - Everything else is configured in typed Go, with a `Configure` method on the model:
 
 ```go
@@ -183,6 +196,21 @@ Conditions: `ant.Eq`, `Ne`, `Gt`, `Gte`, `Lt`, `Lte`, `Between`, `In`, `NotIn`,
 `InTuples`, `AnyOf`. Several conditions in one `Where`, or several `Where` calls, are
 joined with `AND`. `ant.In(&Users.Age)` with no values matches nothing.
 
+NULL reads as Go: `ant.Eq(&Users.Bio, nil)` is `IS NULL`, and on a nullable column
+`ant.Ne(&Users.Bio, &x)`, `NotIn` and `ant.Not(ant.Eq(...))` with a value also match
+the NULL rows (`bio <> $1 OR bio IS NULL`). Ordering comparisons stay SQL's:
+`Gt`, `Lt` and `ant.Not(ant.Gt(...))` never match NULL.
+
+Every helper takes a field of any type, and the database checks that it can
+order, compare or add it up: `OrderBy`, `ThenBy`, `Latest`, `Gt` to `Between`,
+`Like`, `ILike`, `Lower`, `Past`, `Future`, `Today`, `DatePart`, `Sum`, `Avg`, `Min`,
+`Max`, `SumOf`, `MaxOf`, `SumRelated` and `Inc` work on a `*time.Time`, `*string`,
+`*int`, `sql.Null[T]`, `uuid.UUID`, `decimal.Decimal` or `ant.DeletedAt` field as
+on a plain one. Model money as `decimal.Decimal`. A comparison with a nil pointer
+matches nothing, as in SQL: only `Eq`, `Ne` and `In` turn nil into `IS NULL`.
+`ant.Inc(&Posts.Votes, 1)` on a `Votes *int` counts a NULL from 0, and
+`SumOf` over no rows returns the zero value (nil for a pointer field).
+
 On PostgreSQL, `postgres.Match(&Posts.Title, "english", query)` converts a text
 column with `to_tsvector`, writing the configuration into the SQL, so an index on
 `to_tsvector('english', title)` serves it. For a stored `tsvector` column, use
@@ -201,6 +229,20 @@ users, err := db.Users.
 	OrderBy(&Users.Age).
 	ThenByDesc(&Users.Name).
 	All(ctx)
+```
+
+To sort by a column a request names, list the names it may use in a
+`map[string]ant.FieldRef` and order by the entry's `Asc()` or `Desc()`. Refuse a
+name that isn't in the map: its zero `FieldRef` makes the query fail with
+`ant.ErrNotProbe`.
+
+```go
+sorts := map[string]ant.FieldRef{
+	"name": ant.F(&Users.Name),
+	"age":  ant.F(&Users.Age),
+}
+
+users, err := db.Users.Order(sorts["age"].Desc(), sorts["name"].Asc()).All(ctx)
 ```
 
 Relations load only when asked. An unloaded relation is `nil`; a loaded one with no
@@ -229,12 +271,17 @@ titles, err := db.Posts.
 	All(ctx)
 ```
 
+In `ant.Project`, a NULL from a left join's side or an aggregate over no rows
+reads into a plain field as its zero value, as `MaxOf` returns one. Wrap the
+expression in `ant.Nullable` and use an `sql.Null[V]` field to tell "no row"
+from a stored zero: `ant.IntoExpr(&R.Newest, ant.Nullable(ant.Max(&Posts.ID)))`.
+
 Raw SQL scans into models, any struct or a single value. Use `?` placeholders on
 every database, and pass values as arguments, never in the text:
 
 ```go
 rows, err := ant.Raw[User](db, `SELECT * FROM users WHERE age > ?`, 18).All(ctx) // []User
-count, err := ant.Raw[int](db, `SELECT count(*) FROM users`).First(ctx)
+countPtr, err := ant.Raw[int](db, `SELECT count(*) FROM users`).First(ctx) // *int
 ```
 
 ## Writes
@@ -261,6 +308,12 @@ wrote, err := db.Users.Upsert(ctx, alice, ant.OnConflict(&Users.Email))
 - `Insert` also inserts the new entities a struct points at, parents first, and fills
   in foreign keys. `InsertOnly` leaves relations alone. `InsertMany` is for
   thousands of rows.
+- **From a request body**, decode into an input struct of the fields the client may
+  set, and copy them into the model. A body decoded straight into a model can set
+  its key (a non-zero key is inserted as given), `CreatedAt`, `Version`,
+  `DeletedAt`, and its relations, which `Insert` inserts too. `InsertOnly` drops
+  the relations, not the rest. Decoded into a tracked entity loaded with its posts,
+  `"Posts": []` deletes them at `SaveChanges`.
 - Bulk `Update` and `Delete` run no hooks and don't change tracked structs.
 - `FirstOrCreate(ctx, entity, conds...)` reads or inserts, safely under races when
   the condition is on a unique column. In a transaction, a row another writer
@@ -292,6 +345,11 @@ err = session.SaveChanges(ctx)
 
 - A tracking context serves **one operation at a time**. Two goroutines or two
   requests on it get `ant.ErrConcurrentUse`. Call `ant.Session(db)` per request.
+- Load and save through the **same session**. `SaveChanges` saves only what its own
+  context tracks: an entity loaded through `db`, the root, or through another
+  session is not saved, and `SaveChanges` still returns nil. Load it through the
+  session, or `ant.Attach` it first. `HasChanges(ctx)` reports whether there is
+  anything to save. antvet reports the slip.
 - On a context that does not track, such as the root, `SaveChanges`, `ant.Add`,
   `ant.Attach`, `ant.MarkModified`, `ant.Remove` and `ant.TrackGraph` return
   `ant.ErrNoTracking`. `ant.WithTracking(true)` on `Open` makes the root track,
@@ -303,20 +361,35 @@ err = session.SaveChanges(ctx)
 - **On a loaded relation, the slice is the truth.** Removing a post from
   `user.Posts` and calling `SaveChanges` deletes that post (or clears its foreign key
   if the key is nullable). Appending inserts. A relation that was never loaded (`nil`)
-  is left alone.
+  is left alone. A loaded has-one pointer works the same way: replacing or clearing
+  `user.Profile` deletes the old profile (or clears its key), unless another parent
+  holds it now. A has-one with `Latest` or `Oldest` is a view of many rows, so
+  replacing or clearing it deletes nothing. A soft-deleted old row keeps its key,
+  so a unique index on that key must leave deleted rows out
+  (`WHERE deleted_at IS NULL`).
 - `NoTracking()` on a query skips tracking for read-only work and is faster. `Each`,
   `Column`, `Omit`, `Raw`, `Select` and `Project` results are never tracked, so
-  changing them saves nothing.
+  changing them saves nothing. `With` rows are tracked; their computed fields are
+  never compared or written.
 - A context holds one instance per row: a second query for the same row returns the
-  same pointer, unsaved changes included. `Reload(ctx, e)` rereads it. A locking
+  same pointer, unsaved changes included. `db.Users.Reload(ctx, e)` rereads it. A locking
   read (`ForUpdate`, `ForShare`) puts the row into that instance, or returns
   `ErrConcurrency` if the instance has unsaved changes and the row has moved.
+- That one instance can make a loaded graph a **cycle**: with users' posts and the
+  posts' authors included, `user.Posts[0].User` is `user`, and `json.Marshal`
+  fails with "encountered a cycle". A context that does not track returns a tree.
+  To encode, read with `NoTracking()`, map to a DTO, or tag the back reference
+  `json:"-"`.
 - `SaveChanges` returns `ant.ErrConcurrency` when the row was deleted, or its
   version changed, since it was loaded. A version set on a loaded entity, such
   as the one a client sent back, is the one checked.
 - Hooks are methods on the model: `BeforeInsert(ctx context.Context) error`,
   `AfterLoad`, `BeforeUpdate`, `BeforeDelete` and the rest. A query made in a hook
-  must use the hook's `ctx`, or it fails with `ErrConcurrentUse`.
+  must use the hook's `ctx`, or it fails with `ErrConcurrentUse`. That `ctx` is
+  bound to the write's transaction, so a query or write through any context on
+  the pool, even a global `db`, runs in it and rolls back with it. For a write
+  that must stay, use `ant.InTx(ctx, db)` with `db` in no transaction. A `Tx` in
+  a hook is a savepoint: no `Isolation`, and `Attempts` does not retry.
 
 ## Transactions
 
@@ -332,7 +405,10 @@ err := db.Tx(ctx, func(tx *AppDB) error {
 ```
 
 - Inside the function use `tx`, not `db`; work on `db` runs outside the transaction.
-  `tx` is your own `*AppDB` type.
+  `tx` is your own `*AppDB` type. Code that holds `db`, such as a repository built
+  at startup, or a session, runs in the transaction when given
+  `ctx := ant.InTx(ctx, tx)`: its writes, and its `SaveChanges` and `Tx` as a
+  savepoint. Once the transaction ends, a kept bound `ctx` runs nothing.
 - It commits on `nil` and rolls back on an error or panic. A `Tx` inside a `Tx` is a
   savepoint. `SaveChanges` inside one uses a savepoint, and a rollback undoes the
   tracker's view of the save too: it forgets what the transaction began tracking,
@@ -354,7 +430,8 @@ Match with `errors.Is` and `errors.As`, never by text. The common ones:
 sending SQL), `ErrNotProbe`, `ErrWrongModel`, `ErrKeyType`, `ErrNoForeignKey`,
 `ErrPaging` (a page number or size below 1, or a negative `Limit` or `Offset`: a
 client's mistake when it comes from a request), `ErrCursor`, and `ErrQueryInEach`.
-`ant.FailedSQL(err)` returns the statement behind an error, without values.
+`ant.FailedSQL(err)` returns the statement behind an error, without values. A table
+that does not exist gives `ant.SQLState(err) == "42P01"` on every database.
 
 ## Databases
 
@@ -430,5 +507,6 @@ without a database.
 - Code inside `db.Tx` uses `tx`.
 - Names you weren't sure of were checked with `go doc` or the docs.
 - If the project uses antvet, run it: `go vet -vettool=$(which antvet) ./...`. It
-  catches wrong-model and non-probe pointers and wrong key types. Install it with
+  catches wrong-model and non-probe pointers, wrong key types, and changes saved
+  through a context that did not load them. Install it with
   `go install github.com/skudra-go/ant/tools/antvet/cmd/antvet@latest`.

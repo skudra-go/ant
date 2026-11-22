@@ -186,3 +186,14 @@ type KeyBuilder struct{}
 func (k *KeyBuilder) NotGenerated() *KeyBuilder { return k }
 
 func GenerateKey[E, V any](b *ModelBuilder[E], field *V, fn func() V) {}
+
+// Context is what an application's context type embeds.
+type Context struct{}
+
+func (c *Context) SaveChanges(ctx context.Context) error { return nil }
+
+func Session[DB any](db *DB, options ...any) *DB                { return db }
+func Begin[DB any](ctx context.Context, db *DB) (*DB, error)    { return db, nil }
+func Attach[T any](ctx context.Context, h any, entity *T) error { return nil }
+func (q *Query[T]) First(ctx context.Context) (*T, error)       { return nil, nil }
+func (t *Table[T]) First(ctx context.Context) (*T, error)       { return nil, nil }

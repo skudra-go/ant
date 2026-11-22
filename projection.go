@@ -62,7 +62,7 @@ func Project[R any](q Selectable, mappings ...Mapping) *Projection[R] {
 	}
 
 	p.reader = func(rows *sql.Rows) (func() (R, error), error) {
-		into, err := scan.For[R](rows)
+		into, err := scan.Projected[R](rows, zeroOnNull)
 		if err != nil {
 			return nil, err
 		}
@@ -75,6 +75,17 @@ func Project[R any](q Selectable, mappings ...Mapping) *Projection[R] {
 	}
 
 	return p
+}
+
+// zeroOnNull says that a projection reads NULL into f as its zero value: f's
+// type gives a NOT NULL column, as a number, text, a time, a uuid or a decimal
+// does, and an aggregate over no rows or a column of a left join's side gives
+// NULL in ordinary use, as MaxOf's zero does (decision 147). A pointer or an
+// sql.Null keeps the NULL, and a type only the driver converts is left to it.
+func zeroOnNull(f *meta.Field) bool {
+	_, nullable := columnValue(f.Type)
+
+	return !nullable && !f.DriverOnly()
 }
 
 // projectRows reads every source of b into fresh values and passes them to f.
@@ -355,8 +366,10 @@ func (p *Projection[R]) Each(ctx context.Context) iter.Seq2[R, error] {
 		defer rows.Close()
 
 		// As in Query.Each, the connection streams until the loop ends.
-		p.state.streams.start()
-		defer p.state.streams.stop()
+		on := p.state.streamsOf(ctx)
+
+		on.start()
+		defer on.stop()
 
 		for rows.Next() {
 			v, err := read()

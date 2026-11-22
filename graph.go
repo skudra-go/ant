@@ -87,7 +87,7 @@ func TrackGraph[T any](
 		}
 
 		if len(model.Keys) == 0 {
-			return ErrNoKey
+			return noKey(model)
 		}
 
 		s.tracker.Track(model, entity, state)

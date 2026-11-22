@@ -26,7 +26,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -125,7 +124,7 @@ func (s *state) claim(ctx context.Context, on bool) (context.Context, func(), er
 
 	// In a transaction whose end ant sees, the entries this operation begins
 	// tracking are noted, for its rollback to forget.
-	if t := s.tx; t != nil && t.sees() {
+	if t := s.txOf(ctx); t != nil && t.sees() {
 		from := s.tracker.Mark()
 
 		release = func() {
@@ -166,7 +165,7 @@ func Open[DB any](
 	options ...Option,
 ) (*DB, error) {
 	if _, ok := any(new(DB)).(Handle); !ok {
-		return nil, fmt.Errorf("%w: %T", ErrNoContext, new(DB))
+		return nil, noContext[DB]()
 	}
 
 	if checker, ok := d.(dialect.DSNChecker); ok {
@@ -196,7 +195,7 @@ func Open[DB any](
 // closes it, as with Open.
 func Wrap[DB any](d dialect.Dialect, pool *sql.DB, options ...Option) (*DB, error) {
 	if _, ok := any(new(DB)).(Handle); !ok {
-		return nil, fmt.Errorf("%w: %T", ErrNoContext, new(DB))
+		return nil, noContext[DB]()
 	}
 
 	return wrap[DB](pool, pool, d, options)
@@ -225,7 +224,8 @@ func wrap[DB any](
 
 	s.settings.events.attach(s.tracker)
 
-	s.exec = exec.Wrap(to, s.settings.interceptors, false, s.settings.detailed)
+	// A ctx bound to a transaction on the pool runs the statements there (#146).
+	s.exec = exec.Wrap(routed{pool, to}, s.settings.interceptors, false, s.settings.detailed)
 
 	for _, replica := range s.settings.replicas {
 		s.replicas = append(
@@ -234,7 +234,7 @@ func wrap[DB any](
 		)
 	}
 
-	if err := checkModels(new(DB)); err != nil {
+	if err := checkModels(new(DB), d); err != nil {
 		return nil, err
 	}
 

@@ -3,6 +3,7 @@ package scan
 
 import (
 	"database/sql"
+	"database/sql/driver"
 	"fmt"
 	"reflect"
 	"unsafe"
@@ -17,7 +18,20 @@ import (
 // from each table, and taking the last would give the row the other's id.
 // A time is held in UTC, whatever zone the driver decoded it in, and a type
 // database/sql cannot fill by itself is read as meta.ReaderFor says.
-func For[T any](rows *sql.Rows) (func(*T) error, error) {
+func For[T any](rows *sql.Rows) (func(*T) error, error) { return reader[T](rows, nil) }
+
+// Projected is For for a projection's result: a NULL into a field that zero
+// says to read as its zero value leaves that field zero, where database/sql
+// would refuse it. An aggregate over no rows, or a column of an outer join's
+// side with no row, gives one in ordinary use.
+func Projected[T any](
+	rows *sql.Rows,
+	zero func(*meta.Field) bool,
+) (func(*T) error, error) {
+	return reader[T](rows, zero)
+}
+
+func reader[T any](rows *sql.Rows, zero func(*meta.Field) bool) (func(*T) error, error) {
 	if meta.IsValue(reflect.TypeFor[T]()) {
 		utc := meta.InUTC(reflect.TypeFor[T]())
 		read := meta.ReaderFor(reflect.TypeFor[T]())
@@ -80,11 +94,33 @@ func For[T any](rows *sql.Rows) (func(*T) error, error) {
 
 	dest := make([]any, len(columns))
 
+	var zeroed []*zeroNull
+
+	if zero != nil {
+		for i, f := range fields {
+			if f == nil || !zero(f) {
+				continue
+			}
+
+			if zeroed == nil {
+				zeroed = make([]*zeroNull, len(fields))
+			}
+
+			zeroed[i] = &zeroNull{field: f}
+		}
+	}
+
 	return func(dst *T) error {
 		for i, f := range fields {
-			if f == nil {
+			switch {
+			case f == nil:
 				dest[i] = new(any)
-			} else {
+			case zeroed != nil && zeroed[i] != nil:
+				z := zeroed[i]
+				z.entity = unsafe.Pointer(dst)
+				z.dst = f.Dest(z.entity)
+				dest[i] = z
+			default:
 				dest[i] = f.Dest(unsafe.Pointer(dst))
 			}
 		}
@@ -101,4 +137,28 @@ func For[T any](rows *sql.Rows) (func(*T) error, error) {
 
 		return nil
 	}, nil
+}
+
+// zeroNull scans a column into a field, leaving the field's zero value for a
+// NULL, and passing any other value on as database/sql would: to the field's
+// Scanner, or converted into it.
+type zeroNull struct {
+	field  *meta.Field
+	entity unsafe.Pointer
+	dst    any
+}
+
+// Scan implements sql.Scanner.
+func (z *zeroNull) Scan(src any) error {
+	if src == nil {
+		z.field.Value(z.entity).SetZero()
+
+		return nil
+	}
+
+	if s, ok := z.dst.(sql.Scanner); ok {
+		return s.Scan(src)
+	}
+
+	return sql.ConvertAssign(driver.ScanContext{}, z.dst, src)
 }

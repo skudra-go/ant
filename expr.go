@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	"slices"
-	"time"
 
 	"github.com/skudra-go/ant/dialect"
 	"github.com/skudra-go/ant/internal/meta"
@@ -18,16 +17,19 @@ type Expr[V any] struct {
 	node qb.Expr
 	refs []*meta.Model
 	err  error
+	// nullable says the expression reads a column that can hold NULL, so Ne
+	// matches NULL, as ant.Ne does.
+	nullable bool
 }
 
 // Col returns the expression for a column.
 func Col[V any](field *V) Expr[V] {
-	col, _, model, err := columnExpr(field)
+	col, f, model, err := columnExpr(field)
 	if err != nil {
 		return Expr[V]{err: err}
 	}
 
-	return Expr[V]{node: col, refs: model.Self()}
+	return Expr[V]{node: col, refs: model.Self(), nullable: canBeNull(f)}
 }
 
 // SQL returns an expression from raw SQL. Each ? takes the next argument, and
@@ -84,9 +86,13 @@ func FailedExpr[V any](err error) Expr[V] { return Expr[V]{err: err} }
 // exprNode is an Expr of any type.
 type exprNode interface {
 	parts() (qb.Expr, []*meta.Model, error)
+	// canBeNull says the expression reads a column that can hold NULL.
+	canBeNull() bool
 }
 
 func (e Expr[V]) parts() (qb.Expr, []*meta.Model, error) { return e.node, e.refs, e.err }
+
+func (e Expr[V]) canBeNull() bool { return e.nullable }
 
 func (e Expr[V]) compare(op qb.Op, v V) Cond {
 	return Cond{
@@ -97,23 +103,45 @@ func (e Expr[V]) compare(op qb.Op, v V) Cond {
 }
 
 // Eq matches rows where the expression equals v. A v stored as NULL, such as a
-// nil pointer or an invalid sql.Null[T], matches NULL, as with ant.Eq.
+// nil pointer or an invalid sql.Null[T], matches NULL, as with ant.Eq, and Not
+// of Eq is Ne.
 func (e Expr[V]) Eq(v V) Cond {
 	if isNull(v) {
 		return e.IsNull()
 	}
 
-	return e.compare(qb.OpEq, v)
+	return e.equality(v, false)
 }
 
-// Ne matches rows where the expression does not equal v. A v stored as NULL
-// matches non-NULL values, as with ant.Ne.
+// Ne matches rows where the expression does not equal v. On a column that can
+// hold NULL, or an expression over one, a NULL matches a non-NULL v, and a v
+// stored as NULL matches the non-NULL values, as with ant.Ne.
 func (e Expr[V]) Ne(v V) Cond {
 	if isNull(v) {
 		return e.IsNotNull()
 	}
 
-	return e.compare(qb.OpNe, v)
+	return e.equality(v, true)
+}
+
+// equality is Eq, or Ne with ne, of a value not stored as NULL, as ant.Eq and
+// ant.Ne are.
+func (e Expr[V]) equality(v V, ne bool) Cond {
+	eq := e.compare(qb.OpEq, v)
+	unequal := qb.Compare{Left: e.node, Op: qb.OpNe, Right: eq.node.(qb.Compare).Right}
+
+	switch {
+	case !e.nullable && ne:
+		eq.node = unequal
+	case ne:
+		node := eq.node
+		eq.node = orNull(unequal, e.node)
+		eq.opposite = func() qb.Cond { return node }
+	case e.nullable:
+		eq.opposite = func() qb.Cond { return orNull(unequal, e.node) }
+	}
+
+	return eq
 }
 
 // Gt matches rows where the expression is greater than v.
@@ -159,9 +187,10 @@ func (e Expr[V]) IsNotNull() Cond {
 
 func (e Expr[V]) binary(op string, v V) Expr[V] {
 	return Expr[V]{
-		node: qb.Binary{Left: e.node, Op: op, Right: hidden(v, readsSensitive(e.node, e.refs))},
-		refs: e.refs,
-		err:  e.err,
+		node:     qb.Binary{Left: e.node, Op: op, Right: hidden(v, readsSensitive(e.node, e.refs))},
+		refs:     e.refs,
+		err:      e.err,
+		nullable: e.nullable,
 	}
 }
 
@@ -190,7 +219,12 @@ func (e Expr[V]) Over(w Window) Expr[V] {
 
 	f.Over = &qb.Window{PartitionBy: w.partition, OrderBy: w.order}
 
-	return Expr[V]{node: f, refs: append(e.refs, w.refs...), err: e.err}
+	return Expr[V]{
+		node:     f,
+		refs:     append(e.refs, w.refs...),
+		err:      e.err,
+		nullable: e.nullable,
+	}
 }
 
 // Filter limits an aggregate to rows that meet conds.
@@ -211,7 +245,12 @@ func (e Expr[V]) Filter(conds ...Cond) Expr[V] {
 		f.Filter = append(f.Filter, c.node)
 	}
 
-	return Expr[V]{node: f, refs: refs, err: e.err}
+	return Expr[V]{
+		node:     f,
+		refs:     refs,
+		err:      e.err,
+		nullable: e.nullable,
+	}
 }
 
 // Asc orders by the expression, ascending.
@@ -271,7 +310,12 @@ func IntoExpr[V any](dst *V, src Expr[V]) Mapping {
 	return Mapping{dst: f, node: src.node, refs: src.refs}
 }
 
-// Number is a type that SUM and AVG accept.
+// Number is a Go number type.
+//
+// Deprecated: Sum, Avg, Inc and the other arithmetic helpers take a field of
+// any type, as the database adds up a pointer, an sql.Null or a decimal as
+// well, so none of them uses Number any more. It is kept for code that names
+// it.
 type Number interface {
 	~int | ~int8 | ~int16 | ~int32 | ~int64 |
 		~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 |
@@ -325,8 +369,9 @@ func aggregateRelated[O, R, V any](
 func unchanged(e qb.Expr) qb.Expr { return e }
 
 // SumRelated adds up a field of the related rows, giving zero if there are
-// none.
-func SumRelated[R any, V Number](rel *[]R, field *V, conds ...Cond) Expr[V] {
+// none. The field is of any type the database adds up, such as a number, a
+// decimal, or a pointer or sql.Null of one, as with Sum.
+func SumRelated[R, V any](rel *[]R, field *V, conds ...Cond) Expr[V] {
 	return aggregateRelated[V](`SUM`, rel, field, conds, func(sum qb.Expr) qb.Expr {
 		return qb.Func{Name: "COALESCE", Args: []qb.Expr{sum, qb.Fragment{SQL: "0"}}}
 	})
@@ -334,19 +379,20 @@ func SumRelated[R any, V Number](rel *[]R, field *V, conds ...Cond) Expr[V] {
 
 // AvgRelated averages a field of the related rows. It is NULL if there are
 // none.
-func AvgRelated[R any, V Number](rel *[]R, field *V, conds ...Cond) Expr[sql.Null[float64]] {
+func AvgRelated[R, V any](rel *[]R, field *V, conds ...Cond) Expr[sql.Null[float64]] {
 	return aggregateRelated[sql.Null[float64]]("AVG", rel, field, conds, unchanged)
 }
 
 // MinRelated returns the smallest value of a field of the related rows. It is
-// NULL if there are none.
-func MinRelated[R any, V Ordered](rel *[]R, field *V, conds ...Cond) Expr[sql.Null[V]] {
+// NULL if there are none. The field is of any type the database orders, as
+// with OrderBy.
+func MinRelated[R, V any](rel *[]R, field *V, conds ...Cond) Expr[sql.Null[V]] {
 	return aggregateRelated[sql.Null[V]]("MIN", rel, field, conds, unchanged)
 }
 
 // MaxRelated returns the largest value of a field of the related rows. It is
 // NULL if there are none.
-func MaxRelated[R any, V Ordered](rel *[]R, field *V, conds ...Cond) Expr[sql.Null[V]] {
+func MaxRelated[R, V any](rel *[]R, field *V, conds ...Cond) Expr[sql.Null[V]] {
 	return aggregateRelated[sql.Null[V]]("MAX", rel, field, conds, unchanged)
 }
 
@@ -354,6 +400,8 @@ func function[O any](name string, distinct bool, args ...exprNode) Expr[O] {
 	f := qb.Func{Name: name, Distinct: distinct}
 
 	var refs []*meta.Model
+
+	nullable := false
 
 	for _, a := range args {
 		node, r, err := a.parts()
@@ -363,6 +411,7 @@ func function[O any](name string, distinct bool, args ...exprNode) Expr[O] {
 
 		f.Args = append(f.Args, node)
 		refs = append(refs, r...)
+		nullable = nullable || a.canBeNull()
 	}
 
 	// A value given with a sensitive column is as secret as the column.
@@ -370,7 +419,9 @@ func function[O any](name string, distinct bool, args ...exprNode) Expr[O] {
 		hideBare(f.Args)
 	}
 
-	return Expr[O]{node: f, refs: refs}
+	// A function of a column that can hold NULL is NULL with it, so Ne of
+	// LOWER(nick) matches NULL as Ne of nick does.
+	return Expr[O]{node: f, refs: refs, nullable: nullable}
 }
 
 // Count counts rows.
@@ -388,17 +439,34 @@ func CountDistinct[V any](
 	return function[int64]("COUNT", true, Col(field))
 }
 
-// Sum adds up a column.
-func Sum[V Number](field *V) Expr[V] { return function[V]("SUM", false, Col(field)) }
+// Sum adds up a column of any type the database adds up, such as a number, a
+// decimal, or a pointer or sql.Null of one. It is NULL over no rows, or over
+// rows that are all NULL, which a pointer or an sql.Null reads as such and
+// another type as its zero value.
+func Sum[V any](field *V) Expr[V] { return function[V]("SUM", false, Col(field)) }
 
-// Avg averages a column.
-func Avg[V Number](field *V) Expr[float64] { return function[float64]("AVG", false, Col(field)) }
+// Avg averages a column of any type the database averages, as a float64.
+func Avg[V any](field *V) Expr[float64] { return function[float64]("AVG", false, Col(field)) }
 
-// Min returns a column's smallest value.
-func Min[V Ordered](field *V) Expr[V] { return function[V]("MIN", false, Col(field)) }
+// Min returns a column's smallest value. The column is of any type the
+// database orders, as with OrderBy, and Max is the same.
+func Min[V any](field *V) Expr[V] { return function[V]("MIN", false, Col(field)) }
 
 // Max returns a column's largest value.
-func Max[V Ordered](field *V) Expr[V] { return function[V]("MAX", false, Col(field)) }
+func Max[V any](field *V) Expr[V] { return function[V]("MAX", false, Col(field)) }
+
+// Nullable reads e as an sql.Null[V], for an expression that can be NULL where
+// V can't hold it: Max over no rows, or a column of a left join's side. A
+// projection reads such a NULL into a plain V field as its zero value; an
+// sql.Null field tells it from a stored zero.
+func Nullable[V any](e Expr[V]) Expr[sql.Null[V]] {
+	return Expr[sql.Null[V]]{
+		node:     e.node,
+		refs:     e.refs,
+		err:      e.err,
+		nullable: true,
+	}
+}
 
 // Func calls a database function by name. Arguments that are an Expr render
 // inline, and any other is a bound value. The name is not quoted, so it must
@@ -425,24 +493,32 @@ func Coalesce[V any](
 	return Func[V]("COALESCE", Col(field), fallback)
 }
 
-// Lower lowercases a text column.
-func Lower[V ~string](field *V) Expr[V] { return function[V]("LOWER", false, Col(field)) }
+// Lower lowercases a text column. The field is text of any Go type, such as a
+// string, a *string or an sql.Null[string], here and in Upper, Length and
+// Collate, and NULL stays NULL.
+func Lower[V any](field *V) Expr[V] { return function[V]("LOWER", false, Col(field)) }
 
 // Upper uppercases a text column.
-func Upper[V ~string](field *V) Expr[V] { return function[V]("UPPER", false, Col(field)) }
+func Upper[V any](field *V) Expr[V] { return function[V]("UPPER", false, Col(field)) }
 
 // Length returns the length of a text column, in characters.
-func Length[V ~string](field *V) Expr[int] { return function[int]("LENGTH", false, Col(field)) }
+func Length[V any](field *V) Expr[int] { return function[int]("LENGTH", false, Col(field)) }
 
 // Collate applies a collation to a text column.
-func Collate[V ~string](field *V, collation string) Expr[V] {
+func Collate[V any](field *V, collation string) Expr[V] {
 	e := Col(field)
 
-	return Expr[V]{node: qb.Collate{Value: e.node, Collation: collation}, refs: e.refs, err: e.err}
+	return Expr[V]{
+		node:     qb.Collate{Value: e.node, Collation: collation},
+		refs:     e.refs,
+		err:      e.err,
+		nullable: e.nullable,
+	}
 }
 
-// DatePart extracts part of a date column, such as "year" or "month".
-func DatePart(field *time.Time, part string) Expr[float64] {
+// DatePart extracts part of a date column, such as "year" or "month". The field
+// is a time of any Go type, as with Past.
+func DatePart[V any](field *V, part string) Expr[float64] {
 	e := SQL[float64]("DATE_PART(?, ?)", part, Col(field))
 	e.node = needing(e.node, dialect.DatePart)
 

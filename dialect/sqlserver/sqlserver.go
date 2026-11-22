@@ -43,6 +43,7 @@ var syntax = dialect.Syntax{
 	Functions:          map[string]string{"LENGTH": "LEN", "RANDOM": "NEWID"},
 	MaxParameters:      2000, // 2100, less what the driver's sp_executesql call uses
 	NoArrayParams:      true,
+	PlainValues:        true,
 }
 
 func (impl) Name() string       { return "sqlserver" }
@@ -98,6 +99,8 @@ func state(err error) string {
 		return "23502"
 	case 1205:
 		return "40P01"
+	case 208: // invalid object name
+		return "42P01"
 	}
 
 	return ""

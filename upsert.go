@@ -31,6 +31,49 @@ func F[V any](field *V) FieldRef {
 	return FieldRef{f, model, err}
 }
 
+// errEmptyFieldRef reports the zero FieldRef, which a map lookup that misses
+// returns.
+var errEmptyFieldRef = fmt.Errorf(
+	"%w: the FieldRef is empty, as a map lookup that misses returns",
+	ErrNotProbe,
+)
+
+// fault returns why the reference names no column, or nil.
+func (r FieldRef) fault() error {
+	if r.err == nil && r.field == nil {
+		return errEmptyFieldRef
+	}
+
+	return r.err
+}
+
+// Asc orders by the column, ascending, as Col(field).Asc() does. A map from the
+// names a request may sort by to FieldRef holds columns of different types, and
+// a name that is not in it is refused:
+//
+//	sorts := map[string]ant.FieldRef{"name": ant.F(&Users.Name), "age": ant.F(&Users.Age)}
+//	if ref, ok := sorts[orderBy]; ok {
+//		q = q.Order(ref.Asc())
+//	}
+//
+// The zero FieldRef, from a lookup that misses, makes the query fail with
+// ErrNotProbe.
+func (r FieldRef) Asc() Sort { return r.sort(false) }
+
+// Desc orders by the column, descending.
+func (r FieldRef) Desc() Sort { return r.sort(true) }
+
+func (r FieldRef) sort(desc bool) Sort {
+	if err := r.fault(); err != nil {
+		return Sort{err: err}
+	}
+
+	return Sort{
+		order: qb.Order{Value: r.model.ColumnOf(r.field), Desc: desc},
+		refs:  r.model.Self(),
+	}
+}
+
 // Conflict says what to do when an insert hits a unique constraint. Start one
 // with OnConflict.
 type Conflict struct {
@@ -48,8 +91,8 @@ func (c *Conflict) add(ref FieldRef) *Conflict {
 	n := *c
 	n.columns = slices.Clone(c.columns)
 
-	if ref.err != nil {
-		n.err = errors.Join(n.err, ref.err)
+	if err := ref.fault(); err != nil {
+		n.err = errors.Join(n.err, err)
 
 		return &n
 	}
@@ -78,8 +121,8 @@ func (c *Conflict) DoUpdate(fields ...FieldRef) *Conflict {
 	n.update = slices.Clone(c.update)
 
 	for _, ref := range fields {
-		if ref.err != nil {
-			n.err = errors.Join(n.err, ref.err)
+		if err := ref.fault(); err != nil {
+			n.err = errors.Join(n.err, err)
 
 			continue
 		}
@@ -337,6 +380,7 @@ func (t *Table[T]) Upsert(ctx context.Context, e *T, conflict *Conflict) (bool, 
 		return false, fmt.Errorf("%w: %s", ErrReadOnly, model.Type.Name())
 	}
 
+	t = t.in(ctx)
 	now := t.state.settings.timestamp()
 
 	if _, err := conflict.clause(model, now, nil); err != nil {
@@ -350,60 +394,84 @@ func (t *Table[T]) Upsert(ctx context.Context, e *T, conflict *Conflict) (bool, 
 
 	defer release()
 
+	// The hooks run in the write's transaction, the context's or the one ctx is
+	// bound to, and what they run with their ctx does too (#144). BeforeInsert
+	// runs in it as well, so what it writes is undone with the upsert. Outside a
+	// transaction, only an AfterInsert opens one: with Before hooks alone, one
+	// row opens none, as Insert does, and what BeforeInsert writes stands.
+	hooked := ctx.Value(skipHooks{}) == nil && hooksOf(model).writes()
+
 	n := &node{model: model, entity: unsafe.Pointer(e)}
-	if err := n.beforeInsert(ctx); err != nil {
-		return false, err
-	}
-
-	// The keys the database fills in, taken back if the write is.
-	for _, f := range model.Keys {
-		if f.FromDatabase() && f.Value(n.entity).IsZero() {
-			n.generated = append(n.generated, f)
-		}
-	}
-
 	u := newUnit(t.state)
-	u.stamp(n)
 
-	// The clause is made from e as the hooks and stamps left it, as the insert
-	// is, so that both leave the same columns to the database.
-	clause, err := conflict.clause(model, now, unsafe.Pointer(e))
-	if err != nil {
-		return false, err
-	}
-
-	// A copy that carries a version updates only the row it was loaded from. A
-	// new entity, whose version only the stamp gave it, has none to check.
-	checked := !slices.Contains(n.stamped, model.Version) &&
-		t.versionCheck(model, unsafe.Pointer(e), clause)
-
-	stmt := insertStatement(model, unsafe.Pointer(e))
-	stmt.Conflict = clause
+	// missed is a conflict that wrote nothing, which readInto reports as
+	// ErrNotFound, told apart from a hook's own ErrNotFound.
+	var checked, missed bool
 
 	// An AfterInsert error has to undo the write, which a transaction covers.
-	err = t.state.transact(ctx, hooksOf(model).afterInsert, func(to exec.Executor) error {
-		rows, err := t.upsertRows(ctx, to, model, stmt, unsafe.Pointer(e), checked)
-		if err == nil {
-			err = readInto(rows, e)
-		}
+	err = t.state.transactHooked(
+		ctx,
+		hooksOf(model).afterInsert,
+		hooked,
+		func(ctx context.Context, to exec.Executor) error {
+			if err := n.beforeInsert(ctx); err != nil {
+				return err
+			}
 
-		if err != nil {
-			return err
-		}
+			// The keys the database fills in, taken back if the write is.
+			for _, f := range model.Keys {
+				if f.FromDatabase() && f.Value(n.entity).IsZero() {
+					n.generated = append(n.generated, f)
+				}
+			}
 
-		return n.afterInsert(ctx)
-	})
+			if err := zeroKey(model, n.entity); err != nil {
+				return err
+			}
+
+			u.stamp(n)
+
+			// The clause is made from e as the hooks and stamps left it, as the
+			// insert is, so that both leave the same columns to the database.
+			clause, err := conflict.clause(model, now, unsafe.Pointer(e))
+			if err != nil {
+				return err
+			}
+
+			// A copy that carries a version updates only the row it was loaded
+			// from. A new entity, whose version only the stamp gave it, has none
+			// to check.
+			checked = !slices.Contains(n.stamped, model.Version) &&
+				t.versionCheck(model, unsafe.Pointer(e), clause)
+
+			stmt := insertStatement(model, unsafe.Pointer(e))
+			stmt.Conflict = clause
+
+			rows, err := t.upsertRows(ctx, to, model, stmt, unsafe.Pointer(e), checked)
+			if err == nil {
+				err = readInto(rows, e)
+			}
+
+			if err != nil {
+				missed = errors.Is(err, ErrNotFound)
+
+				return err
+			}
+
+			return n.afterInsert(ctx)
+		},
+	)
 	if err != nil {
 		for _, f := range slices.Concat(n.generated, n.stamped) {
 			f.Value(n.entity).SetZero()
 		}
 
 		switch {
-		case errors.Is(err, ErrNotFound) && checked:
+		case missed && checked:
 			key, _ := model.KeyOf(unsafe.Pointer(e))
 
 			return false, &ConcurrencyError{Model: model.Type.Name(), Key: key}
-		case errors.Is(err, ErrNotFound):
+		case missed:
 			return false, nil
 		}
 
@@ -416,11 +484,11 @@ func (t *Table[T]) Upsert(ctx context.Context, e *T, conflict *Conflict) (bool, 
 		tracker := t.state.tracker
 
 		if entry := tracker.Get(unsafe.Pointer(e)); entry != nil {
-			t.state.record(tracker.Saved(entry, track.Unchanged, u.undoing(n)))
+			t.state.record(ctx, tracker.Saved(entry, track.Unchanged, u.undoing(n)))
 			entry.Stored(n.written)
 			tracker.Rekey(entry)
 		} else {
-			t.state.record(tracker.Added(model, unsafe.Pointer(e), u.undoing(n)))
+			t.state.record(ctx, tracker.Added(model, unsafe.Pointer(e), u.undoing(n)))
 
 			if added := tracker.Get(unsafe.Pointer(e)); added != nil {
 				added.Stored(n.written)
@@ -580,6 +648,12 @@ func (t *Table[T]) InsertMany(
 
 	if o.conflict != nil {
 		if _, err := o.conflict.clause(model, time.Time{}, nil); err != nil {
+			return 0, err
+		}
+	}
+
+	for _, e := range entities {
+		if err := zeroKey(model, unsafe.Pointer(e)); err != nil {
 			return 0, err
 		}
 	}
@@ -870,6 +944,8 @@ func (t *Table[T]) FirstOrCreate(ctx context.Context, e *T, conds ...Cond) (*T, 
 		return nil, false, ErrNilEntity
 	}
 
+	t = t.in(ctx)
+
 	q := t.query().Where(conds...)
 
 	found, err := q.First(ctx)
@@ -954,16 +1030,20 @@ func (t *Table[T]) UpdateMany(
 	}
 
 	if len(fields) == 0 {
-		return 0, ErrNoAssignment
+		return 0, fmt.Errorf(
+			"%w: name the fields to write, as UpdateMany(ctx, rows, &...Name)",
+			ErrNoAssignment,
+		)
 	}
 
 	columns := make([]string, 0, len(fields))
 
 	for _, ref := range fields {
-		switch {
-		case ref.err != nil:
-			return 0, ref.err
-		case ref.model != model:
+		if err := ref.fault(); err != nil {
+			return 0, err
+		}
+
+		if ref.model != model {
 			return 0, ErrWrongModel
 		}
 

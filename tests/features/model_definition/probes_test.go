@@ -61,6 +61,32 @@ func TestFieldProbes(t *testing.T) {
 			require.ErrorIs(t, err, ant.ErrNotColumn)
 		})
 
+		// ant.F names a column of any type, for APIs that take a list of them.
+		// The zero FieldRef, which a map lookup that misses returns, names none.
+		t.Run("an empty FieldRef is an error", func(t *testing.T) {
+			var none ant.FieldRef
+
+			_, err := db.Users.Order(none.Asc()).All(ctx)
+			require.ErrorIs(t, err, ant.ErrNotProbe, "Asc")
+
+			_, err = db.Users.Where(ant.InTuples([]ant.FieldRef{none}, []any{1})).All(ctx)
+			require.ErrorIs(t, err, ant.ErrNotProbe, "InTuples")
+
+			zed := &fixture.User{
+				Name:  "Zed",
+				Email: "zed@example.com",
+			}
+
+			_, err = db.Users.Upsert(ctx, zed, ant.OnConflict(&Users.Email).And(none))
+			require.ErrorIs(t, err, ant.ErrNotProbe, "And")
+
+			_, err = db.Users.Upsert(ctx, zed, ant.OnConflict(&Users.Email).DoUpdate(none))
+			require.ErrorIs(t, err, ant.ErrNotProbe, "DoUpdate")
+
+			_, err = db.Users.UpdateMany(ctx, []*fixture.User{zed}, none)
+			require.ErrorIs(t, err, ant.ErrNotProbe, "UpdateMany")
+		})
+
 		t.Run("errors from several conditions are all reported", func(t *testing.T) {
 			age := 18
 			//antvet:ignore not a probe, on purpose: the test checks the error

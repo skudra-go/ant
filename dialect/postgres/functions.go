@@ -73,7 +73,7 @@ func JSONLength[V any](field *V) ant.Expr[int] {
 // one on to_tsvector('english', title) serves it, which a bound one never did
 // (#173). A configuration that holds a quote, a backslash or a ? is an error.
 // For a stored tsvector column, use MatchVector.
-func Match[V ~string](field *V, config, query string) ant.Cond {
+func Match[V any](field *V, config, query string) ant.Cond {
 	literal, err := regconfig(config)
 	if err != nil {
 		return ant.FailedCond(err)
@@ -103,7 +103,7 @@ func regconfig(config string) (string, error) {
 // search, in websearch syntax, using the given text search configuration. Use it
 // for a column such as one given .Type("tsvector").Generated(...), which Match
 // would pass to to_tsvector, which takes text.
-func MatchVector[V ~string](field *V, config, query string) ant.Cond {
+func MatchVector[V any](field *V, config, query string) ant.Cond {
 	return ant.SQLCond(
 		"? @@ websearch_to_tsquery(?::regconfig, ?)",
 		ant.Col(field),

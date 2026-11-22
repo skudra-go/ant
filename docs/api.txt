@@ -133,8 +133,8 @@ ant: func (j *Join2[A, B]) LeftJoin[C any](rel **C) *Join3[A, B, C]
 ant: func (j *Join2[A, B]) Limit(limit int) *Join2[A, B]
 ant: func (j *Join2[A, B]) Offset(offset int) *Join2[A, B]
 ant: func (j *Join2[A, B]) Order(terms ...Sort) *Join2[A, B]
-ant: func (j *Join2[A, B]) OrderByDesc[V Ordered](field *V) *Join2[A, B]
-ant: func (j *Join2[A, B]) OrderBy[V Ordered](field *V) *Join2[A, B]
+ant: func (j *Join2[A, B]) OrderByDesc[V any](field *V) *Join2[A, B]
+ant: func (j *Join2[A, B]) OrderBy[V any](field *V) *Join2[A, B]
 ant: func (j *Join2[A, B]) Select[R any](f func(*A, *B) R) *Projection[R]
 ant: func (j *Join2[A, B]) Where(c ...Cond) *Join2[A, B]
 ant: func (j *Join3[A, B, C]) Distinct() *Join3[A, B, C]
@@ -149,8 +149,8 @@ ant: func (j *Join3[A, B, C]) LeftJoin[D any](rel **D) *Join4[A, B, C, D]
 ant: func (j *Join3[A, B, C]) Limit(limit int) *Join3[A, B, C]
 ant: func (j *Join3[A, B, C]) Offset(offset int) *Join3[A, B, C]
 ant: func (j *Join3[A, B, C]) Order(terms ...Sort) *Join3[A, B, C]
-ant: func (j *Join3[A, B, C]) OrderByDesc[V Ordered](field *V) *Join3[A, B, C]
-ant: func (j *Join3[A, B, C]) OrderBy[V Ordered](field *V) *Join3[A, B, C]
+ant: func (j *Join3[A, B, C]) OrderByDesc[V any](field *V) *Join3[A, B, C]
+ant: func (j *Join3[A, B, C]) OrderBy[V any](field *V) *Join3[A, B, C]
 ant: func (j *Join3[A, B, C]) Select[R any](f func(*A, *B, *C) R) *Projection[R]
 ant: func (j *Join3[A, B, C]) Where(c ...Cond) *Join3[A, B, C]
 ant: func (j *Join4[A, B, C, D]) Distinct() *Join4[A, B, C, D]
@@ -159,8 +159,8 @@ ant: func (j *Join4[A, B, C, D]) GroupBy[V any](field *V) *Grouped
 ant: func (j *Join4[A, B, C, D]) Limit(limit int) *Join4[A, B, C, D]
 ant: func (j *Join4[A, B, C, D]) Offset(offset int) *Join4[A, B, C, D]
 ant: func (j *Join4[A, B, C, D]) Order(terms ...Sort) *Join4[A, B, C, D]
-ant: func (j *Join4[A, B, C, D]) OrderByDesc[V Ordered](field *V) *Join4[A, B, C, D]
-ant: func (j *Join4[A, B, C, D]) OrderBy[V Ordered](field *V) *Join4[A, B, C, D]
+ant: func (j *Join4[A, B, C, D]) OrderByDesc[V any](field *V) *Join4[A, B, C, D]
+ant: func (j *Join4[A, B, C, D]) OrderBy[V any](field *V) *Join4[A, B, C, D]
 ant: func (j *Join4[A, B, C, D]) Select[R any](f func(*A, *B, *C, *D) R) *Projection[R]
 ant: func (j *Join4[A, B, C, D]) Where(c ...Cond) *Join4[A, B, C, D]
 ant: func (j JSON[V]) ColumnType(dialect string) string
@@ -229,7 +229,7 @@ ant: func (q *Query[T]) JoinMany[J any](rel *[]J) *Join2[T, J]
 ant: func (q *Query[T]) JoinOn[J any](on ...Cond) *Join2[T, J]
 ant: func (q *Query[T]) JoinUsing[J, V any](field *V) *Join2[T, J]
 ant: func (q *Query[T]) Join[J any](rel **J) *Join2[T, J]
-ant: func (q *Query[T]) Latest(field *time.Time) *Query[T]
+ant: func (q *Query[T]) Latest[V any](field *V) *Query[T]
 ant: func (q *Query[T]) LeftJoinMany[J any](rel *[]J) *Join2[T, J]
 ant: func (q *Query[T]) LeftJoinOn[J any](on ...Cond) *Join2[T, J]
 ant: func (q *Query[T]) LeftJoin[J any](rel **J) *Join2[T, J]
@@ -238,13 +238,13 @@ ant: func (q *Query[T]) NoTracking() *Query[T]
 ant: func (q *Query[T]) NoTrackingResolved() *Query[T]
 ant: func (q *Query[T]) NoWait() *Query[T]
 ant: func (q *Query[T]) Offset(n int) *Query[T]
-ant: func (q *Query[T]) Oldest(field *time.Time) *Query[T]
+ant: func (q *Query[T]) Oldest[V any](field *V) *Query[T]
 ant: func (q *Query[T]) Omit[V any](field *V) *Query[T]
 ant: func (q *Query[T]) OnlyDeleted() *Query[T]
 ant: func (q *Query[T]) Order(terms ...Sort) *Query[T]
-ant: func (q *Query[T]) OrderByDesc[V Ordered](field *V) *Query[T]
+ant: func (q *Query[T]) OrderByDesc[V any](field *V) *Query[T]
 ant: func (q *Query[T]) OrderByRandom() *Query[T]
-ant: func (q *Query[T]) OrderBy[V Ordered](field *V) *Query[T]
+ant: func (q *Query[T]) OrderBy[V any](field *V) *Query[T]
 ant: func (q *Query[T]) Page(ctx context.Context, number, size int) (*Page[T], error)
 ant: func (q *Query[T]) Recursive(rel *[]T) *Query[T]
 ant: func (q *Query[T]) RecursiveOne(rel **T) *Query[T]
@@ -254,8 +254,8 @@ ant: func (q *Query[T]) Scope(scopes ...func(*Query[T]) *Query[T]) *Query[T]
 ant: func (q *Query[T]) Single(ctx context.Context) (*T, error)
 ant: func (q *Query[T]) SkipLocked() *Query[T]
 ant: func (q *Query[T]) Tag(name string) *Query[T]
-ant: func (q *Query[T]) ThenByDesc[V Ordered](field *V) *Query[T]
-ant: func (q *Query[T]) ThenBy[V Ordered](field *V) *Query[T]
+ant: func (q *Query[T]) ThenByDesc[V any](field *V) *Query[T]
+ant: func (q *Query[T]) ThenBy[V any](field *V) *Query[T]
 ant: func (q *Query[T]) ToSQL() (string, []any, error)
 ant: func (q *Query[T]) ToSQLContext(ctx context.Context) (string, []any, error)
 ant: func (q *Query[T]) Unfiltered() *Query[T]
@@ -274,11 +274,11 @@ ant: func (r *RawQuery[T]) First(ctx context.Context) (*T, error)
 ant: func (r *RelationBuilder) ConstraintName(name string) *RelationBuilder
 ant: func (r *RelationBuilder) ForeignKey[V any](field *V) *RelationBuilder
 ant: func (r *RelationBuilder) Inverse[P any](back **P) *RelationBuilder
-ant: func (r *RelationBuilder) Latest[V Ordered](field *V) *RelationBuilder
+ant: func (r *RelationBuilder) Latest[V any](field *V) *RelationBuilder
 ant: func (r *RelationBuilder) Morph[V comparable](field *V, value V) *RelationBuilder
 ant: func (r *RelationBuilder) NoForeignKey() *RelationBuilder
 ant: func (r *RelationBuilder) NoIndex() *RelationBuilder
-ant: func (r *RelationBuilder) Oldest[V Ordered](field *V) *RelationBuilder
+ant: func (r *RelationBuilder) Oldest[V any](field *V) *RelationBuilder
 ant: func (r *RelationBuilder) OnDelete(action Action) *RelationBuilder
 ant: func (r *RelationBuilder) OnUpdate(action Action) *RelationBuilder
 ant: func (r *RelationBuilder) PivotColumns(local, foreign string) *RelationBuilder
@@ -286,6 +286,8 @@ ant: func (r *RelationBuilder) References[V any](field *V) *RelationBuilder
 ant: func (r *RelationBuilder) Through(table string) *RelationBuilder
 ant: func (r *RelationBuilder) Touch() *RelationBuilder
 ant: func (r *RelationBuilder) Where(conds ...Cond) *RelationBuilder
+ant: func (r FieldRef) Asc() Sort
+ant: func (r FieldRef) Desc() Sort
 ant: func (s Sort) NullsFirst() Sort
 ant: func (s Sort) NullsLast() Sort
 ant: func (s Sub[V]) Expr() Expr[V]
@@ -328,8 +330,8 @@ ant: func (t *Table[T]) Offset(n int) *Query[T]
 ant: func (t *Table[T]) Omit[V any](field *V) *Query[T]
 ant: func (t *Table[T]) OnlyDeleted() *Query[T]
 ant: func (t *Table[T]) Order(terms ...Sort) *Query[T]
-ant: func (t *Table[T]) OrderByDesc[V Ordered](field *V) *Query[T]
-ant: func (t *Table[T]) OrderBy[V Ordered](field *V) *Query[T]
+ant: func (t *Table[T]) OrderByDesc[V any](field *V) *Query[T]
+ant: func (t *Table[T]) OrderBy[V any](field *V) *Query[T]
 ant: func (t *Table[T]) Prune(ctx context.Context, conds ...Cond) (int64, error)
 ant: func (t *Table[T]) Query() *Query[T]
 ant: func (t *Table[T]) Reload(ctx context.Context, e *T) error
@@ -351,24 +353,24 @@ ant: func And(conds ...Cond) Cond
 ant: func AnyOf[V comparable](v V, fields ...*V) Cond
 ant: func Attach[T any](ctx context.Context, h Handle, entity *T) error
 ant: func Attempts(n int) TxOption
-ant: func AvgOf[T any, V Number](ctx context.Context, q *Query[T], field *V) (float64, error)
-ant: func AvgRelated[R any, V Number](rel *[]R, field *V, conds ...Cond) Expr[sql.Null[float64]]
-ant: func Avg[V Number](field *V) Expr[float64]
+ant: func AvgOf[T, V any](ctx context.Context, q *Query[T], field *V) (float64, error)
+ant: func AvgRelated[R, V any](rel *[]R, field *V, conds ...Cond) Expr[sql.Null[float64]]
+ant: func Avg[V any](field *V) Expr[float64]
 ant: func BatchSize(n int) InsertOption
 ant: func Begin[DB any](ctx context.Context, db *DB, options ...TxOption) (*DB, error)
-ant: func Between[V Ordered](field *V, low, high V) Cond
+ant: func Between[V any](field *V, low, high V) Cond
 ant: func Case[V any]() CaseExpr[V]
 ant: func Clone[T any](entity *T) *T
 ant: func Coalesce[V any](field *V, fallback V) Expr[V]
 ant: func Col[V any](field *V) Expr[V]
-ant: func Collate[V ~string](field *V, collation string) Expr[V]
+ant: func Collate[V any](field *V, collation string) Expr[V]
 ant: func Count() Expr[int64]
 ant: func CountDistinct[V any](field *V) Expr[int64]
 ant: func CountOf[V any](field *V) Expr[int64]
 ant: func CountRelated[R any](rel *[]R, conds ...Cond) Expr[int64]
 ant: func CurrentTx(h Handle) *sql.Tx
-ant: func DatePart(field *time.Time, part string) Expr[float64]
-ant: func Dec[V Number](field *V, n V) Assignment
+ant: func DatePart[V any](field *V, part string) Expr[float64]
+ant: func Dec[V, N any](field *V, n N) Assignment
 ant: func DenseRank() Expr[int64]
 ant: func Detach[T any](ctx context.Context, h Handle, entity *T) error
 ant: func DryRun[DB any](ctx context.Context, db *DB, fn func(tx *DB) error) ([]Statement, error)
@@ -384,18 +386,19 @@ ant: func Fields[T any]() *T
 ant: func FromFunc[T any](h Handle, call string, args ...any) *Query[T]
 ant: func FromRaw[T any](h Handle, text string, args ...any) *Query[T]
 ant: func Func[R any](name string, args ...any) Expr[R]
-ant: func Future(field *time.Time) Cond
+ant: func Future[V any](field *V) Cond
 ant: func GenerateKey[E, V any](b *ModelBuilder[E], field *V, fn func() V)
-ant: func Gt[V Ordered](field *V, v V) Cond
-ant: func Gte[V Ordered](field *V, v V) Cond
+ant: func Gt[V any](field *V, v V) Cond
+ant: func Gte[V any](field *V, v V) Cond
 ant: func HasNone[R any](rel *[]R, conds ...Cond) Cond
 ant: func HasOne[R any](rel **R, conds ...Cond) Cond
 ant: func Has[R any](rel *[]R, conds ...Cond) Cond
-ant: func ILike[V ~string](field *V, pattern V) Cond
+ant: func ILike[V any, P ~string](field *V, pattern P) Cond
 ant: func InSub[V any](field *V, sub Sub[V]) Cond
 ant: func InTuples(fields []FieldRef, tuples ...[]any) Cond
+ant: func InTx(ctx context.Context, h Handle) context.Context
 ant: func In[V comparable](field *V, values ...V) Cond
-ant: func Inc[V Number](field *V, n V) Assignment
+ant: func Inc[V, N any](field *V, n N) Assignment
 ant: func IncrementBy(n int64) SequenceOption
 ant: func IntoExpr[V any](dst *V, src Expr[V]) Mapping
 ant: func Into[V any](dst *V, src *V) Mapping
@@ -414,27 +417,28 @@ ant: func Lag[V any](field *V) Expr[sql.Null[V]]
 ant: func Lead[V any](field *V) Expr[sql.Null[V]]
 ant: func LeftJoinLateral[T, J any](q *Query[T], sub *Query[J], on ...Cond) *Join2[T, J]
 ant: func LeftJoinSub[T, J any](q *Query[T], sub *Query[J], on ...Cond) *Join2[T, J]
-ant: func Length[V ~string](field *V) Expr[int]
-ant: func Like[V ~string](field *V, pattern V) Cond
+ant: func Length[V any](field *V) Expr[int]
+ant: func Like[V any, P ~string](field *V, pattern P) Cond
 ant: func Link[T, R any](ctx context.Context, h Handle, owner *T, rel *[]R, targets ...*R) error
 ant: func LogValues() LogOption
-ant: func Lower[V ~string](field *V) Expr[V]
-ant: func Lt[V Ordered](field *V, v V) Cond
-ant: func Lte[V Ordered](field *V, v V) Cond
+ant: func Lower[V any](field *V) Expr[V]
+ant: func Lt[V any](field *V, v V) Cond
+ant: func Lte[V any](field *V, v V) Cond
 ant: func MarkModified[T any](ctx context.Context, h Handle, entity *T) error
-ant: func MaxOf[T any, V Ordered](ctx context.Context, q *Query[T], field *V) (V, error)
-ant: func MaxRelated[R any, V Ordered](rel *[]R, field *V, conds ...Cond) Expr[sql.Null[V]]
-ant: func Max[V Ordered](field *V) Expr[V]
+ant: func MaxOf[T, V any](ctx context.Context, q *Query[T], field *V) (V, error)
+ant: func MaxRelated[R, V any](rel *[]R, field *V, conds ...Cond) Expr[sql.Null[V]]
+ant: func Max[V any](field *V) Expr[V]
 ant: func Merge[T, S any](t *Table[T], source *Query[S], on ...Cond) *Merger[T]
-ant: func MinOf[T any, V Ordered](ctx context.Context, q *Query[T], field *V) (V, error)
-ant: func MinRelated[R any, V Ordered](rel *[]R, field *V, conds ...Cond) Expr[sql.Null[V]]
-ant: func Min[V Ordered](field *V) Expr[V]
+ant: func MinOf[T, V any](ctx context.Context, q *Query[T], field *V) (V, error)
+ant: func MinRelated[R, V any](rel *[]R, field *V, conds ...Cond) Expr[sql.Null[V]]
+ant: func Min[V any](field *V) Expr[V]
 ant: func Ne[V comparable](field *V, v V) Cond
 ant: func NoneOf[V comparable](v V, fields ...*V) Cond
 ant: func Not(c Cond) Cond
 ant: func NotExists(q Selectable) Cond
 ant: func NotInSub[V any](field *V, sub Sub[V]) Cond
 ant: func NotIn[V comparable](field *V, values ...V) Cond
+ant: func Nullable[V any](e Expr[V]) Expr[sql.Null[V]]
 ant: func Observe[T any](h Handle, o Observer[T]) error
 ant: func OnConflict[V any](field *V) *Conflict
 ant: func OnPrimary(ctx context.Context) context.Context
@@ -443,7 +447,7 @@ ant: func Or(conds ...Cond) Cond
 ant: func OrderedBy(terms ...Sort) Window
 ant: func Original[T, V any](e *EntityEntry[T], field *V) (V, error)
 ant: func PartitionBy[V any](field *V) Window
-ant: func Past(field *time.Time) Cond
+ant: func Past[V any](field *V) Cond
 ant: func Pluck[T, V any](ctx context.Context, q *Query[T], field *V) ([]V, error)
 ant: func Pointers[T any](values []T) []*T
 ant: func PrepareBulk[T any](h Handle, entities []*T) (*BulkRows, error)
@@ -467,18 +471,18 @@ ant: func SlowThreshold(d time.Duration) LogOption
 ant: func StartAt(n int64) SequenceOption
 ant: func SubExpr[V any](q Selectable, value Expr[V]) Sub[V]
 ant: func SubOf[V any](q Selectable, field *V) Sub[V]
-ant: func SumOf[T any, V Number](ctx context.Context, q *Query[T], field *V) (V, error)
-ant: func SumRelated[R any, V Number](rel *[]R, field *V, conds ...Cond) Expr[V]
-ant: func Sum[V Number](field *V) Expr[V]
+ant: func SumOf[T, V any](ctx context.Context, q *Query[T], field *V) (V, error)
+ant: func SumRelated[R, V any](rel *[]R, field *V, conds ...Cond) Expr[V]
+ant: func Sum[V any](field *V) Expr[V]
 ant: func SyncLinks[T, R any](ctx context.Context, h Handle, owner *T, rel *[]R, targets ...*R) error
 ant: func TableOf[T any]() (schemaName, table string, err error)
 ant: func Then[V any](g *Grouped, field *V) *Grouped
-ant: func Today(field *time.Time) Cond
+ant: func Today[V any](field *V) Cond
 ant: func Toggle[T, R any](ctx context.Context, h Handle, owner *T, rel *[]R, targets ...*R) error
 ant: func TrackGraph[T any](ctx context.Context, h Handle, root *T, decide func(GraphNode) State) error
 ant: func Tracked[T any](ctx context.Context, h Handle) ([]*T, error)
 ant: func Unlink[T, R any](ctx context.Context, h Handle, owner *T, rel *[]R, targets ...*R) error
-ant: func Upper[V ~string](field *V) Expr[V]
+ant: func Upper[V any](field *V) Expr[V]
 ant: func UseConn[DB any](db *DB, conn *sql.Conn) (*DB, error)
 ant: func UseTx[DB any](db *DB, tx *sql.Tx) (*DB, error)
 ant: func Values[T any](h Handle, rows ...T) *Query[T]
@@ -615,6 +619,7 @@ ant: var ErrTxType
 ant: var ErrUnknownColumn
 ant: var ErrUnsupported
 ant: var ErrWrongModel
+ant: var ErrZeroKey
 anttest: func (f *Factory[T]) AfterBuild(fn func(*T)) *Factory[T]
 anttest: func (f *Factory[T]) AfterCreate(fn func(*T)) *Factory[T]
 anttest: func (f *Factory[T]) Build(overrides ...func(*T)) *T
@@ -685,8 +690,8 @@ dialect/postgres: func JSONLength[V any](field *V) ant.Expr[int]
 dialect/postgres: func JSONSet[V any](field *V, value any, path ...string) ant.Expr[V]
 dialect/postgres: func JSONText[V any](field *V, path ...string) ant.Expr[string]
 dialect/postgres: func L2Distance(field *Vector, v Vector) ant.Expr[float64]
-dialect/postgres: func MatchVector[V ~string](field *V, config, query string) ant.Cond
-dialect/postgres: func Match[V ~string](field *V, config, query string) ant.Cond
+dialect/postgres: func MatchVector[V any](field *V, config, query string) ant.Cond
+dialect/postgres: func Match[V any](field *V, config, query string) ant.Cond
 dialect/postgres: func MonthlyPartitions[T any](db Database) (*Partitions, error)
 dialect/postgres: func Near(field *Point, p Point, radius float64) ant.Cond
 dialect/postgres: type Array

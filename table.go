@@ -18,6 +18,16 @@ type Table[T any] struct {
 	state *state
 }
 
+// in returns t as a table of the transaction ctx binds its context to, or t,
+// for a write whose tracking that transaction's end settles (#146).
+func (t *Table[T]) in(ctx context.Context) *Table[T] {
+	if j := t.state.joined(ctx); j != t.state {
+		return &Table[T]{state: j}
+	}
+
+	return t
+}
+
 func (t *Table[T]) bind(s *state) error {
 	t.state = s
 
@@ -67,7 +77,7 @@ func (t *Table[T]) keyed() (*meta.Model, *meta.Field, error) {
 
 	key := model.Key()
 	if key == nil {
-		return nil, nil, fmt.Errorf("%w: %s", ErrNoKey, model.Type.Name())
+		return nil, nil, noKey(model)
 	}
 
 	return model, key, nil
@@ -108,6 +118,8 @@ func (t *Table[T]) insert(ctx context.Context, entities []*T, related bool) erro
 	if err != nil {
 		return err
 	}
+
+	t = t.in(ctx)
 
 	ctx, release, err := t.state.claim(ctx, t.state.touchesTracker())
 	if err != nil {
@@ -220,7 +232,7 @@ func (t *Table[T]) DeleteByID[K comparable](ctx context.Context, key K) error {
 	}
 
 	if v, ok := meta.KeyValue(key); ok {
-		t.state.record(t.state.tracker.ForgetRow(model, v))
+		t.state.record(ctx, t.state.tracker.ForgetRow(model, v))
 	}
 
 	return nil
@@ -257,7 +269,7 @@ func (t *Table[T]) Reload(ctx context.Context, e *T) error {
 	}
 
 	if len(model.Keys) == 0 {
-		return fmt.Errorf("%w: %s", ErrNoKey, model.Type.Name())
+		return noKey(model)
 	}
 
 	if e == nil {
@@ -298,7 +310,7 @@ func (t *Table[T]) Reload(ctx context.Context, e *T) error {
 	if entry != nil {
 		// In a transaction, a rollback takes the read back with the rows it
 		// read: the values, and the state and snapshot.
-		t.state.record(t.state.tracker.Reloaded(entry, unsafe.Pointer(&before)))
+		t.state.record(ctx, t.state.tracker.Reloaded(entry, unsafe.Pointer(&before)))
 	}
 
 	return nil
@@ -311,10 +323,10 @@ func (t *Table[T]) Where(c ...Cond) *Query[T] { return t.query().Where(c...) }
 func (t *Table[T]) Unfiltered() *Query[T] { return t.query().Unfiltered() }
 
 // OrderBy starts a query ordered by field, ascending.
-func (t *Table[T]) OrderBy[V Ordered](field *V) *Query[T] { return t.query().OrderBy(field) }
+func (t *Table[T]) OrderBy[V any](field *V) *Query[T] { return t.query().OrderBy(field) }
 
 // OrderByDesc starts a query ordered by field, descending.
-func (t *Table[T]) OrderByDesc[V Ordered](
+func (t *Table[T]) OrderByDesc[V any](
 	field *V,
 ) *Query[T] {
 	return t.query().OrderByDesc(field)

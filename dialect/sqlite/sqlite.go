@@ -38,6 +38,7 @@ var syntax = dialect.Syntax{
 	// A statement on the connection steps its own cursor, beside the open one.
 	RunsWhileStreaming: true,
 	NoArrayParams:      true,
+	PlainValues:        true,
 }
 
 func (impl) Name() string       { return "sqlite" }
@@ -117,6 +118,11 @@ func state(err error) string {
 		return "23514"
 	case 5, 261, 517: // busy
 		return "40001"
+	case 1: // SQLITE_ERROR, a code for many errors
+		// SQLite gives a missing table no code of its own, only this text.
+		if strings.Contains(err.Error(), "no such table") {
+			return "42P01"
+		}
 	}
 
 	return ""

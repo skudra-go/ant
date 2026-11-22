@@ -3,7 +3,10 @@ package exec
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"time"
+
+	"github.com/skudra-go/ant/dialect"
 )
 
 // Statement is one SQL statement on its way to the database.
@@ -43,11 +46,30 @@ type Error struct {
 }
 
 func (e *Error) Error() string {
-	if e.Detailed {
-		return e.Err.Error() + " [sql: " + e.SQL + "]"
+	msg := e.Err.Error()
+
+	// The drivers' messages say only that the table is not there (#301).
+	// Migrations are PostgreSQL's alone, and EnsureCreated runs everywhere.
+	if undefinedTable(e.Err) {
+		msg += "; the table does not exist: create it with EnsureCreated, or with a migration on PostgreSQL"
 	}
 
-	return e.Err.Error()
+	if e.Detailed {
+		return msg + " [sql: " + e.SQL + "]"
+	}
+
+	return msg
+}
+
+// undefinedTable reports whether err is a database's error for a table that
+// does not exist, which dialects give as PostgreSQL's code 42P01.
+func undefinedTable(err error) bool {
+	var e interface{ SQLState() string }
+	if errors.As(err, &e) {
+		return e.SQLState() == "42P01"
+	}
+
+	return dialect.StateOf(err) == "42P01"
 }
 
 // Unwrap returns the driver's error.

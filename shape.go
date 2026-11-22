@@ -54,6 +54,9 @@ const (
 	nullCond
 	notNullCond
 	betweenCond
+	// orNullCond is column <> value OR column IS NULL, Ne on a column that can
+	// hold NULL (decision 146).
+	orNullCond
 )
 
 // condShape is one condition on a column of the queried table, with its values
@@ -255,9 +258,40 @@ func condShapeOf(c qb.Cond, table *qb.TableRef, values *boundValues) (condShape,
 		}
 
 		return condShape{column: column, kind: betweenCond}, true
+	case qb.Or:
+		return orNullShape(c, table, values)
 	}
 
 	return condShape{}, false
+}
+
+// orNullShape is condShapeOf of Ne on a column that can hold NULL: a
+// comparison with a value, OR the same column IS NULL.
+func orNullShape(c qb.Or, table *qb.TableRef, values *boundValues) (condShape, bool) {
+	if len(c.Children) != 2 {
+		return condShape{}, false
+	}
+
+	compare, isCompare := c.Children[0].(qb.Compare)
+	null, isNull := c.Children[1].(qb.IsNull)
+
+	if !isCompare || !isNull || null.Negate {
+		return condShape{}, false
+	}
+
+	column, ok := rootColumn(null.Left, table)
+	if !ok {
+		return condShape{}, false
+	}
+
+	shape, ok := condShapeOf(compare, table, values)
+	if !ok || shape.column != column {
+		return condShape{}, false
+	}
+
+	shape.kind = orNullCond
+
+	return shape, true
 }
 
 // withSlots returns c, a condition condShapeOf took, with markers in place of
@@ -278,6 +312,12 @@ func withSlots(c qb.Cond, next *int) qb.Cond {
 	case qb.Between:
 		c.Low = slot()
 		c.High = slot()
+
+		return c
+	case qb.Or:
+		children := slices.Clone(c.Children)
+		children[0] = withSlots(children[0], next)
+		c.Children = children
 
 		return c
 	}

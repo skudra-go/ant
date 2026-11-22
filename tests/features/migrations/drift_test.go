@@ -171,7 +171,7 @@ func TestDriftWithPendingMigrations(t *testing.T) {
 		must[V1DB](p, "diff", "start")
 		out, err := run[V1DB](p, "drift")
 		require.ErrorIs(t, err, migrate.ErrDrift)
-		require.Contains(t, out, "1 migrations are pending")
+		require.Contains(t, out, "1 migration is pending")
 	})
 }
 
