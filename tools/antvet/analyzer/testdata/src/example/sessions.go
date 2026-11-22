@@ -155,3 +155,30 @@ func closures(ctx context.Context, db *AppDB) error {
 
 	return s.SaveChanges(ctx)
 }
+
+// A root that tracks saves what it loaded itself, so its own SaveChanges after
+// the change is the one that counts.
+func rootSavesToo(ctx context.Context, db *AppDB) error {
+	s := ant.Session(db)
+
+	u, _ := db.Users.Find(ctx, 1)
+	u.Age = 1
+
+	if err := s.SaveChanges(ctx); err != nil {
+		return err
+	}
+
+	return db.SaveChanges(ctx)
+}
+
+// Each save is reported once, naming the first entity it leaves out.
+func twoEntities(ctx context.Context, db *AppDB) error {
+	s := ant.Session(db)
+
+	u, _ := db.Users.Find(ctx, 1)
+	v, _ := db.Users.Find(ctx, 2)
+	u.Age = 1
+	v.Age = 2
+
+	return s.SaveChanges(ctx) // want `^u was loaded through db`
+}

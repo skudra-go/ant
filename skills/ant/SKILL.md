@@ -339,6 +339,11 @@ err = session.SaveChanges(ctx)
 
 - A tracking context serves **one operation at a time**. Two goroutines or two
   requests on it get `ant.ErrConcurrentUse`. Call `ant.Session(db)` per request.
+- Load and save through the **same session**. `SaveChanges` saves only what its own
+  context tracks: an entity loaded through `db`, the root, or through another
+  session is not saved, and `SaveChanges` still returns nil. Load it through the
+  session, or `ant.Attach` it first. `HasChanges(ctx)` reports whether there is
+  anything to save. antvet reports the slip.
 - On a context that does not track, such as the root, `SaveChanges`, `ant.Add`,
   `ant.Attach`, `ant.MarkModified`, `ant.Remove` and `ant.TrackGraph` return
   `ant.ErrNoTracking`. `ant.WithTracking(true)` on `Open` makes the root track,
@@ -482,5 +487,6 @@ without a database.
 - Code inside `db.Tx` uses `tx`.
 - Names you weren't sure of were checked with `go doc` or the docs.
 - If the project uses antvet, run it: `go vet -vettool=$(which antvet) ./...`. It
-  catches wrong-model and non-probe pointers and wrong key types. Install it with
+  catches wrong-model and non-probe pointers, wrong key types, and changes saved
+  through a context that did not load them. Install it with
   `go install github.com/skudra-go/ant/tools/antvet/cmd/antvet@latest`.

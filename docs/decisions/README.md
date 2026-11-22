@@ -177,6 +177,7 @@ On 2026-11-20 the decisions moved from one file, `docs/DECISIONS.md`, to a file 
 | [142](142-chunk-lets-go-of-a-group-that-has-nothing-to-save.md) | Chunk lets go of a group that has nothing to save | active | `Chunk` `ChunkByKey` `tracking` `memory` `Session` `SaveChanges` `ForgetAlone` |
 | [148](148-a-query-with-computed-fields-stays-tracked.md) | A query that fills computed fields stays tracked | active | `With` `computed` `tracking` `identity-map` `Session` `SaveChanges` |
 | [149](149-a-has-one-pointer-is-the-truth-about-its-row.md) | A has-one pointer is the truth about its row | active | `HasOne` `SaveChanges` `orphan` `unlink` `relation-reconcile` `unique` |
+| [153](153-changes-saved-through-another-context-are-reported-by-antvet.md) | Changes saved through another context are reported by antvet | active | `SaveChanges` `Session` `Attach` `tracker` `antvet` `HasChanges` |
 
 #### Transactions
 
@@ -572,7 +573,9 @@ Before changing a file, read the decisions about it.
 | `tools/antvet/analyzer` | [4](004-conditions-are-not-tied-to-a-model.md) |
 | `tools/antvet/analyzer/analyzer.go` | [83](083-antvet-judges-only-what-it-can-see.md) |
 | `tools/antvet/analyzer/analyzer_test.go` | [4](004-conditions-are-not-tied-to-a-model.md) [83](083-antvet-judges-only-what-it-can-see.md) |
+| `tools/antvet/analyzer/sessions.go` | [153](153-changes-saved-through-another-context-are-reported-by-antvet.md) |
 | `tools/antvet/analyzer/testdata` | [83](083-antvet-judges-only-what-it-can-see.md) |
+| `tools/antvet/analyzer/testdata/src/example/sessions.go` | [153](153-changes-saved-through-another-context-are-reported-by-antvet.md) |
 | `tools/antvet/cmd` | [83](083-antvet-judges-only-what-it-can-see.md) |
 | `tools/compare` | [71](071-dependencies-stay-out-of-the-root-package.md) |
 | `tx.go` | [2](002-tx-is-a-generic-method-on-context.md) [31](031-failed-saves.md) [47](047-hooks-run-inside-the-write.md) [48](048-replicas.md) [61](061-sessions-take-options.md) [70](070-dryrun-really-runs.md) [79](079-a-tracking-context-serves-one-operation-at-a-time.md) [99](099-a-retried-attempt-leaves-nothing-in-the-tracker.md) [106](106-begin-inside-a-transaction-opens-a-savepoint.md) [121](121-a-rollback-forgets-what-its-transaction-began-tracking.md) [141](141-a-statement-inside-an-each-loop-on-one-connection-is-refused.md) |
@@ -588,8 +591,9 @@ Tags on two or more decisions. Search the headers for the rest: `rg -l '^tags: .
 - `AfterInsert`: [47](047-hooks-run-inside-the-write.md) [123](123-an-after-hooks-edit-is-a-change-to-save.md)
 - `aggregate`: [35](035-typed-expressions.md) [147](147-a-projection-reads-null-into-a-plain-field-as-zero.md)
 - `All`: [6](006-return-shapes-and-tracking.md) [27](027-all-returns-t.md)
-- `antvet`: [4](004-conditions-are-not-tied-to-a-model.md) [71](071-dependencies-stay-out-of-the-root-package.md) [83](083-antvet-judges-only-what-it-can-see.md)
+- `antvet`: [4](004-conditions-are-not-tied-to-a-model.md) [71](071-dependencies-stay-out-of-the-root-package.md) [83](083-antvet-judges-only-what-it-can-see.md) [153](153-changes-saved-through-another-context-are-reported-by-antvet.md)
 - `arrays`: [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) [136](136-an-outer-joins-side-reads-what-only-the-driver-converts.md)
+- `Attach`: [110](110-a-version-the-application-sets-is-the-one-checked.md) [153](153-changes-saved-through-another-context-are-reported-by-antvet.md)
 - `Attempts`: [99](099-a-retried-attempt-leaves-nothing-in-the-tracker.md) [121](121-a-rollback-forgets-what-its-transaction-began-tracking.md)
 - `baseline`: [58](058-squashing-needs-no-coordination.md) [59](059-adopting-an-existing-database.md) [127](127-commands-refuse-to-guess-which-migration-is-meant.md) [128](128-adopt-leaves-out-roles.md)
 - `Batch`: [22](022-inserts-run-one-statement-per-row.md) [71](071-dependencies-stay-out-of-the-root-package.md)
@@ -704,14 +708,14 @@ Tags on two or more decisions. Search the headers for the rest: `rg -l '^tags: .
 - `repeatable`: [11](011-migration-model.md) [116](116-code-files-rerun-after-versioned-migrations.md)
 - `RETURNING`: [13](013-mariadb-shares-the-mysql-package.md) [122](122-what-the-database-fills-is-read-back-by-key.md)
 - `Rollback`: [57](057-drift-compares-what-the-server-stored.md) [70](070-dryrun-really-runs.md) [99](099-a-retried-attempt-leaves-nothing-in-the-tracker.md) [106](106-begin-inside-a-transaction-opens-a-savepoint.md)
-- `SaveChanges`: [28](028-identity-and-relation-slices.md) [30](030-tracking-follows-keys-not-addresses.md) [31](031-failed-saves.md) [32](032-navigation-and-foreign-key-changes.md) [61](061-sessions-take-options.md) [63](063-savechanges-batches-inserts.md) [79](079-a-tracking-context-serves-one-operation-at-a-time.md) [92](092-tracked-values-compare-as-stored.md) [93](093-tracking-follows-what-a-save-wrote.md) [96](096-a-forced-update-stamps-updatedat.md) [110](110-a-version-the-application-sets-is-the-one-checked.md) [111](111-a-replaced-entity-keeps-what-the-body-could-not-give.md) [123](123-an-after-hooks-edit-is-a-change-to-save.md) [140](140-an-update-that-changed-nothing-is-checked-against-the-row.md) [142](142-chunk-lets-go-of-a-group-that-has-nothing-to-save.md) [148](148-a-query-with-computed-fields-stays-tracked.md) [149](149-a-has-one-pointer-is-the-truth-about-its-row.md)
+- `SaveChanges`: [28](028-identity-and-relation-slices.md) [30](030-tracking-follows-keys-not-addresses.md) [31](031-failed-saves.md) [32](032-navigation-and-foreign-key-changes.md) [61](061-sessions-take-options.md) [63](063-savechanges-batches-inserts.md) [79](079-a-tracking-context-serves-one-operation-at-a-time.md) [92](092-tracked-values-compare-as-stored.md) [93](093-tracking-follows-what-a-save-wrote.md) [96](096-a-forced-update-stamps-updatedat.md) [110](110-a-version-the-application-sets-is-the-one-checked.md) [111](111-a-replaced-entity-keeps-what-the-body-could-not-give.md) [123](123-an-after-hooks-edit-is-a-change-to-save.md) [140](140-an-update-that-changed-nothing-is-checked-against-the-row.md) [142](142-chunk-lets-go-of-a-group-that-has-nothing-to-save.md) [148](148-a-query-with-computed-fields-stays-tracked.md) [149](149-a-has-one-pointer-is-the-truth-about-its-row.md) [153](153-changes-saved-through-another-context-are-reported-by-antvet.md)
 - `savepoint`: [31](031-failed-saves.md) [61](061-sessions-take-options.md) [106](106-begin-inside-a-transaction-opens-a-savepoint.md) [121](121-a-rollback-forgets-what-its-transaction-began-tracking.md)
 - `Scanner`: [42](042-converters-are-scanner-and-valuer.md) [136](136-an-outer-joins-side-reads-what-only-the-driver-converts.md)
 - `schema`: [16](016-test-schema-is-hand-written.md) [50](050-three-layers-for-migrations.md)
 - `SchemaOf`: [66](066-several-models-can-share-a-table.md) [117](117-the-migrate-program-takes-the-applications-options.md)
 - `secure.Value`: [95](095-in-means-eq-and-other-value-rules.md) [109](109-numbers-inside-an-interface-read-as-json-number.md)
 - `Select`: [5](005-select-closures-run-client-side.md) [9](009-owner-review-of-step-1.md) [136](136-an-outer-joins-side-reads-what-only-the-driver-converts.md)
-- `Session`: [29](029-sessions.md) [61](061-sessions-take-options.md) [120](120-the-root-does-not-track-and-a-session-does.md) [142](142-chunk-lets-go-of-a-group-that-has-nothing-to-save.md) [148](148-a-query-with-computed-fields-stays-tracked.md)
+- `Session`: [29](029-sessions.md) [61](061-sessions-take-options.md) [120](120-the-root-does-not-track-and-a-session-does.md) [142](142-chunk-lets-go-of-a-group-that-has-nothing-to-save.md) [148](148-a-query-with-computed-fields-stays-tracked.md) [153](153-changes-saved-through-another-context-are-reported-by-antvet.md)
 - `Snapshot`: [11](011-migration-model.md) [28](028-identity-and-relation-slices.md) [57](057-drift-compares-what-the-server-stored.md) [82](082-a-rename-must-land-on-a-name-the-models-have.md) [92](092-tracked-values-compare-as-stored.md) [108](108-kept-sql-by-shape-unboxed-keys-compact-snapshots-and.md)
 - `snapshot`: [123](123-an-after-hooks-edit-is-a-change-to-save.md) [127](127-commands-refuse-to-guess-which-migration-is-meant.md)
 - `soft-delete`: [40](040-soft-deletes-are-a-filter.md) [80](080-every-write-moves-the-version-on.md) [102](102-updatemany-keeps-what-a-bulk-update-keeps.md) [124](124-a-conflict-target-repeats-a-partial-indexs-predicate.md) [151](151-deletedat-is-a-time-or-null-in-json.md)
@@ -725,7 +729,7 @@ Tags on two or more decisions. Search the headers for the rest: `rg -l '^tags: .
 - `time`: [1](001-ant-ordered-replaces-cmp-ordered.md) [84](084-every-time-is-bound-in-utc-where-columns-keep-no-zone.md) [92](092-tracked-values-compare-as-stored.md)
 - `timestamps`: [25](025-scanning.md) [41](041-automatic-timestamps.md)
 - `token`: [122](122-what-the-database-fills-is-read-back-by-key.md) [139](139-a-field-can-not-ask-for-two-things-ant-can-not-both-do.md) [140](140-an-update-that-changed-nothing-is-checked-against-the-row.md)
-- `tracker`: [29](029-sessions.md) [99](099-a-retried-attempt-leaves-nothing-in-the-tracker.md) [121](121-a-rollback-forgets-what-its-transaction-began-tracking.md)
+- `tracker`: [29](029-sessions.md) [99](099-a-retried-attempt-leaves-nothing-in-the-tracker.md) [121](121-a-rollback-forgets-what-its-transaction-began-tracking.md) [153](153-changes-saved-through-another-context-are-reported-by-antvet.md)
 - `tracking`: [6](006-return-shapes-and-tracking.md) [142](142-chunk-lets-go-of-a-group-that-has-nothing-to-save.md) [148](148-a-query-with-computed-fields-stays-tracked.md)
 - `transaction`: [22](022-inserts-run-one-statement-per-row.md) [47](047-hooks-run-inside-the-write.md) [56](056-failure.md)
 - `Tx`: [2](002-tx-is-a-generic-method-on-context.md) [106](106-begin-inside-a-transaction-opens-a-savepoint.md)
