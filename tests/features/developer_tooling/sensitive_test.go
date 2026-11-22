@@ -17,9 +17,13 @@ type Account struct {
 	ID       int64
 	Name     string
 	Password string
+	Hint     *string
 }
 
-func (Account) Configure(b *ant.ModelBuilder[Account]) { b.Column(&Accounts.Password).Sensitive() }
+func (Account) Configure(b *ant.ModelBuilder[Account]) {
+	b.Column(&Accounts.Password).Sensitive()
+	b.Column(&Accounts.Hint).Sensitive()
+}
 
 // Accounts is Account's probe.
 var Accounts = ant.Fields[Account]()
@@ -32,7 +36,7 @@ type AccountDB struct {
 
 // LogValues puts values in logs, and Sensitive keeps chosen ones out regardless.
 func TestSensitiveFields(t *testing.T) {
-	const ddl = `CREATE TABLE accounts (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, password TEXT NOT NULL)`
+	const ddl = `CREATE TABLE accounts (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, password TEXT NOT NULL, hint TEXT NULL)`
 
 	fixture.Each(t, func(t *testing.T, target fixture.Target) {
 		ctx := t.Context()
@@ -105,7 +109,7 @@ func TestStrictScan(t *testing.T) {
 // A value compared with a sensitive column stays out of logs whichever way the
 // comparison is built, as does a sensitive value written in bulk.
 func TestSensitiveValuesEverywhere(t *testing.T) {
-	const ddl = `CREATE TABLE accounts (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, password TEXT NOT NULL)`
+	const ddl = `CREATE TABLE accounts (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, password TEXT NOT NULL, hint TEXT NULL)`
 
 	fixture.Each(t, func(t *testing.T, target fixture.Target) {
 		ctx := t.Context()
@@ -147,6 +151,31 @@ func TestSensitiveValuesEverywhere(t *testing.T) {
 						Else("y").
 						Eq("z"),
 				).All(ctx)
+
+				return err
+			},
+			"In with nil on a nullable column": func(s string) error {
+				_, err := db.Accounts.Where(ant.In(&Accounts.Hint, nil, &s)).All(ctx)
+
+				return err
+			},
+			"NotIn on a nullable column": func(s string) error {
+				_, err := db.Accounts.Where(ant.NotIn(&Accounts.Hint, &s)).All(ctx)
+
+				return err
+			},
+			"Ne on a nullable column": func(s string) error {
+				_, err := db.Accounts.Where(ant.Ne(&Accounts.Hint, &s)).All(ctx)
+
+				return err
+			},
+			"Not Eq on a nullable column": func(s string) error {
+				_, err := db.Accounts.Where(ant.Not(ant.Eq(&Accounts.Hint, &s))).All(ctx)
+
+				return err
+			},
+			"Col Ne on a nullable column": func(s string) error {
+				_, err := db.Accounts.Where(ant.Col(&Accounts.Hint).Ne(&s)).All(ctx)
 
 				return err
 			},
