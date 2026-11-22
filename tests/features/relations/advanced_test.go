@@ -242,6 +242,28 @@ func TestPolymorphicRelations(t *testing.T) {
 			require.NotNil(t, comments[1].Video)
 		})
 
+		t.Run("IncludeJoined sees only its own type", func(t *testing.T) {
+			comments, err := db.Remarks.IncludeJoined(&Remarks.Post).
+				IncludeJoined(&Remarks.Video).
+				OrderBy(&Remarks.ID).
+				NoTracking().
+				All(ctx)
+			require.NoError(t, err)
+			require.Len(t, comments, 3)
+			require.NotNil(t, comments[0].Post, "the blog's comment")
+			require.Nil(t, comments[0].Video)
+			require.Nil(t, comments[1].Post, "the video's comment must not load the essay with the same key")
+			require.NotNil(t, comments[1].Video)
+			require.Nil(t, comments[2].Post)
+			require.NotNil(t, comments[2].Video)
+		})
+
+		t.Run("IncludeJoined joins on the type column", func(t *testing.T) {
+			text, _, err := db.Remarks.IncludeJoined(&Remarks.Post).ToSQL()
+			require.NoError(t, err)
+			require.Contains(t, text, `ON "remarks"."owner_id" = "ant_joined0"."id" AND "remarks"."owner_type"`)
+		})
+
 		t.Run("Has and joins are scoped", func(t *testing.T) {
 			blogs, err := db.Essays.Where(ant.Has(&Essays.Remarks, ant.Eq(&Remarks.Text, "on the video"))).
 				NoTracking().
