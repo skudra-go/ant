@@ -67,15 +67,28 @@ func (q *Query[T]) addJoined(stmt *qb.Select) {
 	}
 
 	for _, j := range q.inJoin {
-		on := append(
-			[]qb.Cond{
-				qb.Compare{
-					Left:  j.relation.Owner.Col(j.link.Local),
-					Op:    qb.OpEq,
-					Right: j.source.col(j.link.Foreign),
-				},
+		// A relation's scope belongs on the join, as Join does it: a
+		// polymorphic relation's type condition lives there, so a note on a
+		// video does not load the essay that happens to have the same key.
+		scope := make([]qb.Cond, 0, len(j.relation.Scope))
+
+		for _, c := range j.relation.Scope {
+			if j.source.alias != "" {
+				c = qb.Aliased(c, j.source.model.Table, j.source.alias)
+			}
+
+			scope = append(scope, c)
+		}
+
+		on := []qb.Cond{
+			qb.Compare{
+				Left:  j.relation.Owner.Col(j.link.Local),
+				Op:    qb.OpEq,
+				Right: j.source.col(j.link.Foreign),
 			},
-			modelFilters(j.source, nil)...)
+		}
+		on = append(on, scope...)
+		on = append(on, modelFilters(j.source, nil)...)
 
 		stmt.Joins = append(stmt.Joins, qb.Join{
 			Kind:   qb.LeftJoin,
