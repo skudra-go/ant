@@ -18,9 +18,12 @@ import (
 // Insert, Upsert, and SaveChanges. They run inside the write's transaction, so an
 // error cancels the whole write. The ctx they get is bound to that transaction,
 // as by InTx: what a hook runs with it, through any context on the same pool,
-// such as a global root, runs there and sees the write. Upsert runs the insert
-// hooks whichever way the database goes. Bulk Update and Delete, InsertMany,
-// UpdateMany, Merge, and Raw load no entities and do not run them.
+// such as a global root, runs there, sees the write, and rolls back with it.
+// ant.InTx(ctx, db), with db in no transaction, unbinds it for a write that must
+// stay. A write of one row with no After hook opens no transaction, so its
+// Before hooks get the ctx as it came. Upsert runs the insert hooks whichever
+// way the database goes. Bulk Update and Delete, InsertMany, UpdateMany, Merge,
+// and Raw load no entities and do not run them.
 type (
 	// Validator checks an entity before Insert, Upsert, or SaveChanges writes it.
 	Validator interface {

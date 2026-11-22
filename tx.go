@@ -130,9 +130,12 @@ func (s *state) record(ctx context.Context, changes ...track.Change) {
 	}
 }
 
-// boundKey is the context.Context key for the transaction a ctx is bound to,
-// by InTx or by ant for a hook.
-type boundKey struct{}
+// boundKey is the context.Context key for the transaction a ctx is bound to on
+// one pool, by InTx or by ant for a hook. Each pool has its own, so a binding on
+// one leaves another's in place.
+type boundKey struct {
+	pool *sql.DB
+}
 
 // binding is a transaction that a ctx carries to every context on its pool.
 type binding struct {
@@ -172,7 +175,7 @@ func InTx(ctx context.Context, h Handle) context.Context {
 	case s == nil:
 		return ctx
 	case s.tx == nil:
-		return context.WithValue(ctx, boundKey{}, (*binding)(nil))
+		return context.WithValue(ctx, boundKey{s.db}, (*binding)(nil))
 	}
 
 	return s.bound(ctx)
@@ -194,7 +197,7 @@ func (s *state) bind(
 	on *streams,
 	e exec.Executor,
 ) context.Context {
-	return context.WithValue(ctx, boundKey{}, &binding{s.db, t, on, bare(e)})
+	return context.WithValue(ctx, boundKey{s.db}, &binding{s.db, t, on, bare(e)})
 }
 
 // bare returns e without the interceptors and error detail it was wrapped in,
@@ -214,7 +217,7 @@ func bare(e exec.Executor) exec.Executor {
 
 // boundOn returns the transaction ctx is bound to, if it is one on pool.
 func boundOn(ctx context.Context, pool *sql.DB) *binding {
-	b, _ := ctx.Value(boundKey{}).(*binding)
+	b, _ := ctx.Value(boundKey{pool}).(*binding)
 	if b == nil || b.db != pool {
 		return nil
 	}
@@ -558,16 +561,17 @@ func (s *state) transactHooked(
 		return err
 	}
 
+	// The write and its hooks run as a Tx's would: a failure that ends the
+	// transaction stops what follows, and an Each loop guards its connection.
+	in := s.child(t)
+
 	if hooked {
-		inner = s.bind(ctx, t, newStreams(s.dialect), t.tx)
+		inner = in.bound(ctx)
 	}
 
 	// What a hook did through its bound ctx is settled with the write: the
 	// tracker changes of its writes, and the entities it began tracking.
-	if err := write(
-		inner,
-		exec.Wrap(t.tx, s.settings.interceptors, false, s.settings.detailed),
-	); err != nil {
+	if err := write(inner, in.exec); err != nil {
 		t.abort(ctx)
 
 		return errors.Join(err, t.rollback())

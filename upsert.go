@@ -395,48 +395,16 @@ func (t *Table[T]) Upsert(ctx context.Context, e *T, conflict *Conflict) (bool, 
 	defer release()
 
 	// The hooks run in the write's transaction, the context's or the one ctx is
-	// bound to, and what they run with their ctx does too (#144).
+	// bound to, and what they run with their ctx does too (#144). BeforeInsert
+	// runs in it as well, so what it writes is undone with the upsert.
 	hooked := ctx.Value(skipHooks{}) == nil && hooksOf(model).writes()
 
-	hookCtx := ctx
-
-	if hooked {
-		hookCtx = t.state.bound(ctx)
-	}
-
 	n := &node{model: model, entity: unsafe.Pointer(e)}
-	if err := n.beforeInsert(hookCtx); err != nil {
-		return false, err
-	}
-
-	// The keys the database fills in, taken back if the write is.
-	for _, f := range model.Keys {
-		if f.FromDatabase() && f.Value(n.entity).IsZero() {
-			n.generated = append(n.generated, f)
-		}
-	}
-
-	if err := zeroKey(model, n.entity); err != nil {
-		return false, err
-	}
-
 	u := newUnit(t.state)
-	u.stamp(n)
 
-	// The clause is made from e as the hooks and stamps left it, as the insert
-	// is, so that both leave the same columns to the database.
-	clause, err := conflict.clause(model, now, unsafe.Pointer(e))
-	if err != nil {
-		return false, err
-	}
-
-	// A copy that carries a version updates only the row it was loaded from. A
-	// new entity, whose version only the stamp gave it, has none to check.
-	checked := !slices.Contains(n.stamped, model.Version) &&
-		t.versionCheck(model, unsafe.Pointer(e), clause)
-
-	stmt := insertStatement(model, unsafe.Pointer(e))
-	stmt.Conflict = clause
+	// missed is a conflict that wrote nothing, which readInto reports as
+	// ErrNotFound, told apart from a hook's own ErrNotFound.
+	var checked, missed bool
 
 	// An AfterInsert error has to undo the write, which a transaction covers.
 	err = t.state.transactHooked(
@@ -444,12 +412,47 @@ func (t *Table[T]) Upsert(ctx context.Context, e *T, conflict *Conflict) (bool, 
 		hooksOf(model).afterInsert,
 		hooked,
 		func(ctx context.Context, to exec.Executor) error {
+			if err := n.beforeInsert(ctx); err != nil {
+				return err
+			}
+
+			// The keys the database fills in, taken back if the write is.
+			for _, f := range model.Keys {
+				if f.FromDatabase() && f.Value(n.entity).IsZero() {
+					n.generated = append(n.generated, f)
+				}
+			}
+
+			if err := zeroKey(model, n.entity); err != nil {
+				return err
+			}
+
+			u.stamp(n)
+
+			// The clause is made from e as the hooks and stamps left it, as the
+			// insert is, so that both leave the same columns to the database.
+			clause, err := conflict.clause(model, now, unsafe.Pointer(e))
+			if err != nil {
+				return err
+			}
+
+			// A copy that carries a version updates only the row it was loaded
+			// from. A new entity, whose version only the stamp gave it, has none
+			// to check.
+			checked = !slices.Contains(n.stamped, model.Version) &&
+				t.versionCheck(model, unsafe.Pointer(e), clause)
+
+			stmt := insertStatement(model, unsafe.Pointer(e))
+			stmt.Conflict = clause
+
 			rows, err := t.upsertRows(ctx, to, model, stmt, unsafe.Pointer(e), checked)
 			if err == nil {
 				err = readInto(rows, e)
 			}
 
 			if err != nil {
+				missed = errors.Is(err, ErrNotFound)
+
 				return err
 			}
 
@@ -462,11 +465,11 @@ func (t *Table[T]) Upsert(ctx context.Context, e *T, conflict *Conflict) (bool, 
 		}
 
 		switch {
-		case errors.Is(err, ErrNotFound) && checked:
+		case missed && checked:
 			key, _ := model.KeyOf(unsafe.Pointer(e))
 
 			return false, &ConcurrencyError{Model: model.Type.Name(), Key: key}
-		case errors.Is(err, ErrNotFound):
+		case missed:
 			return false, nil
 		}
 

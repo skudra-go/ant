@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/skudra-go/ant"
+	"github.com/skudra-go/ant/dialect"
 	"github.com/skudra-go/ant/internal/testdb"
 )
 
@@ -128,5 +129,94 @@ func TestConformanceHookRunsInItsWritesTransaction(t *testing.T) {
 			require.Equal(t, "c@x", saved.Email)
 			require.Equal(t, int64(1), saved.Edits)
 		})
+	})
+}
+
+var errGizmo = errors.New("gizmo refused")
+
+// Gizmo's BeforeInsert writes a signup through the root, and its AfterInsert
+// fails, so the write and what its hooks wrote must all roll back.
+type Gizmo struct {
+	ID   int64
+	Name string `ant:"unique"`
+	root *GizmoDB
+}
+
+func (g *Gizmo) BeforeInsert(ctx context.Context) error {
+	if g.Name == "missing" {
+		return ant.ErrNotFound // as from a Find of what the gizmo needs
+	}
+
+	return g.root.Signups.Insert(ant.WithoutHooks(ctx), &Signup{Email: g.Name + "@x"})
+}
+
+func (g *Gizmo) AfterInsert(context.Context) error { return errGizmo }
+
+// GizmoDB is a context with the gizmos table.
+type GizmoDB struct {
+	ant.Context
+	Gizmos  ant.Table[Gizmo]
+	Signups ant.Table[Signup]
+}
+
+var Gizmos = ant.Fields[Gizmo]()
+
+// A Before hook runs in the write's transaction too, so what it writes rolls
+// back with the write. Upsert ran BeforeInsert before it began the transaction
+// its AfterInsert needs, so the hook's row stayed (#144).
+func TestConformanceBeforeHookRunsInItsWritesTransaction(t *testing.T) {
+	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
+		ctx := t.Context()
+		openSignups(t, target)
+
+		_, err := target.DB.ExecContext(
+			ctx,
+			`CREATE TABLE gizmos (id `+serials[target.Name]+`, name VARCHAR(40) NOT NULL UNIQUE)`,
+		)
+		require.NoError(t, err)
+
+		t.Cleanup(func() {
+			_, _ = target.DB.ExecContext(context.Background(), "DROP TABLE gizmos")
+		})
+
+		db, err := ant.Open[GizmoDB](ctx, target.Dialect, target.DSN)
+		require.NoError(t, err)
+		t.Cleanup(func() { db.Close() })
+
+		writes := map[string]func(g *Gizmo) error{
+			"Upsert": func(g *Gizmo) error {
+				_, err := db.Gizmos.Upsert(ctx, g, ant.OnConflict(&Gizmos.Name).DoNothing())
+
+				return err
+			},
+			"Insert": func(g *Gizmo) error { return db.Gizmos.Insert(ctx, g) },
+		}
+
+		for name, write := range writes {
+			t.Run(name, func(t *testing.T) {
+				if name == "Upsert" && !has(target, dialect.OnConflict) {
+					t.Skip(
+						"no ON CONFLICT: Upsert is ErrUnsupported, as TestConformanceUpsert checks",
+					)
+				}
+
+				_, err := db.Signups.Unfiltered().Delete(ctx)
+				require.NoError(t, err)
+
+				require.ErrorIs(t, write(&Gizmo{Name: name, root: db}), errGizmo)
+
+				n, err := db.Signups.Count(ctx)
+				require.NoError(t, err)
+				require.Zero(t, n, "the hook's signup rolled back")
+
+				n, err = db.Gizmos.Count(ctx)
+				require.NoError(t, err)
+				require.Zero(t, n)
+
+				// A hook's ErrNotFound is the hook's error, not a conflict that
+				// wrote nothing.
+				require.ErrorIs(t, write(&Gizmo{Name: "missing", root: db}), ant.ErrNotFound)
+			})
+		}
 	})
 }

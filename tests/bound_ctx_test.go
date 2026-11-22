@@ -184,6 +184,72 @@ func TestConformanceBoundContextRunsInTheTransaction(t *testing.T) {
 			require.Equal(t, "outer@x", left[0].Email)
 		})
 
+		t.Run("Begin and Each given the bound ctx run in the transaction", func(t *testing.T) {
+			clear(t)
+			ctx := t.Context()
+
+			err := db.Tx(ctx, func(tx *SignupDB) error {
+				ctx := ant.InTx(ctx, tx)
+
+				begun, err := ant.Begin(ctx, repo) // a savepoint in tx
+				if err != nil {
+					return err
+				}
+
+				if err := begun.Signups.Insert(ctx, &Signup{Email: "begun@x", root: db}); err != nil {
+					return err
+				}
+
+				if err := begun.Commit(); err != nil {
+					return err
+				}
+
+				var seen []string
+
+				for row, err := range repo.Signups.Each(ctx) {
+					if err != nil {
+						return err
+					}
+
+					seen = append(seen, row.Email)
+				}
+
+				require.Equal(t, []string{"begun@x"}, seen, "Each read in tx")
+
+				return errRule
+			})
+			require.ErrorIs(t, err, errRule)
+			require.Zero(t, count(t), "the savepoint's row rolled back with tx")
+		})
+
+		t.Run("a context from UseTx keeps to its own transaction", func(t *testing.T) {
+			if target.Name == "sqlite" {
+				t.Skip("SQLite has one writer: a second transaction cannot write while tx is open")
+			}
+
+			clear(t)
+			ctx := t.Context()
+
+			own, err := db.DB().BeginTx(ctx, nil)
+			require.NoError(t, err)
+
+			joined, err := ant.UseTx(repo, own)
+			require.NoError(t, err)
+
+			err = db.Tx(ctx, func(tx *SignupDB) error {
+				ctx := ant.InTx(ctx, tx)
+
+				if err := joined.Signups.Insert(ctx, &Signup{Email: "own@x", root: db}); err != nil {
+					return err
+				}
+
+				return errRule
+			})
+			require.ErrorIs(t, err, errRule)
+			require.NoError(t, own.Commit())
+			require.Equal(t, int64(1), count(t), "the write stayed in its own transaction")
+		})
+
 		t.Run("a ctx kept after its transaction ended runs nothing", func(t *testing.T) {
 			clear(t)
 			ctx := t.Context()
@@ -206,5 +272,66 @@ func TestConformanceBoundContextRunsInTheTransaction(t *testing.T) {
 
 			require.Zero(t, count(t))
 		})
+
+		t.Run("a binding on another pool leaves this one's", func(t *testing.T) {
+			if target.Name == "sqlite" {
+				t.Skip("SQLite has one writer: a second pool cannot write while tx is open")
+			}
+
+			clear(t)
+			ctx := t.Context()
+			other := openRelays(t, target) // a second pool on the same database
+
+			err := db.Tx(ctx, func(tx *SignupDB) error {
+				ctx := ant.InTx(ctx, tx)
+
+				// Its AfterInsert binds the ctx to other's own transaction, and
+				// writes a signup through repo, which is on tx's pool.
+				if err := other.Relays.Insert(ctx, &Relay{Email: "r@x", root: repo}); err != nil {
+					return err
+				}
+
+				return errRule
+			})
+			require.ErrorIs(t, err, errRule)
+			require.Zero(t, count(t), "the relayed signup rolled back with tx")
+		})
 	})
+}
+
+// Relay is a model on its own pool whose AfterInsert writes a signup through
+// the root of another.
+type Relay struct {
+	ID    int64
+	Email string
+	root  *SignupDB
+}
+
+func (r *Relay) AfterInsert(ctx context.Context) error {
+	return r.root.Signups.Insert(ctx, &Signup{Email: "relayed@x", root: r.root})
+}
+
+// RelayDB is a context with the relays table.
+type RelayDB struct {
+	ant.Context
+	Relays ant.Table[Relay]
+}
+
+func openRelays(t *testing.T, target testdb.Target) *RelayDB {
+	t.Helper()
+	ctx := t.Context()
+
+	_, err := target.DB.ExecContext(
+		ctx,
+		`CREATE TABLE relays (id `+serials[target.Name]+`, email VARCHAR(40) NOT NULL)`,
+	)
+	require.NoError(t, err)
+
+	t.Cleanup(func() { _, _ = target.DB.ExecContext(context.Background(), "DROP TABLE relays") })
+
+	db, err := ant.Open[RelayDB](ctx, target.Dialect, target.DSN)
+	require.NoError(t, err)
+	t.Cleanup(func() { db.Close() })
+
+	return db
 }

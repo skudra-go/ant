@@ -23,6 +23,14 @@ Threading `tx` through every call is the only safe structure without help, and i
 
 `InTx` takes the handle rather than reading the transaction from `Tx`'s arguments, because `Tx`'s signature stays as it is (decision 2). Given a handle in no transaction, it binds the ctx to none, so a hook or a service can write what must stay if the transaction rolls back.
 
-A hook's ctx is bound to the transaction its write runs in: the context's own, the one a bound ctx gives, or the one `SaveChanges` or `Insert` opens for a write with an After hook. With no transaction, as for one `Insert` with only a Before hook, the ctx is left as it came. `AfterLoad` and `AfterInclude` in a transaction get a bound ctx as well. A binding costs two allocations, so it is made only where a hook runs.
+A hook's ctx is bound to the transaction its write runs in: the context's own, the one a bound ctx gives, or the one `SaveChanges`, `Insert` or `Upsert` opens for a write with an After hook. Before hooks run inside that transaction too, `Upsert`'s included, so what they write is undone with the write. With no transaction, as for one `Insert` with only a Before hook, the ctx is left as it came. `AfterLoad` and `AfterInclude` in a transaction get a bound ctx as well. A binding costs two allocations, so it is made only where a hook runs. The transaction ant opens for a write runs its statements as a `Tx` does, so a failure that ends it stops what a hook runs after.
+
+A ctx holds one binding per pool. A hook on one pool binds the ctx to its own transaction and leaves a binding to another pool's in place, so code with two databases keeps each in its own transaction.
+
+What this changes for hook code that worked before:
+
+- A hook that writes through the root what must stay if the write fails, such as a log of attempts, now rolls back with the write. `ant.InTx(ctx, db)`, with `db` in no transaction, binds the ctx to none for that write.
+- A `Tx` a hook opens with its ctx is a savepoint in the write's transaction, so `ant.Isolation` there returns `ErrNestedIsolation` and `ant.Attempts` does not retry, as for any `Tx` inside another.
+- A goroutine that keeps the hook's ctx and runs after the write has ended gets `ErrTxDone`. Give it a ctx of its own, or `ant.InTx(ctx, db)`.
 
 Rejected: routing by the identity of the ctx `Tx` was called with, which needs `Tx` to remember ctx values and fails for the ctx a caller derives with a timeout. Rejected too: an error when the root writes while a transaction is open on its ctx. It would need the same marking, and it would refuse the code it should fix.

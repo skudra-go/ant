@@ -386,8 +386,10 @@ err = session.SaveChanges(ctx)
 - Hooks are methods on the model: `BeforeInsert(ctx context.Context) error`,
   `AfterLoad`, `BeforeUpdate`, `BeforeDelete` and the rest. A query made in a hook
   must use the hook's `ctx`, or it fails with `ErrConcurrentUse`. That `ctx` is
-  bound to the write's transaction, so a query through any context on the pool,
-  even a global `db`, sees the write and runs in it.
+  bound to the write's transaction, so a query or write through any context on
+  the pool, even a global `db`, runs in it and rolls back with it. For a write
+  that must stay, use `ant.InTx(ctx, db)` with `db` in no transaction. A `Tx` in
+  a hook is a savepoint: no `Isolation`, and `Attempts` does not retry.
 
 ## Transactions
 
