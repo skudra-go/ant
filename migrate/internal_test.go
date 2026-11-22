@@ -146,6 +146,7 @@ func TestDriftMessagesUseTheSingular(t *testing.T) {
 		"1 migration is pending, so the database is expected to differ. Run up first.",
 		pendingNote(1),
 	)
+
 	require.Equal(
 		t,
 		"2 migrations are pending, so the database is expected to differ. Run up first.",
@@ -168,8 +169,18 @@ func TestCheckNamesBothCausesWhenSnapshotIsBehind(t *testing.T) {
 	store := &memoryStore{
 		snapshot: data,
 		saved: []Migration{
-			{Version: "0009", Name: "foo", File: "0009_foo.up.sql", SQL: "SELECT 1;"},
-			{Version: "0010", Name: "hand", File: "0010_hand.up.sql", SQL: "SELECT 1;"},
+			{
+				Version: "0009",
+				Name:    "foo",
+				File:    "0009_foo.up.sql",
+				SQL:     "SELECT 1;",
+			},
+			{
+				Version: "0010",
+				Name:    "hand",
+				File:    "0010_hand.up.sql",
+				SQL:     "SELECT 1;",
+			},
 		},
 	}
 
@@ -180,7 +191,13 @@ func TestCheckNamesBothCausesWhenSnapshotIsBehind(t *testing.T) {
 
 	err = tool.inStep(t.Context(), c)
 	require.ErrorIs(t, err, ErrStaleSnapshot)
-	require.Contains(t, err.Error(), "If a file was added by hand, start it with diff --empty <name>")
+
+	require.Contains(
+		t,
+		err.Error(),
+		"If a file was added by hand, start it with diff --empty <name>",
+	)
+
 	require.Contains(t, err.Error(), "if a merge added it, renumber if needed, then run snapshot")
 }
 
