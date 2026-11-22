@@ -169,3 +169,59 @@ func TestAlterColumnConvertsEarlierDefaults(t *testing.T) {
 
 	require.Equal(t, `ALTER TABLE "hooks" ALTER COLUMN "v" TYPE text`, alter("bytea", "text"))
 }
+
+// A boolean changes to an integer other than integer through integer, and an
+// integer changes to a boolean through a comparison with zero: PostgreSQL has
+// a cast from boolean to integer only, so the direct cast the script wrote
+// before could never apply. Both keep NULL a NULL, where CASE WHEN would turn
+// it into 0 or false.
+func TestAlterColumnConvertsBoolAndInt(t *testing.T) {
+	alter := func(from, to string) string {
+		out, err := impl{}.Statements(schema.AlterColumn{
+			Table: schema.Ref{Name: "users"},
+			From:  &schema.Column{Name: "active", Type: from},
+			To:    &schema.Column{Name: "active", Type: to},
+		})
+		require.NoError(t, err)
+		require.Len(t, out, 1)
+
+		return out[0]
+	}
+
+	require.Equal(
+		t,
+		`ALTER TABLE "users" ALTER COLUMN "active" TYPE bigint USING "active"::integer::bigint`,
+		alter("boolean", "bigint"),
+	)
+
+	require.Equal(
+		t,
+		`ALTER TABLE "users" ALTER COLUMN "active" TYPE smallint USING "active"::integer::smallint`,
+		alter("boolean", "smallint"),
+	)
+
+	// Boolean to integer already had a cast of its own.
+	require.Equal(
+		t,
+		`ALTER TABLE "users" ALTER COLUMN "active" TYPE integer USING "active"::integer`,
+		alter("boolean", "integer"),
+	)
+
+	require.Equal(
+		t,
+		`ALTER TABLE "users" ALTER COLUMN "active" TYPE boolean USING "active" <> 0`,
+		alter("bigint", "boolean"),
+	)
+
+	require.Equal(
+		t,
+		`ALTER TABLE "users" ALTER COLUMN "active" TYPE boolean USING "active" <> 0`,
+		alter("integer", "boolean"),
+	)
+
+	require.Equal(
+		t,
+		`ALTER TABLE "users" ALTER COLUMN "active" TYPE boolean USING "active" <> 0`,
+		alter("smallint", "boolean"),
+	)
+}

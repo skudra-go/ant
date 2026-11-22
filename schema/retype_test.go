@@ -83,11 +83,39 @@ func TestRetypeKeepsValues(t *testing.T) {
 			want:  "42",
 		},
 		{
-			name:  "text to array needs USING",
-			from:  "text",
-			to:    "text[]",
-			value: "'{a,b}'",
-			want:  "{a,b}",
+			name:  "boolean to bigint needs USING through integer",
+			from:  "boolean",
+			to:    "bigint",
+			value: "true",
+			want:  "1",
+		},
+		{
+			name:  "boolean false to bigint needs USING through integer",
+			from:  "boolean",
+			to:    "bigint",
+			value: "false",
+			want:  "0",
+		},
+		{
+			name:  "boolean to smallint needs USING through integer",
+			from:  "boolean",
+			to:    "smallint",
+			value: "true",
+			want:  "1",
+		},
+		{
+			name:  "bigint one to boolean needs USING as a comparison",
+			from:  "bigint",
+			to:    "boolean",
+			value: "1",
+			want:  "true",
+		},
+		{
+			name:  "bigint zero to boolean needs USING as a comparison",
+			from:  "bigint",
+			to:    "boolean",
+			value: "0",
+			want:  "false",
 		},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -142,6 +170,11 @@ func TestRetypeUsing(t *testing.T) {
 		{"text", "bigint", true},
 		{"text", "text[]", true},
 		{"integer", "boolean", true},
+		{"boolean", "smallint", true},
+		{"boolean", "bigint", true},
+		{"smallint", "boolean", true},
+		{"bigint", "boolean", true},
+		{"boolean", "integer", true},
 	} {
 		plan, err := schema.Diff(
 			prWorld(prTab("items", prOpt("v", c.from))),
