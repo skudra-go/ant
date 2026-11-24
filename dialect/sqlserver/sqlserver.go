@@ -25,6 +25,7 @@ var syntax = dialect.Syntax{
 		dialect.DatePart,
 		dialect.SubqueryWith,
 		dialect.ReadOnlyInTx,
+		dialect.ExplainPlan,
 	},
 	OffsetFetch:        true,
 	Output:             true,

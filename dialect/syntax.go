@@ -28,6 +28,9 @@ const (
 	// ReadOnlyInTx is making a transaction read-only once it has begun, as a
 	// Tx nested in another does.
 	ReadOnlyInTx Feature = "READ ONLY inside a transaction"
+	// ExplainPlan is a statement that returns a query's plan as rows, which SQL
+	// Server has only as a session setting.
+	ExplainPlan Feature = "EXPLAIN"
 )
 
 // Syntax says where a dialect's SQL differs from what Render writes, which is
@@ -114,6 +117,11 @@ type Syntax struct {
 	// rather than leave the first write to fail with the driver's message.
 	PlainValues bool
 
+	// Explain is the command put before a query to read its plan, such as
+	// EXPLAIN QUERY PLAN. The plan's text is in the last column of each row it
+	// returns. Empty is EXPLAIN.
+	Explain string
+
 	// Functions renames functions, such as LENGTH to LEN.
 	Functions map[string]string
 	// MaxParameters is the most bound values in one statement. The default is
@@ -135,6 +143,15 @@ func (s *Syntax) ParameterLimit() int {
 	}
 
 	return s.MaxParameters
+}
+
+// ExplainCommand returns the command put before a query to read its plan.
+func (s *Syntax) ExplainCommand() string {
+	if s.Explain == "" {
+		return "EXPLAIN "
+	}
+
+	return s.Explain + " "
 }
 
 // SavepointCommands returns the commands that take a savepoint's name. An empty

@@ -27,17 +27,21 @@ var (
 	mariaSyntax = noLockOf(shared(dialect.ShareLocks, dialect.LateralJoin))
 )
 
-// noLockOf marks MariaDB, which has no FOR UPDATE OF. MySQL has.
+// noLockOf marks MariaDB, which has no FOR UPDATE OF. MySQL has. Its plan reads
+// as JSON: MariaDB has no FORMAT=TREE, and its plain EXPLAIN is a table.
 func noLockOf(s dialect.Syntax) dialect.Syntax {
 	s.NoLockOf = true
+	s.Explain = "EXPLAIN FORMAT=JSON"
 
 	return s
 }
 
 // selfReads marks MySQL, which refuses a write whose subquery reads the table
-// being written (error 1093). MariaDB allows it.
+// being written (error 1093). MariaDB allows it. Its plan reads as a tree of
+// text, as PostgreSQL's does, from MySQL 8.0.16.
 func selfReads(s dialect.Syntax) dialect.Syntax {
 	s.WrapSelfReads = true
+	s.Explain = "EXPLAIN FORMAT=TREE"
 
 	return s
 }

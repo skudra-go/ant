@@ -638,6 +638,7 @@ dialect: const ConflictWhere
 dialect: const DateCast
 dialect: const DatePart
 dialect: const DefaultKeyword
+dialect: const ExplainPlan
 dialect: const FullJoin
 dialect: const LateralJoin
 dialect: const Merge
@@ -649,6 +650,7 @@ dialect: const ReturningUpdate
 dialect: const RowLocks
 dialect: const ShareLocks
 dialect: const SubqueryWith
+dialect: func (s *Syntax) ExplainCommand() string
 dialect: func (s *Syntax) Lacks(f Feature) bool
 dialect: func (s *Syntax) ParameterLimit() int
 dialect: func (s *Syntax) SavepointCommands() (save, rollback, release string)

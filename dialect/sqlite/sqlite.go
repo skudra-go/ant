@@ -29,6 +29,7 @@ var syntax = dialect.Syntax{
 		dialect.ReadOnlyInTx,
 	},
 	Unlimited:     "-1",
+	Explain:       "EXPLAIN QUERY PLAN",
 	NoILike:       true,
 	NoRowIn:       true,
 	BareSets:      true,

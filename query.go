@@ -11,6 +11,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/skudra-go/ant/dialect"
 	"github.com/skudra-go/ant/internal/meta"
 	"github.com/skudra-go/ant/internal/track"
 	"github.com/skudra-go/ant/qb"
@@ -776,30 +777,65 @@ func (q *Query[T]) DeleteSQL(ctx context.Context) (string, []any, error) {
 	return q.state.dialect.Render(qb.Contextual{Context: ctx, Statement: stmt})
 }
 
-// Explain returns the database's plan for this query.
+// Explain returns the database's plan for the statement All runs, one line per
+// row the database returns: EXPLAIN on PostgreSQL, EXPLAIN FORMAT=TREE on MySQL,
+// EXPLAIN FORMAT=JSON on MariaDB, and the details of EXPLAIN QUERY PLAN on
+// SQLite. SQL Server has no such statement, so it returns ErrUnsupported.
 func (q *Query[T]) Explain(ctx context.Context) (string, error) {
 	if err := q.readyToRead(); err != nil {
 		return "", err
 	}
 
-	text, args, err := q.state.dialect.Render(
-		qb.Contextual{Context: ctx, Statement: q.statement(q.selection())},
-	)
+	syntax := dialect.SyntaxOf(q.state.dialect)
+	if syntax.Lacks(dialect.ExplainPlan) {
+		return "", fmt.Errorf("%w: %s on %s", ErrUnsupported, dialect.ExplainPlan, q.state.dialect.Name())
+	}
+
+	stmt := q.statement(q.selection())
+	q.addJoined(stmt)
+
+	text, args, err := q.state.dialect.Render(qb.Contextual{Context: ctx, Statement: stmt})
 	if err != nil {
 		return "", err
 	}
 
-	rows, err := q.state.exec.QueryContext(ctx, "EXPLAIN "+text, args...)
+	rows, err := q.state.exec.QueryContext(ctx, syntax.ExplainCommand()+text, args...)
 	if err != nil {
 		return "", err
 	}
 
-	lines, err := collect[string](rows)
+	lines, err := lastColumns(rows)
 	if err != nil {
 		return "", err
 	}
 
 	return strings.Join(lines, "\n"), nil
+}
+
+// lastColumns reads the last column of each row as text.
+func lastColumns(rows *sql.Rows) (out []string, err error) {
+	defer func() { err = errors.Join(err, rows.Close()) }()
+
+	columns, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+
+	dest := make([]any, len(columns))
+
+	for i := range dest {
+		dest[i] = new(sql.RawBytes)
+	}
+
+	for rows.Next() {
+		if err := rows.Scan(dest...); err != nil {
+			return nil, err
+		}
+
+		out = append(out, string(*dest[len(dest)-1].(*sql.RawBytes)))
+	}
+
+	return out, rows.Err()
 }
 
 // Find returns the entity with the given primary key, within this query's
