@@ -75,7 +75,9 @@ Error helpers mean the same everywhere. `ant.IsUniqueViolation` works on all fiv
 
 **Writers at once on SQLite.** SQLite has one writer at a time. A second connection that writes fails at once with "database is locked" unless the DSN makes it wait, and a transaction that reads and then writes can fail even then, unless it takes the write lock when it begins: use `_pragma=busy_timeout(5000)&_txlock=immediate`. `PRAGMA journal_mode=WAL` lets readers go on while one writes; it stays with the file, so run it once rather than in the DSN, where every new connection would need the write lock to set it.
 
-**Paging on SQL Server.** `OFFSET ... FETCH` needs an `ORDER BY`, so ant adds a meaningless one if the query has none. SQL Server refuses a `Limit` of zero.
+**Paging on SQL Server.** `OFFSET ... FETCH` needs an `ORDER BY`, so ant adds a meaningless one if the query has none, or `ORDER BY 1` after `Distinct`, which takes only items of the select list. SQL Server refuses a `Limit` of zero.
+
+**Ordering on SQL Server.** SQL Server refuses an `ORDER BY` in a subquery, derived table or CTE without `OFFSET` (error 1033). There it cannot change which rows the nested query yields, so ant leaves it out of `Exists`, `InSub`, `SubOf`, `From`, `FromCTE`, `JoinSub` and the other nested queries, and keeps it when the nested query has a `Limit` or an `Offset`. `NULLS FIRST` and `NULLS LAST` are a `CASE` before the value on MySQL, MariaDB and SQL Server, written only when the order moves NULLs from where these databases put them, below every value. Under `Distinct` that `CASE` is outside the select list, which SQL Server refuses, so there `Asc().NullsLast()` and `Desc().NullsFirst()` return `ErrUnsupported`.
 
 **Averages on SQL Server.** `AVG` there returns its argument's type, so the average of an integer column would lose its fraction. ant writes `AVG(CAST(x AS FLOAT))`, and `Avg`, `AvgOf`, and `AvgRelated` give the same number on every database.
 

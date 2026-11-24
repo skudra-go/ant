@@ -84,6 +84,7 @@ type renderer struct {
 	err  error
 
 	top          *qb.Select // the statement itself, when it is a SELECT
+	rows         *qb.Select // the SELECT of an INSERT, whose order is the statement's
 	duplicateKey bool       // inside ON DUPLICATE KEY UPDATE
 
 	// keyed holds, with RecursiveUnionAll, the key of each recursive CTE in
@@ -879,7 +880,11 @@ func (r *renderer) selectStmt(s *qb.Select) {
 		r.write(")")
 	}
 
-	if len(s.Order) > 0 {
+	if len(s.Order) > 0 && r.ordered(s) {
+		if s.Distinct && slices.ContainsFunc(s.Order, r.movesNulls) {
+			r.need(DistinctNullsOrder)
+		}
+
 		r.write(" ORDER BY ")
 		list(r, s.Order, r.order)
 	}
@@ -1047,11 +1052,31 @@ func (r *renderer) keyedSource(name string, key []string) {
 	r.write(" = 1)")
 }
 
+// ordered reports whether s's ORDER BY is written. A database with NoNestedOrder
+// refuses one in a subquery, derived table or CTE with no paging, where it
+// cannot change which rows s yields, so there it is left out.
+func (r *renderer) ordered(s *qb.Select) bool {
+	return !r.s.NoNestedOrder || s == r.top || s == r.rows || s.Limit != nil || s.Offset != nil
+}
+
+// movesNulls reports whether o places NULLs where a database with NoNullsOrder
+// does not put them itself, below every value.
+func (r *renderer) movesNulls(o qb.Order) bool {
+	return r.s.NoNullsOrder &&
+		(o.Nulls == qb.NullsLast && !o.Desc || o.Nulls == qb.NullsFirst && o.Desc)
+}
+
 func (r *renderer) paging(s *qb.Select) {
 	switch {
 	case s.Limit == nil && s.Offset == nil:
 	case r.s.OffsetFetch:
-		if len(s.Order) == 0 {
+		// Under DISTINCT an ORDER BY item must be in the select list, which
+		// (SELECT NULL) is not, so the first column orders the rows instead.
+		switch {
+		case len(s.Order) > 0:
+		case s.Distinct:
+			r.write(" ORDER BY 1")
+		default:
 			r.write(" ORDER BY (SELECT NULL)")
 		}
 
@@ -1087,15 +1112,15 @@ func (r *renderer) paging(s *qb.Select) {
 
 func (r *renderer) order(o qb.Order) {
 	if r.s.NoNullsOrder {
-		switch o.Nulls {
-		case qb.NullsFirst:
+		if r.movesNulls(o) {
 			r.write("CASE WHEN ")
 			r.expr(o.Value)
-			r.write(" IS NULL THEN 0 ELSE 1 END, ")
-		case qb.NullsLast:
-			r.write("CASE WHEN ")
-			r.expr(o.Value)
-			r.write(" IS NULL THEN 1 ELSE 0 END, ")
+
+			if o.Nulls == qb.NullsFirst {
+				r.write(" IS NULL THEN 0 ELSE 1 END, ")
+			} else {
+				r.write(" IS NULL THEN 1 ELSE 0 END, ")
+			}
 		}
 
 		o.Nulls = qb.NullsDefault
@@ -1182,6 +1207,7 @@ func (r *renderer) insert(s *qb.Insert) {
 	switch {
 	case s.From != nil:
 		r.write(" ")
+		r.rows = s.From
 		r.selectStmt(s.From)
 	case len(s.Rows) > 0 && r.updateReadsTable(s):
 		r.rowsSelect(s.Rows)

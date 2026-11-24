@@ -229,6 +229,7 @@ On 2026-11-20 the decisions moved from one file, `docs/DECISIONS.md`, to a file 
 | [118](118-a-sqlite-dsn-says-whether-foreign-keys-are-on.md) | A SQLite DSN says whether foreign keys are on | amended by [159](159-a-sqlite-dsn-names-its-lock-behavior.md) | `sqlite` `foreign-keys` `dsn` `CheckDSN` |
 | [137](137-stored-tsvector-columns-have-a-separate-match-helper.md) | Stored tsvector columns have a separate Match helper, and Match writes its configuration | active | `postgres` `Match` `MatchVector` `tsvector` `full-text` `regconfig` `indexes` |
 | [159](159-a-sqlite-dsn-names-its-lock-behavior.md) | A SQLite DSN names its lock behavior | active | `sqlite` `dsn` `CheckDSN` `busy_timeout` `_txlock` `SQLITE_BUSY` |
+| [165](165-sql-server-orders-only-where-it-counts.md) | SQL Server gets an ORDER BY only where it counts, and only from the select list under DISTINCT | active | `sqlserver` `order` `subquery` `derived table` `CTE` `DISTINCT` `NULLS FIRST` `NULLS LAST` `paging` |
 
 #### Migrations and schema
 
@@ -358,13 +359,13 @@ Before changing a file, read the decisions about it.
 | `dialect/postgres/postgres.go` | [43](043-database-specific-helpers.md) [49](049-postgresql-first.md) |
 | `dialect/postgres/session.go` | [56](056-failure.md) |
 | `dialect/postgres/split_test.go` | [57](057-drift-compares-what-the-server-stored.md) |
-| `dialect/render.go` | [36](036-derived-tables-keep-the-models-name.md) [38](038-bulk-writes.md) [39](039-global-filters-are-lazy.md) [44](044-many-to-many.md) [49](049-postgresql-first.md) [74](074-dialects-state-their-differences.md) [81](081-a-set-operations-members-keep-their-own-paging.md) [84](084-every-time-is-bound-in-utc-where-columns-keep-no-zone.md) [85](085-mysql-reads-the-table-it-writes-through-a-derived-table.md) [88](088-sql-server-recurses-with-union-all-and-a-path-of-keys.md) [91](091-an-upsert-checks-a-copys-version-on-mysql-and-mariadb.md) [95](095-in-means-eq-and-other-value-rules.md) [107](107-hot-paths-allocate-for-the-operation-not-for-each-row.md) [124](124-a-conflict-target-repeats-a-partial-indexs-predicate.md) |
+| `dialect/render.go` | [36](036-derived-tables-keep-the-models-name.md) [38](038-bulk-writes.md) [39](039-global-filters-are-lazy.md) [44](044-many-to-many.md) [49](049-postgresql-first.md) [74](074-dialects-state-their-differences.md) [81](081-a-set-operations-members-keep-their-own-paging.md) [84](084-every-time-is-bound-in-utc-where-columns-keep-no-zone.md) [85](085-mysql-reads-the-table-it-writes-through-a-derived-table.md) [88](088-sql-server-recurses-with-union-all-and-a-path-of-keys.md) [91](091-an-upsert-checks-a-copys-version-on-mysql-and-mariadb.md) [95](095-in-means-eq-and-other-value-rules.md) [107](107-hot-paths-allocate-for-the-operation-not-for-each-row.md) [124](124-a-conflict-target-repeats-a-partial-indexs-predicate.md) [165](165-sql-server-orders-only-where-it-counts.md) |
 | `dialect/render_test.go` | [49](049-postgresql-first.md) [74](074-dialects-state-their-differences.md) |
 | `dialect/self_reads_test.go` | [38](038-bulk-writes.md) [85](085-mysql-reads-the-table-it-writes-through-a-derived-table.md) |
 | `dialect/sqlite/sqlite.go` | [74](074-dialects-state-their-differences.md) [76](076-one-clock-for-times-without-a-zone.md) [118](118-a-sqlite-dsn-says-whether-foreign-keys-are-on.md) [141](141-a-statement-inside-an-each-loop-on-one-connection-is-refused.md) [152](152-open-refuses-values-the-driver-cannot-take.md) [159](159-a-sqlite-dsn-names-its-lock-behavior.md) [164](164-explain-reads-each-databases-plan-statement.md) |
 | `dialect/sqlite/sqlite_test.go` | [118](118-a-sqlite-dsn-says-whether-foreign-keys-are-on.md) [159](159-a-sqlite-dsn-names-its-lock-behavior.md) |
-| `dialect/sqlserver/sqlserver.go` | [74](074-dialects-state-their-differences.md) [76](076-one-clock-for-times-without-a-zone.md) [88](088-sql-server-recurses-with-union-all-and-a-path-of-keys.md) [152](152-open-refuses-values-the-driver-cannot-take.md) [164](164-explain-reads-each-databases-plan-statement.md) |
-| `dialect/syntax.go` | [31](031-failed-saves.md) [45](045-errors-are-classified-not-wrapped.md) [74](074-dialects-state-their-differences.md) [76](076-one-clock-for-times-without-a-zone.md) [85](085-mysql-reads-the-table-it-writes-through-a-derived-table.md) [88](088-sql-server-recurses-with-union-all-and-a-path-of-keys.md) [91](091-an-upsert-checks-a-copys-version-on-mysql-and-mariadb.md) [141](141-a-statement-inside-an-each-loop-on-one-connection-is-refused.md) [152](152-open-refuses-values-the-driver-cannot-take.md) [164](164-explain-reads-each-databases-plan-statement.md) |
+| `dialect/sqlserver/sqlserver.go` | [74](074-dialects-state-their-differences.md) [76](076-one-clock-for-times-without-a-zone.md) [88](088-sql-server-recurses-with-union-all-and-a-path-of-keys.md) [152](152-open-refuses-values-the-driver-cannot-take.md) [164](164-explain-reads-each-databases-plan-statement.md) [165](165-sql-server-orders-only-where-it-counts.md) |
+| `dialect/syntax.go` | [31](031-failed-saves.md) [45](045-errors-are-classified-not-wrapped.md) [74](074-dialects-state-their-differences.md) [76](076-one-clock-for-times-without-a-zone.md) [85](085-mysql-reads-the-table-it-writes-through-a-derived-table.md) [88](088-sql-server-recurses-with-union-all-and-a-path-of-keys.md) [91](091-an-upsert-checks-a-copys-version-on-mysql-and-mariadb.md) [141](141-a-statement-inside-an-each-loop-on-one-connection-is-refused.md) [152](152-open-refuses-values-the-driver-cannot-take.md) [164](164-explain-reads-each-databases-plan-statement.md) [165](165-sql-server-orders-only-where-it-counts.md) |
 | `dialect/syntax_test.go` | [74](074-dialects-state-their-differences.md) [88](088-sql-server-recurses-with-union-all-and-a-path-of-keys.md) |
 | `dialect/utc_test.go` | [76](076-one-clock-for-times-without-a-zone.md) [84](084-every-time-is-bound-in-utc-where-columns-keep-no-zone.md) |
 | `docs/DECISIONS.md` | [8](008-step-1-file-count.md) |
@@ -570,6 +571,7 @@ Before changing a file, read the decisions about it.
 | `tests/matrix/matrix_test.go` | [38](038-bulk-writes.md) [49](049-postgresql-first.md) [74](074-dialects-state-their-differences.md) [75](075-generated-values-without-returning.md) [86](086-combinations-are-tested-against-an-oracle.md) |
 | `tests/matrix/sql_test.go` | [86](086-combinations-are-tested-against-an-oracle.md) |
 | `tests/matrix/testdata/sqlserver.sql` | [88](088-sql-server-recurses-with-union-all-and-a-path-of-keys.md) |
+| `tests/nested_order_test.go` | [165](165-sql-server-orders-only-where-it-counts.md) |
 | `tests/null_equality_test.go` | [146](146-ne-matches-null-as-go-does.md) |
 | `tests/partial_conflict_test.go` | [124](124-a-conflict-target-repeats-a-partial-indexs-predicate.md) |
 | `tests/plain_values_test.go` | [152](152-open-refuses-values-the-driver-cannot-take.md) |
@@ -625,7 +627,7 @@ Tags on two or more decisions. Search the headers for the rest: `rg -l '^tags: .
 - `ConcurrencyError`: [80](080-every-write-moves-the-version-on.md) [110](110-a-version-the-application-sets-is-the-one-checked.md) [112](112-a-locking-read-puts-the-row-into-the-tracked-instance.md) [140](140-an-update-that-changed-nothing-is-checked-against-the-row.md)
 - `CONCURRENTLY`: [56](056-failure.md) [78](078-a-replaced-column-takes-its-dependents-along-and-they.md)
 - `Configure`: [21](021-configuration-runs-when-a-context-opens.md) [66](066-several-models-can-share-a-table.md) [83](083-antvet-judges-only-what-it-can-see.md) [107](107-hot-paths-allocate-for-the-operation-not-for-each-row.md)
-- `CTE`: [36](036-derived-tables-keep-the-models-name.md) [88](088-sql-server-recurses-with-union-all-and-a-path-of-keys.md)
+- `CTE`: [36](036-derived-tables-keep-the-models-name.md) [88](088-sql-server-recurses-with-union-all-and-a-path-of-keys.md) [165](165-sql-server-orders-only-where-it-counts.md)
 - `decimal`: [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) [145](145-helpers-take-a-field-of-any-type.md)
 - `default`: [51](051-modeling-added-for-migrations.md) [52](052-new-not-null-columns-fill-existing-rows.md) [119](119-an-upserts-update-writes-the-zero-a-default-field-holds.md) [150](150-a-zero-key-nothing-fills-is-refused.md) [157](157-insert-validation-leaves-zero-default-fields-to-the-database.md)
 - `Delete`: [23](023-guarding-bulk-writes.md) [38](038-bulk-writes.md)
@@ -750,9 +752,9 @@ Tags on two or more decisions. Search the headers for the rest: `rg -l '^tags: .
 - `soft-delete`: [40](040-soft-deletes-are-a-filter.md) [80](080-every-write-moves-the-version-on.md) [102](102-updatemany-keeps-what-a-bulk-update-keeps.md) [124](124-a-conflict-target-repeats-a-partial-indexs-predicate.md) [151](151-deletedat-is-a-time-or-null-in-json.md)
 - `sql.Null`: [51](051-modeling-added-for-migrations.md) [147](147-a-projection-reads-null-into-a-plain-field-as-zero.md)
 - `sqlite`: [76](076-one-clock-for-times-without-a-zone.md) [84](084-every-time-is-bound-in-utc-where-columns-keep-no-zone.md) [118](118-a-sqlite-dsn-says-whether-foreign-keys-are-on.md) [159](159-a-sqlite-dsn-names-its-lock-behavior.md) [160](160-sqlite-time-aggregates-read-text.md) [164](164-explain-reads-each-databases-plan-statement.md)
-- `sqlserver`: [76](076-one-clock-for-times-without-a-zone.md) [84](084-every-time-is-bound-in-utc-where-columns-keep-no-zone.md) [88](088-sql-server-recurses-with-union-all-and-a-path-of-keys.md) [164](164-explain-reads-each-databases-plan-statement.md)
+- `sqlserver`: [76](076-one-clock-for-times-without-a-zone.md) [84](084-every-time-is-bound-in-utc-where-columns-keep-no-zone.md) [88](088-sql-server-recurses-with-union-all-and-a-path-of-keys.md) [164](164-explain-reads-each-databases-plan-statement.md) [165](165-sql-server-orders-only-where-it-counts.md)
 - `step-1`: [8](008-step-1-file-count.md) [9](009-owner-review-of-step-1.md)
-- `subquery`: [37](037-references-to-outer-queries.md) [38](038-bulk-writes.md) [83](083-antvet-judges-only-what-it-can-see.md)
+- `subquery`: [37](037-references-to-outer-queries.md) [38](038-bulk-writes.md) [83](083-antvet-judges-only-what-it-can-see.md) [165](165-sql-server-orders-only-where-it-counts.md)
 - `tags`: [125](125-open-refuses-a-model-it-would-misread.md) [139](139-a-field-can-not-ask-for-two-things-ant-can-not-both-do.md)
 - `terminal-call`: [18](018-wrong-model-detection.md) [37](037-references-to-outer-queries.md)
 - `time`: [1](001-ant-ordered-replaces-cmp-ordered.md) [84](084-every-time-is-bound-in-utc-where-columns-keep-no-zone.md) [92](092-tracked-values-compare-as-stored.md) [160](160-sqlite-time-aggregates-read-text.md)

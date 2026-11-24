@@ -638,6 +638,7 @@ dialect: const ConflictWhere
 dialect: const DateCast
 dialect: const DatePart
 dialect: const DefaultKeyword
+dialect: const DistinctNullsOrder
 dialect: const ExplainPlan
 dialect: const FullJoin
 dialect: const LateralJoin

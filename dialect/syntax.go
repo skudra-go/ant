@@ -31,6 +31,9 @@ const (
 	// ExplainPlan is a statement that returns a query's plan as rows, which SQL
 	// Server has only as a session setting.
 	ExplainPlan Feature = "EXPLAIN"
+	// DistinctNullsOrder is NULLS FIRST or NULLS LAST that moves NULLs in a
+	// SELECT DISTINCT, which emulating it puts outside the select list.
+	DistinctNullsOrder Feature = "NULLS FIRST or NULLS LAST against the default order in a SELECT DISTINCT"
 )
 
 // Syntax says where a dialect's SQL differs from what Render writes, which is
@@ -60,8 +63,14 @@ type Syntax struct {
 	// FloatAvg casts the argument of AVG to a float, for a database whose AVG of
 	// an integer column is an integer, with the fraction cut off.
 	FloatAvg bool
-	// NoNullsOrder turns NULLS FIRST and NULLS LAST into a CASE before the value.
+	// NoNullsOrder turns NULLS FIRST and NULLS LAST into a CASE before the value,
+	// for a database that sorts NULL below every value, as MySQL, MariaDB and SQL
+	// Server do. Only an order that moves NULLs from there gets the CASE.
 	NoNullsOrder bool
+	// NoNestedOrder leaves the ORDER BY off a subquery, derived table or CTE with
+	// no paging, for a database that refuses one there. It cannot change which
+	// rows the nested query yields.
+	NoNestedOrder bool
 	// NoBooleans turns EXISTS used as a value into a CASE.
 	NoBooleans bool
 	// NoRowIn spells out multi-column IN as ORs.
