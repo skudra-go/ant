@@ -424,9 +424,10 @@ err := db.Tx(ctx, func(tx *AppDB) error {
 - Options go after the function: `ant.Isolation(sql.LevelSerializable)`,
   `ant.ReadOnly()`, `ant.Attempts(3)` to rerun after a deadlock or serialization
   failure.
-- `ForUpdate()` on a query locks the rows it reads. SQLite and SQL Server return
-  `ant.ErrUnsupported`. `Count`, `Exists` and the aggregates of a locked query
-  run without the lock.
+- `ForUpdate()` on a query locks the rows it reads. SQL Server returns
+  `ant.ErrUnsupported`, and so does SQLite, except in a writable transaction on a
+  DSN with `_txlock=immediate`, which already holds the write lock. `Count`,
+  `Exists` and the aggregates of a locked query run without the lock.
 - A transaction is one connection: use it from one goroutine at a time.
 
 ## Errors

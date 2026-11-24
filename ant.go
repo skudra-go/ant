@@ -183,6 +183,10 @@ func Open[DB any](
 		return nil, errors.Join(err, pool.Close())
 	}
 
+	if locker, ok := d.(dialect.BeginLocker); ok && locker.BeginLocks(dsn) {
+		options = append(slices.Clip(options), func(s *settings) { s.beginLocks = true })
+	}
+
 	db, err := wrap[DB](pool, pool, d, options)
 	if err != nil {
 		return nil, errors.Join(err, pool.Close())

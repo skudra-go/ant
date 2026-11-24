@@ -20,6 +20,9 @@ type settings struct {
 	retry        Retry
 	events       Events
 	diagnostics  *diagnostics
+	// beginLocks says a writable transaction holds the database's write lock
+	// from its start, which Open reads from the DSN (dialect.BeginLocker).
+	beginLocks bool
 }
 
 func defaultSettings() settings {

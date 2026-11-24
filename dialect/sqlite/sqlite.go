@@ -112,6 +112,25 @@ func (impl) CheckDSN(dsn string) error {
 	return nil
 }
 
+// BeginLocks reports whether the DSN begins a writable transaction with BEGIN
+// IMMEDIATE or BEGIN EXCLUSIVE, which take the write lock at once. The driver
+// begins a read-only one with a plain BEGIN, whatever _txlock says.
+func (impl) BeginLocks(dsn string) bool {
+	_, query, _ := strings.Cut(dsn, "?")
+
+	values, err := url.ParseQuery(query)
+	if err != nil {
+		return false
+	}
+
+	switch strings.ToLower(values.Get("_txlock")) {
+	case "immediate", "exclusive":
+		return true
+	}
+
+	return false
+}
+
 func (impl) Placeholder(n int) string { return "?" }
 
 func (impl) Quote(ident string) string { return dialect.QuoteWith(ident, "\"", "\"") }

@@ -14,7 +14,7 @@ ant runs on five databases. PostgreSQL has everything. The others run queries, w
 | Concurrency suite (`tests/concurrency`) | Yes | Yes | Yes | Yes | Yes |
 | Upsert | Yes | Yes | Yes | Yes | No |
 | `MERGE` | From 15 | No | No | No | Yes |
-| Row locks | Yes | Yes | `ForUpdate` only | No | No |
+| Row locks | Yes | Yes | `ForUpdate` only | Held by the transaction with `_txlock=immediate` | No |
 | `FULL JOIN` | Yes | No | No | Yes | Yes |
 | Lateral joins | Yes | Yes | No | No | No |
 | `UpdateReturning` | Yes | No | No | Yes | Yes |
@@ -71,7 +71,7 @@ Error helpers mean the same everywhere. `ant.IsUniqueViolation` works on all fiv
 
 **`FirstOrCreate` in a transaction.** When another writer inserted the row first, it is read `FOR UPDATE`, so changing it next takes no further lock. On MySQL and MariaDB the insert that lost already holds a share lock on that row, so two such transactions can still deadlock there (MariaDB: error 1020); the error is retryable, so run them with `ant.Attempts`.
 
-**Row locks.** `ForUpdate` and `ForShare` lock the rows a query returns. `Count`, `Exists`, the aggregates, and the total of `Page` read no rows to lock, and PostgreSQL refuses a lock on them, so they run without it on every database. With `IncludeJoined` the lock is on the query's own table (`FOR UPDATE OF`), since PostgreSQL refuses to lock the nullable side of a left join. MariaDB has no `OF` and locks the related rows as well.
+**Row locks.** `ForUpdate` and `ForShare` lock the rows a query returns. SQLite has no row locks, and refuses them with `ErrUnsupported`, except in a writable transaction from a context `Open` made with `_txlock=immediate` or `exclusive`: that transaction holds the database's write lock from its first statement, so the lock is left out of the SQL. A read-only transaction begins with a plain `BEGIN`, and ant cannot read the DSN of a pool given to `Wrap` or a transaction given to `UseTx`, so those still refuse. `Count`, `Exists`, the aggregates, and the total of `Page` read no rows to lock, and PostgreSQL refuses a lock on them, so they run without it on every database. With `IncludeJoined` the lock is on the query's own table (`FOR UPDATE OF`), since PostgreSQL refuses to lock the nullable side of a left join. MariaDB has no `OF` and locks the related rows as well.
 
 **Writers at once on SQLite.** SQLite has one writer at a time. A second connection that writes fails at once with "database is locked" unless the DSN makes it wait, and a transaction that reads and then writes can fail even then, unless it takes the write lock when it begins: use `_pragma=busy_timeout(5000)&_txlock=immediate`. `PRAGMA journal_mode=WAL` lets readers go on while one writes; it stays with the file, so run it once rather than in the DSN, where every new connection would need the write lock to set it.
 

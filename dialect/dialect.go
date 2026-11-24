@@ -60,6 +60,16 @@ type ChangedRowsOnly interface {
 	CountsChangedRows() bool
 }
 
+// BeginLocker is implemented by a dialect whose writable transactions can hold
+// the database's write lock from their start, as SQLite's do with
+// _txlock=immediate or exclusive. A row lock in one adds nothing then, so ant
+// leaves it out there, on a database that has none, rather than refuse it.
+type BeginLocker interface {
+	// BeginLocks reports whether a writable transaction on a pool opened with
+	// dsn holds the write lock from its start.
+	BeginLocks(dsn string) bool
+}
+
 // QuoteWith wraps ident in open and close, doubling any embedded close.
 func QuoteWith(ident, open, close string) string {
 	return open + strings.ReplaceAll(ident, close, close+close) + close

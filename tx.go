@@ -31,6 +31,10 @@ type txState struct {
 	// open in it, whose end ant does see.
 	external bool
 	open     int
+	// writeLocked says the transaction holds the database's write lock from its
+	// start, so a row lock in it adds nothing (dialect.BeginLocker). It is unknown,
+	// and false, for one from UseTx.
+	writeLocked bool
 	// ctx is the context the transaction began with, and stop stops the
 	// rollback that waits for it to end. taken is the connection ant took for
 	// the transaction, given back when it ends.
@@ -432,7 +436,7 @@ func (s *state) begin(ctx context.Context, o txOptions) (*txState, error) {
 		return nil, err
 	}
 
-	t := &txState{ctx: ctx}
+	t := &txState{ctx: ctx, writeLocked: s.settings.beginLocks && !o.sql.ReadOnly}
 	on := s.starter()
 
 	if s.conn == nil {

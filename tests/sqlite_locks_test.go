@@ -26,7 +26,7 @@ func TestSQLiteRowLocksInImmediateTx(t *testing.T) {
 				require.NoError(t, err)
 				t.Cleanup(func() { app.Close() })
 
-				prefix := strings.ToLower(mode)
+				prefix := mode
 				users := seedUsers(t, app, prefix+"-from", 30, prefix+"-to", 25)
 				ids := []int64{users[0].ID, users[1].ID}
 
@@ -63,6 +63,20 @@ func TestSQLiteRowLocksInImmediateTx(t *testing.T) {
 				require.Equal(t, 25, from.Age)
 			})
 		}
+
+		t.Run("nested and in a session", func(t *testing.T) {
+			app := openApp(t, target)
+			alice := seedUsers(t, app, "nested-alice", 30)[0]
+
+			err := ant.Session(app).Tx(ctx, func(tx *AppDB) error {
+				return tx.Tx(ctx, func(inner *AppDB) error {
+					_, err := inner.Users.Where(ant.Eq(&Users.ID, alice.ID)).ForUpdate().All(ctx)
+
+					return err
+				})
+			})
+			require.NoError(t, err, "a savepoint is in the transaction that holds the lock")
+		})
 
 		t.Run("refused where the lock is not certain", func(t *testing.T) {
 			app := openApp(t, target)

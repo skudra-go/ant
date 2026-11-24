@@ -191,3 +191,23 @@ func TestOpenRequiresLockSettings(t *testing.T) {
 		}
 	}
 }
+
+// A writable transaction holds the write lock from its start only when the DSN
+// begins it IMMEDIATE or EXCLUSIVE (#313).
+func TestBeginLocks(t *testing.T) {
+	d := Dialect.(dialect.BeginLocker)
+
+	for dsn, want := range map[string]bool{
+		"file:app.db?_pragma=foreign_keys(1)&_txlock=immediate": true,
+		"file:app.db?_txlock=EXCLUSIVE&_pragma=foreign_keys(1)": true,
+		"file:app.db?_pragma=foreign_keys(1)&_txlock=deferred":  false,
+		"file:app.db?_pragma=foreign_keys(1)&_txlock=":          false,
+		"file:app.db?_pragma=foreign_keys(1)":                   false,
+		"file:app.db":                                           false,
+		"file:app.db?_txlock=%zz":                               false,
+	} {
+		if got := d.BeginLocks(dsn); got != want {
+			t.Errorf("BeginLocks(%q) = %v, want %v", dsn, got, want)
+		}
+	}
+}

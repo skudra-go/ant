@@ -61,12 +61,33 @@ func (s *state) wrote() {
 
 // query renders and runs a statement that returns rows.
 func (s *state) query(ctx context.Context, stmt qb.Statement) (*sql.Rows, error) {
+	stmt = s.heldLock(ctx, stmt)
+
 	text, args, err := s.dialect.Render(qb.Contextual{Context: ctx, Statement: stmt})
 	if err != nil {
 		return nil, err
 	}
 
 	return s.reader(ctx, stmt).QueryContext(ctx, text, args...)
+}
+
+// heldLock leaves the row lock off a SELECT in a transaction that holds the
+// database's write lock from its start, on a database with no row locks, where
+// the lock is already held and could not be written.
+func (s *state) heldLock(ctx context.Context, stmt qb.Statement) qb.Statement {
+	sel, ok := stmt.(*qb.Select)
+	if !ok || sel.Lock == nil || dialect.Supports(s.dialect, dialect.RowLocks) {
+		return stmt
+	}
+
+	if t := s.txOf(ctx); t == nil || !t.writeLocked {
+		return stmt
+	}
+
+	unlocked := *sel
+	unlocked.Lock = nil
+
+	return &unlocked
 }
 
 // queryOn is query on a chosen executor, as a write's own read must be.
@@ -114,7 +135,7 @@ func (s *state) runOn(ctx context.Context, to exec.Executor, stmt qb.Statement) 
 
 // debugStatement logs a statement for Query.Debug.
 func (s *state) debugStatement(ctx context.Context, stmt qb.Statement) {
-	text, args, err := s.dialect.Render(qb.Contextual{Context: ctx, Statement: stmt})
+	text, args, err := s.dialect.Render(qb.Contextual{Context: ctx, Statement: s.heldLock(ctx, stmt)})
 	if err != nil {
 		return
 	}
