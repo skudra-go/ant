@@ -99,20 +99,7 @@ func TestConformanceIncludeJoinedRelationConditions(t *testing.T) {
 	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
 		ctx := t.Context()
 
-		for _, ddl := range []string{
-			`CREATE TABLE jr_essays (id BIGINT PRIMARY KEY, title VARCHAR(50) NOT NULL)`,
-			`CREATE TABLE jr_videos (id BIGINT PRIMARY KEY, title VARCHAR(50) NOT NULL)`,
-			`CREATE TABLE jr_notes (id BIGINT PRIMARY KEY, owner_type VARCHAR(20) NOT NULL, owner_id BIGINT NOT NULL, weight BIGINT NOT NULL, parent_type VARCHAR(20) NOT NULL, parent_id BIGINT NULL)`,
-		} {
-			_, err := target.DB.ExecContext(ctx, ddl)
-			require.NoError(t, err)
-		}
-
-		t.Cleanup(func() {
-			for _, table := range []string{"jr_notes", "jr_videos", "jr_essays"} {
-				_, _ = target.DB.ExecContext(context.Background(), "DROP TABLE "+table)
-			}
-		})
+		jrTables(t, target)
 
 		db, err := ant.Open[JrDB](ctx, target.Dialect, target.DSN, ant.WithTracking(false))
 		require.NoError(t, err)
@@ -218,5 +205,27 @@ func TestConformanceIncludeJoinedRelationConditions(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, want, essays)
 		})
+	})
+}
+
+// jrTables creates the tables of the Jr models, and drops them after the test.
+func jrTables(t *testing.T, target testdb.Target) {
+	t.Helper()
+
+	ctx := t.Context()
+
+	for _, ddl := range []string{
+		`CREATE TABLE jr_essays (id BIGINT PRIMARY KEY, title VARCHAR(50) NOT NULL)`,
+		`CREATE TABLE jr_videos (id BIGINT PRIMARY KEY, title VARCHAR(50) NOT NULL)`,
+		`CREATE TABLE jr_notes (id BIGINT PRIMARY KEY, owner_type VARCHAR(20) NOT NULL, owner_id BIGINT NOT NULL, weight BIGINT NOT NULL, parent_type VARCHAR(20) NOT NULL, parent_id BIGINT NULL)`,
+	} {
+		_, err := target.DB.ExecContext(ctx, ddl)
+		require.NoError(t, err)
+	}
+
+	t.Cleanup(func() {
+		for _, table := range []string{"jr_notes", "jr_videos", "jr_essays"} {
+			_, _ = target.DB.ExecContext(context.Background(), "DROP TABLE "+table)
+		}
 	})
 }
