@@ -33,7 +33,10 @@ func TestSQLiteRowLocksInImmediateTx(t *testing.T) {
 				var counts []int
 
 				err = app.Tx(ctx, func(tx *AppDB) error {
-					locked, err := tx.Users.Where(ant.In(&Users.ID, ids...)).OrderBy(&Users.ID).ForUpdate().All(ctx)
+					locked, err := tx.Users.Where(ant.In(&Users.ID, ids...)).
+						OrderBy(&Users.ID).
+						ForUpdate().
+						All(ctx)
 					if err != nil {
 						return err
 					}
@@ -46,7 +49,10 @@ func TestSQLiteRowLocksInImmediateTx(t *testing.T) {
 						return err
 					}
 
-					joined, err := tx.Posts.Where(ant.Eq(&Posts.UserID, ids[0])).IncludeJoined(&Posts.User).ForUpdate().All(ctx)
+					joined, err := tx.Posts.Where(ant.Eq(&Posts.UserID, ids[0])).
+						IncludeJoined(&Posts.User).
+						ForUpdate().
+						All(ctx)
 					if err != nil {
 						return err
 					}
@@ -80,6 +86,7 @@ func TestSQLiteRowLocksInImmediateTx(t *testing.T) {
 
 		t.Run("refused where the lock is not certain", func(t *testing.T) {
 			app := openApp(t, target)
+
 			deferred, err := ant.Open[AppDB](
 				ctx,
 				target.Dialect,
@@ -91,11 +98,15 @@ func TestSQLiteRowLocksInImmediateTx(t *testing.T) {
 			_, err = app.Users.Query().ForUpdate().All(ctx)
 			require.ErrorIs(t, err, ant.ErrUnsupported, "outside a transaction")
 
-			err = app.Tx(ctx, func(tx *AppDB) error {
-				_, err := tx.Users.Query().ForUpdate().All(ctx)
+			err = app.Tx(
+				ctx,
+				func(tx *AppDB) error {
+					_, err := tx.Users.Query().ForUpdate().All(ctx)
 
-				return err
-			}, ant.ReadOnly())
+					return err
+				},
+				ant.ReadOnly(),
+			)
 			require.ErrorIs(t, err, ant.ErrUnsupported, "a read-only transaction begins deferred")
 
 			err = deferred.Tx(ctx, func(tx *AppDB) error {
@@ -117,7 +128,12 @@ func TestSQLiteRowLocksInImmediateTx(t *testing.T) {
 
 				return err
 			})
-			require.ErrorIs(t, err, ant.ErrUnsupported, "on a pool ant did not open, whose DSN it cannot read")
+			require.ErrorIs(
+				t,
+				err,
+				ant.ErrUnsupported,
+				"on a pool ant did not open, whose DSN it cannot read",
+			)
 
 			sqlTx, err := pool.BeginTx(ctx, nil)
 			require.NoError(t, err)

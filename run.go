@@ -135,7 +135,9 @@ func (s *state) runOn(ctx context.Context, to exec.Executor, stmt qb.Statement) 
 
 // debugStatement logs a statement for Query.Debug.
 func (s *state) debugStatement(ctx context.Context, stmt qb.Statement) {
-	text, args, err := s.dialect.Render(qb.Contextual{Context: ctx, Statement: s.heldLock(ctx, stmt)})
+	text, args, err := s.dialect.Render(
+		qb.Contextual{Context: ctx, Statement: s.heldLock(ctx, stmt)},
+	)
 	if err != nil {
 		return
 	}

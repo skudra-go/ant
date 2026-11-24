@@ -212,7 +212,12 @@ func TestRetypeKeepsValues(t *testing.T) {
 			require.NoError(t, err)
 
 			var got string
-			require.NoError(t, sb.db.QueryRowContext(ctx, "SELECT coalesce(v::text, 'NULL') FROM items").Scan(&got))
+			require.NoError(
+				t,
+				sb.db.QueryRowContext(ctx, "SELECT coalesce(v::text, 'NULL') FROM items").
+					Scan(&got),
+			)
+
 			require.Equal(t, c.want, got)
 		})
 	}

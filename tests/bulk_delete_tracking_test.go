@@ -28,12 +28,16 @@ func TestConformanceFindAfterBulkDelete(t *testing.T) {
 			require.EqualValues(t, 1, n)
 		},
 		"Delete with Limit": func(t *testing.T, app *AppDB, _ testdb.Target, id int64, _ string) {
-			n, err := app.Users.Where(ant.Eq(&Users.ID, id)).OrderBy(&Users.ID).Limit(1).Delete(t.Context())
+			n, err := app.Users.Where(ant.Eq(&Users.ID, id)).
+				OrderBy(&Users.ID).
+				Limit(1).
+				Delete(t.Context())
 			require.NoError(t, err)
 			require.EqualValues(t, 1, n)
 		},
 		"DeleteReturning": func(t *testing.T, app *AppDB, target testdb.Target, id int64, _ string) {
 			gone, err := app.Users.Where(ant.Eq(&Users.ID, id)).DeleteReturning(t.Context())
+
 			if !has(target, dialect.ReturningDelete) {
 				require.ErrorIs(t, err, ant.ErrUnsupported)
 				t.Skip("no DELETE ... RETURNING on " + target.Name)
@@ -52,13 +56,17 @@ func TestConformanceFindAfterBulkDelete(t *testing.T) {
 				WhenMatched().
 				Delete().
 				Exec(t.Context())
+
 			if !has(target, dialect.Merge) {
 				require.ErrorIs(t, err, ant.ErrUnsupported)
 				t.Skip("no MERGE on " + target.Name)
 			}
 
 			if target.Name == "postgres" {
-				version, err := ant.Raw[int](app, "SELECT current_setting('server_version_num')::int").First(t.Context())
+				version, err := ant.Raw[int](
+					app,
+					"SELECT current_setting('server_version_num')::int",
+				).First(t.Context())
 				require.NoError(t, err)
 
 				if *version < 150000 {
