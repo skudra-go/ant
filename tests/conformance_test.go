@@ -812,7 +812,10 @@ func TestConformanceLocks(t *testing.T) {
 			return err
 		})
 
-		if has(target, dialect.RowLocks) {
+		// The SQLite target's DSN has _txlock=immediate, so its transaction holds
+		// the write lock and the row lock is left out (decision 167).
+		// tests/sqlite_locks_test.go covers where SQLite still refuses it.
+		if has(target, dialect.RowLocks) || target.Dialect.Name() == "sqlite" {
 			require.NoError(t, err)
 		} else {
 			require.ErrorIs(t, err, ant.ErrUnsupported)

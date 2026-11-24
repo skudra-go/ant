@@ -133,3 +133,28 @@ func TestConformanceFindAfterBulkDeleteRolledBack(t *testing.T) {
 		require.Same(t, tracked, again)
 	})
 }
+
+// An instance added and not yet saved has no row a bulk delete could remove, so
+// Find still answers with it.
+func TestConformanceFindAddedAfterBulkDelete(t *testing.T) {
+	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
+		app := openApp(t, target)
+		ctx := t.Context()
+		bob := seedUsers(t, app, "added-bob", 25)[0]
+		added := &User{
+			Base:  ant.Base{ID: bob.ID + 1000},
+			Name:  "added-new",
+			Email: "added-new@example.com",
+			Age:   1,
+		}
+		require.NoError(t, ant.Add(ctx, app, added))
+
+		n, err := app.Users.Where(ant.Eq(&Users.ID, bob.ID)).Delete(ctx)
+		require.NoError(t, err)
+		require.EqualValues(t, 1, n)
+
+		got, err := app.Users.Find(ctx, added.ID)
+		require.NoError(t, err)
+		require.Same(t, added, got)
+	})
+}

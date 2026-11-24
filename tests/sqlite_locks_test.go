@@ -2,6 +2,7 @@ package tests
 
 import (
 	"database/sql"
+	"errors"
 	"strings"
 	"testing"
 
@@ -58,6 +59,17 @@ func TestSQLiteRowLocksInImmediateTx(t *testing.T) {
 					}
 
 					counts = []int{len(locked), len(shared), len(joined)}
+
+					text, _, err := tx.Users.Where(ant.In(&Users.ID, ids...)).
+						ForUpdate().
+						ToSQLContext(ctx)
+					if err != nil {
+						return err
+					}
+
+					if strings.Contains(text, "FOR UPDATE") {
+						return errors.New("ToSQLContext kept the lock: " + text)
+					}
 
 					return tx.SaveChanges(ctx)
 				})

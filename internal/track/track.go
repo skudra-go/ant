@@ -1097,13 +1097,13 @@ func (t *Tracker) Find(m *meta.Model, key any) *Entry {
 
 // Current returns the first tracked instance with the given key, or nil if there
 // is none, or if it was tracked before a bulk delete of its model, which may
-// have removed its row.
+// have removed its row. An Added instance has no row to remove, so it stays.
 func (t *Tracker) Current(m *meta.Model, key any) *Entry {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	e := t.first.get(identityOf(m, key))
-	if e != nil && e.seq <= t.swept[m] {
+	if e != nil && e.State != Added && e.seq <= t.swept[m] {
 		return nil
 	}
 

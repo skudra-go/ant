@@ -21,7 +21,7 @@ SQLite has no row locks, so `ForUpdate` returned `ErrUnsupported` there, and the
 
 `dialect.BeginLocker` reports whether a DSN gives such transactions, and `Open` asks it. A transaction ant begins records whether it holds the lock: a writable one on such a context does, and a read-only one does not, since the driver begins that with a plain `BEGIN` whatever `_txlock` says. A savepoint is in its transaction, so it holds what that does. A query in a transaction that holds the lock has its row lock left out before it is rendered, on a database with no row locks.
 
-Where the lock is not certain the refusal stays: outside a transaction, in a read-only one, with `_txlock=deferred`, on a pool given to `Wrap`, whose DSN ant never sees, and in a transaction given to `UseTx`, whose options ant does not know. `ToSQL` takes no context, so it shows the statement as it is written outside a transaction, and refuses the lock.
+Where the lock is not certain the refusal stays: outside a transaction, in a read-only one, with `_txlock=deferred`, on a pool given to `Wrap`, whose DSN ant never sees, and in a transaction given to `UseTx`, whose options ant does not know. `ToSQL` takes no context, so it shows the statement as it is written outside a transaction, and refuses the lock. `ToSQLContext`, `Debug` and `Explain` render what the query runs in the context's transaction, without the lock in one that holds the write lock.
 
 Rejected:
 

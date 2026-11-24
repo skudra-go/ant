@@ -170,11 +170,14 @@ func (q *Query[T]) Hint(hint string) *Query[T] {
 // ForUpdate locks the selected rows until the transaction ends. The lock is on
 // the rows the query returns: Count, Exists, the aggregates, and the total of
 // Page take none, and with IncludeJoined the related rows are not locked,
-// except on MariaDB, which cannot lock one table of a join.
+// except on MariaDB, which cannot lock one table of a join. SQLite has no row
+// locks: there it returns ErrUnsupported, except in a writable transaction on a
+// DSN with _txlock=immediate or exclusive, which holds the write lock already,
+// so the lock is left out of the SQL.
 func (q *Query[T]) ForUpdate() *Query[T] { return q.locked(qb.Lock{Mode: "UPDATE"}) }
 
 // ForShare locks the selected rows against changes until the transaction ends,
-// while allowing other readers.
+// while allowing other readers. On SQLite it works as ForUpdate does.
 func (q *Query[T]) ForShare() *Query[T] { return q.locked(qb.Lock{Mode: "SHARE"}) }
 
 // NoWait makes a lock fail at once instead of waiting for another transaction.
@@ -753,7 +756,9 @@ func (q *Query[T]) ToSQLContext(ctx context.Context) (string, []any, error) {
 	stmt := q.statement(q.selection())
 	q.addJoined(stmt)
 
-	return q.state.dialect.Render(qb.Contextual{Context: ctx, Statement: stmt})
+	return q.state.dialect.Render(
+		qb.Contextual{Context: ctx, Statement: q.state.heldLock(ctx, stmt)},
+	)
 }
 
 // UpdateSQL returns the statement Update would run, for sending it some other
@@ -799,7 +804,9 @@ func (q *Query[T]) Explain(ctx context.Context) (string, error) {
 	stmt := q.statement(q.selection())
 	q.addJoined(stmt)
 
-	text, args, err := q.state.dialect.Render(qb.Contextual{Context: ctx, Statement: stmt})
+	text, args, err := q.state.dialect.Render(
+		qb.Contextual{Context: ctx, Statement: q.state.heldLock(ctx, stmt)},
+	)
 	if err != nil {
 		return "", err
 	}

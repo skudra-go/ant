@@ -464,8 +464,8 @@ func (d impl) alterColumn(c schema.AlterColumn) []string {
 //
 // A boolean casts to and from integer only, so it becomes another number through
 // integer, as 1 or 0, and a number becomes a boolean as true when it is not
-// zero, as integer's cast reads it, with no integer between to overflow. NULL
-// stays NULL.
+// zero, with no integer between to overflow or round 0.4 to false. NULL stays
+// NULL.
 func converted(from, to, column string) string {
 	switch from, to = baseType(from), baseType(to); {
 	case boolean(from) && numeric(to):
