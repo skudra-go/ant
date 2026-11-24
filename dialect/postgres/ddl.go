@@ -461,8 +461,17 @@ func (d impl) alterColumn(c schema.AlterColumn) []string {
 // interval, inet and jsonb. It returns "" for any other change. An interval
 // keeps microseconds, so the nanoseconds below one go, toward zero, as they do
 // when pgx writes a time.Duration. A bytea that is no address becomes NULL.
+//
+// A boolean casts to and from integer only, so it becomes another number through
+// integer, as 1 or 0, and a number becomes a boolean as true when it is not
+// zero, as integer's cast reads it, with no integer between to overflow. NULL
+// stays NULL.
 func converted(from, to, column string) string {
 	switch from, to = baseType(from), baseType(to); {
+	case boolean(from) && numeric(to):
+		return column + "::integer::" + to
+	case numeric(from) && boolean(to):
+		return "(" + column + " <> 0)"
 	case from == "bigint" && to == "interval":
 		return "(" + column + " / 1000) * interval '1 microsecond'"
 	case from == "bytea" && to == "inet":
@@ -482,6 +491,20 @@ func converted(from, to, column string) string {
 
 	return ""
 }
+
+// numeric reports whether a base type is one of PostgreSQL's number types.
+func numeric(name string) bool {
+	switch name {
+	case "smallint", "integer", "bigint", "numeric", "decimal", "real", "double precision",
+		"int", "int2", "int4", "int8", "float4", "float8":
+		return true
+	}
+
+	return false
+}
+
+// boolean reports whether a base type is PostgreSQL's boolean.
+func boolean(name string) bool { return name == "boolean" || name == "bool" }
 
 // needsUsing reports whether a column changing type from one to the other
 // needs a USING cast. An explicit cast cuts a string or a bit string to a
