@@ -23,7 +23,7 @@ func TestRetypeKeepsValues(t *testing.T) {
 		name     string
 		from, to string
 		value    string
-		want     string // the stored value after the change, or "" for an error
+		want     string // the stored value after the change, NULL for NULL, or "" for an error
 	}{
 		{
 			name:  "shorter varchar",
@@ -89,6 +89,97 @@ func TestRetypeKeepsValues(t *testing.T) {
 			value: "'{a,b}'",
 			want:  "{a,b}",
 		},
+		{
+			name:  "boolean to bigint",
+			from:  "boolean",
+			to:    "bigint",
+			value: "true",
+			want:  "1",
+		},
+		{
+			name:  "boolean to smallint",
+			from:  "boolean",
+			to:    "smallint",
+			value: "false",
+			want:  "0",
+		},
+		{
+			name:  "boolean to integer",
+			from:  "boolean",
+			to:    "integer",
+			value: "true",
+			want:  "1",
+		},
+		{
+			name:  "NULL boolean to bigint",
+			from:  "boolean",
+			to:    "bigint",
+			value: "NULL",
+			want:  "NULL",
+		},
+		{
+			name:  "boolean to numeric",
+			from:  "boolean",
+			to:    "numeric(10,2)",
+			value: "true",
+			want:  "1.00",
+		},
+		{
+			name:  "boolean to double precision",
+			from:  "boolean",
+			to:    "double precision",
+			value: "true",
+			want:  "1",
+		},
+		{
+			name:  "bigint to boolean",
+			from:  "bigint",
+			to:    "boolean",
+			value: "2",
+			want:  "true",
+		},
+		{
+			name:  "zero bigint to boolean",
+			from:  "bigint",
+			to:    "boolean",
+			value: "0",
+			want:  "false",
+		},
+		{
+			name:  "smallint to boolean",
+			from:  "smallint",
+			to:    "boolean",
+			value: "1",
+			want:  "true",
+		},
+		{
+			name:  "integer to boolean",
+			from:  "integer",
+			to:    "boolean",
+			value: "0",
+			want:  "false",
+		},
+		{
+			name:  "NULL bigint to boolean",
+			from:  "bigint",
+			to:    "boolean",
+			value: "NULL",
+			want:  "NULL",
+		},
+		{
+			name:  "numeric to boolean",
+			from:  "numeric(10,2)",
+			to:    "boolean",
+			value: "0.50",
+			want:  "true",
+		},
+		{
+			name:  "real to boolean",
+			from:  "real",
+			to:    "boolean",
+			value: "0",
+			want:  "false",
+		},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			sb.wipe(t, nil)
@@ -121,7 +212,7 @@ func TestRetypeKeepsValues(t *testing.T) {
 			require.NoError(t, err)
 
 			var got string
-			require.NoError(t, sb.db.QueryRowContext(ctx, "SELECT v::text FROM items").Scan(&got))
+			require.NoError(t, sb.db.QueryRowContext(ctx, "SELECT coalesce(v::text, 'NULL') FROM items").Scan(&got))
 			require.Equal(t, c.want, got)
 		})
 	}
