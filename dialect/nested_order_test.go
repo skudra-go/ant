@@ -23,6 +23,7 @@ func TestNestedOrder(t *testing.T) {
 			Order:   []qb.Order{{Value: name}},
 		}
 	}
+
 	one := 1
 	paged := ordered()
 	paged.Limit = &one

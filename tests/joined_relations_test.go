@@ -22,18 +22,22 @@ type JrEssay struct {
 
 func (JrEssay) Configure(b *ant.ModelBuilder[JrEssay]) {
 	b.Table("jr_essays")
+
 	b.HasOne(&JrEssays.LastNote).
 		ForeignKey(&JrNotes.OwnerID).
 		Morph(&JrNotes.OwnerType, "essay").
 		Latest(&JrNotes.ID)
+
 	b.HasOne(&JrEssays.Heavy).
 		ForeignKey(&JrNotes.OwnerID).
 		Morph(&JrNotes.OwnerType, "essay").
 		Where(ant.Gt(&JrNotes.Weight, int64(5)))
+
 	b.HasOne(&JrEssays.Top).
 		ForeignKey(&JrNotes.OwnerID).
 		Morph(&JrNotes.OwnerType, "essay").
 		Latest(&JrNotes.Weight)
+
 	b.HasOne(&JrEssays.LastTag).ForeignKey(&JrTags.EssayID).Latest(&JrTags.Name)
 }
 
@@ -105,15 +109,44 @@ func TestConformanceIncludeJoinedRelationConditions(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { db.Close() })
 
-		require.NoError(t, db.JrEssays.Insert(ctx, &JrEssay{ID: 1, Title: "e1"}, &JrEssay{ID: 2, Title: "e2"}))
+		require.NoError(
+			t,
+			db.JrEssays.Insert(ctx, &JrEssay{ID: 1, Title: "e1"}, &JrEssay{ID: 2, Title: "e2"}),
+		)
+
 		require.NoError(t, db.JrVideos.Insert(ctx, &JrVideo{ID: 1, Title: "v1"}))
+
 		one := int64(1)
 		require.NoError(t, db.JrNotes.Insert(
 			ctx,
-			&JrNote{ID: 1, OwnerType: "essay", OwnerID: 1, Weight: 1},
-			&JrNote{ID: 3, OwnerType: "essay", OwnerID: 1, Weight: 3, ParentType: "note", ParentID: &one},
-			&JrNote{ID: 4, OwnerType: "essay", OwnerID: 2, Weight: 7, ParentType: "essay", ParentID: &one},
-			&JrNote{ID: 5, OwnerType: "video", OwnerID: 1, Weight: 9},
+			&JrNote{
+				ID:        1,
+				OwnerType: "essay",
+				OwnerID:   1,
+				Weight:    1,
+			},
+			&JrNote{
+				ID:         3,
+				OwnerType:  "essay",
+				OwnerID:    1,
+				Weight:     3,
+				ParentType: "note",
+				ParentID:   &one,
+			},
+			&JrNote{
+				ID:         4,
+				OwnerType:  "essay",
+				OwnerID:    2,
+				Weight:     7,
+				ParentType: "essay",
+				ParentID:   &one,
+			},
+			&JrNote{
+				ID:        5,
+				OwnerType: "video",
+				OwnerID:   1,
+				Weight:    9,
+			},
 		))
 
 		t.Run("morph belongs-to", func(t *testing.T) {
@@ -136,7 +169,13 @@ func TestConformanceIncludeJoinedRelationConditions(t *testing.T) {
 				}
 			}
 
-			require.Equal(t, map[int64]string{1: "e1", 3: "e1", 4: "e2"}, essays, "note 5 is on a video")
+			require.Equal(
+				t,
+				map[int64]string{1: "e1", 3: "e1", 4: "e2"},
+				essays,
+				"note 5 is on a video",
+			)
+
 			require.Equal(t, map[int64]string{5: "v1"}, videos, "notes 1, 3 and 4 are on essays")
 
 			want, err := db.JrNotes.OrderBy(&JrNotes.ID).
@@ -151,7 +190,13 @@ func TestConformanceIncludeJoinedRelationConditions(t *testing.T) {
 			notes, err := db.JrNotes.OrderBy(&JrNotes.ID).IncludeJoined(&JrNotes.Parent).All(ctx)
 			require.NoError(t, err)
 			require.Len(t, notes, 4)
-			require.NotNil(t, notes[1].Parent, "note 3's type column is on the note itself, not on its parent")
+
+			require.NotNil(
+				t,
+				notes[1].Parent,
+				"note 3's type column is on the note itself, not on its parent",
+			)
+
 			require.Equal(t, int64(1), notes[1].Parent.ID)
 			require.Nil(t, notes[2].Parent, "note 4's parent is an essay")
 
@@ -161,11 +206,20 @@ func TestConformanceIncludeJoinedRelationConditions(t *testing.T) {
 		})
 
 		t.Run("picked has-one with a morph", func(t *testing.T) {
-			essays, err := db.JrEssays.OrderBy(&JrEssays.ID).IncludeJoined(&JrEssays.LastNote).All(ctx)
+			essays, err := db.JrEssays.OrderBy(&JrEssays.ID).
+				IncludeJoined(&JrEssays.LastNote).
+				All(ctx)
 			require.NoError(t, err)
 			require.Len(t, essays, 2, "each essay once, not once per note")
 			require.NotNil(t, essays[0].LastNote)
-			require.Equal(t, int64(3), essays[0].LastNote.ID, "the newest essay note, not video note 5")
+
+			require.Equal(
+				t,
+				int64(3),
+				essays[0].LastNote.ID,
+				"the newest essay note, not video note 5",
+			)
+
 			require.NotNil(t, essays[1].LastNote)
 			require.Equal(t, int64(4), essays[1].LastNote.ID)
 
@@ -179,7 +233,13 @@ func TestConformanceIncludeJoinedRelationConditions(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, essays, 2)
 			require.NotNil(t, essays[0].Top)
-			require.Equal(t, int64(3), essays[0].Top.ID, "the heaviest essay note, not video note 5")
+
+			require.Equal(
+				t,
+				int64(3),
+				essays[0].Top.ID,
+				"the heaviest essay note, not video note 5",
+			)
 
 			want, err := db.JrEssays.OrderBy(&JrEssays.ID).IncludeOne(&JrEssays.Top).All(ctx)
 			require.NoError(t, err)

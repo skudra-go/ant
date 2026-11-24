@@ -57,6 +57,7 @@ func (q *Query[T]) IncludeJoined[R any](rel **R) *Query[T] {
 
 		return n
 	}
+
 	target.alias = "ant_joined" + strconv.Itoa(len(n.inJoin))
 	target.nullable = true
 
@@ -164,13 +165,15 @@ func picked(j joinedInclude) qb.Cond {
 	return qb.Compare{
 		Left: j.source.col(key),
 		Op:   qb.OpEq,
-		Right: qb.Subquery{Select: &qb.Select{
-			Columns: []qb.Selected{{Value: inner.col(key)}},
-			From:    qb.Source{Table: inner.model.Table, Alias: inner.alias},
-			Where:   append(where, modelFilters(inner, nil)...),
-			Order:   order,
-			Limit:   &one,
-		}},
+		Right: qb.Subquery{
+			Select: &qb.Select{
+				Columns: []qb.Selected{{Value: inner.col(key)}},
+				From:    qb.Source{Table: inner.model.Table, Alias: inner.alias},
+				Where:   append(where, modelFilters(inner, nil)...),
+				Order:   order,
+				Limit:   &one,
+			},
+		},
 	}
 }
 

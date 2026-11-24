@@ -24,13 +24,41 @@ func jrSeed(t *testing.T, target testdb.Target) *JrDB {
 
 	one := int64(1)
 
-	require.NoError(t, db.JrEssays.Insert(ctx, &JrEssay{ID: 1, Title: "e1"}, &JrEssay{ID: 2, Title: "e2"}))
+	require.NoError(
+		t,
+		db.JrEssays.Insert(ctx, &JrEssay{ID: 1, Title: "e1"}, &JrEssay{ID: 2, Title: "e2"}),
+	)
+
 	require.NoError(t, db.JrNotes.Insert(
 		ctx,
-		&JrNote{ID: 1, OwnerType: "essay", OwnerID: 1, Weight: 1},
-		&JrNote{ID: 3, OwnerType: "essay", OwnerID: 1, Weight: 3, ParentType: "note", ParentID: &one},
-		&JrNote{ID: 4, OwnerType: "essay", OwnerID: 2, Weight: 7, ParentType: "essay", ParentID: &one},
-		&JrNote{ID: 5, OwnerType: "video", OwnerID: 1, Weight: 9},
+		&JrNote{
+			ID:        1,
+			OwnerType: "essay",
+			OwnerID:   1,
+			Weight:    1,
+		},
+		&JrNote{
+			ID:         3,
+			OwnerType:  "essay",
+			OwnerID:    1,
+			Weight:     3,
+			ParentType: "note",
+			ParentID:   &one,
+		},
+		&JrNote{
+			ID:         4,
+			OwnerType:  "essay",
+			OwnerID:    2,
+			Weight:     7,
+			ParentType: "essay",
+			ParentID:   &one,
+		},
+		&JrNote{
+			ID:        5,
+			OwnerType: "video",
+			OwnerID:   1,
+			Weight:    9,
+		},
 	))
 
 	return db
@@ -58,7 +86,14 @@ func TestConformanceNestedOrder(t *testing.T) {
 
 		t.Run("exists", func(t *testing.T) {
 			essays, err := db.JrEssays.
-				Where(ant.Exists(byWeight.Where(ant.EqCol(&JrNotes.OwnerID, &JrEssays.ID), ant.Gt(&JrNotes.Weight, int64(5))))).
+				Where(
+					ant.Exists(
+						byWeight.Where(
+							ant.EqCol(&JrNotes.OwnerID, &JrEssays.ID),
+							ant.Gt(&JrNotes.Weight, int64(5)),
+						),
+					),
+				).
 				All(ctx)
 			require.NoError(t, err)
 			require.Len(t, essays, 1)
@@ -67,7 +102,15 @@ func TestConformanceNestedOrder(t *testing.T) {
 
 		t.Run("in a subquery", func(t *testing.T) {
 			essays, err := db.JrEssays.
-				Where(ant.InSub(&JrEssays.ID, ant.SubOf(byWeight.Where(ant.Gt(&JrNotes.Weight, int64(5))), &JrNotes.OwnerID))).
+				Where(
+					ant.InSub(
+						&JrEssays.ID,
+						ant.SubOf(
+							byWeight.Where(ant.Gt(&JrNotes.Weight, int64(5))),
+							&JrNotes.OwnerID,
+						),
+					),
+				).
 				All(ctx)
 			require.NoError(t, err)
 			require.Len(t, essays, 1)
@@ -85,13 +128,18 @@ func TestConformanceNestedOrder(t *testing.T) {
 		t.Run("from", func(t *testing.T) {
 			notes, err := db.JrNotes.Query().From(byWeight).OrderBy(&JrNotes.ID).All(ctx)
 			require.NoError(t, err)
+
 			ids := jrIDs(notes)
 			require.Equal(t, []int64{1, 3, 4}, ids)
 		})
 
 		t.Run("from a CTE", func(t *testing.T) {
-			notes, err := db.JrNotes.Query().FromCTE("by_weight", byWeight).OrderBy(&JrNotes.ID).All(ctx)
+			notes, err := db.JrNotes.Query().
+				FromCTE("by_weight", byWeight).
+				OrderBy(&JrNotes.ID).
+				All(ctx)
 			require.NoError(t, err)
+
 			ids := jrIDs(notes)
 			require.Equal(t, []int64{1, 3, 4}, ids)
 		})
@@ -109,6 +157,7 @@ func TestConformanceNestedOrder(t *testing.T) {
 			heaviest := db.JrNotes.OrderByDesc(&JrNotes.Weight).Limit(2)
 			notes, err := db.JrNotes.Query().From(heaviest).OrderBy(&JrNotes.ID).All(ctx)
 			require.NoError(t, err)
+
 			ids := jrIDs(notes)
 			require.Equal(t, []int64{4, 5}, ids, "the two heaviest notes")
 		})
@@ -156,9 +205,23 @@ func TestConformanceDistinctOrder(t *testing.T) {
 		parent := ant.Col(&JrNotes.ParentID)
 
 		t.Run("NULLs where the database puts them", func(t *testing.T) {
-			require.Equal(t, []*int64{nil, &one}, parents(t, distinct.Order(parent.Asc().NullsFirst())))
-			require.Equal(t, []*int64{&one, nil}, parents(t, distinct.Order(parent.Desc().NullsLast())))
-			require.Equal(t, []*int64{nil, &one}, parents(t, distinct.Order(parent.Asc().NullsFirst()).Limit(5)))
+			require.Equal(
+				t,
+				[]*int64{nil, &one},
+				parents(t, distinct.Order(parent.Asc().NullsFirst())),
+			)
+
+			require.Equal(
+				t,
+				[]*int64{&one, nil},
+				parents(t, distinct.Order(parent.Desc().NullsLast())),
+			)
+
+			require.Equal(
+				t,
+				[]*int64{nil, &one},
+				parents(t, distinct.Order(parent.Asc().NullsFirst()).Limit(5)),
+			)
 		})
 
 		t.Run("NULLs moved", func(t *testing.T) {
@@ -175,15 +238,26 @@ func TestConformanceDistinctOrder(t *testing.T) {
 				return
 			}
 
-			require.Equal(t, []*int64{&one, nil}, parents(t, distinct.Order(parent.Asc().NullsLast())))
-			require.Equal(t, []*int64{nil, &one}, parents(t, distinct.Order(parent.Desc().NullsFirst())))
+			require.Equal(
+				t,
+				[]*int64{&one, nil},
+				parents(t, distinct.Order(parent.Asc().NullsLast())),
+			)
+
+			require.Equal(
+				t,
+				[]*int64{nil, &one},
+				parents(t, distinct.Order(parent.Desc().NullsFirst())),
+			)
 		})
 
 		t.Run("NULLs moved without DISTINCT", func(t *testing.T) {
-			q := db.JrNotes.Column(&JrNotes.ParentID).Order(parent.Asc().NullsLast(), ant.Col(&JrNotes.ID).Asc())
+			q := db.JrNotes.Column(&JrNotes.ParentID).
+				Order(parent.Asc().NullsLast(), ant.Col(&JrNotes.ID).Asc())
 			require.Equal(t, []*int64{&one, &one, nil, nil}, parents(t, q))
 
-			q = db.JrNotes.Column(&JrNotes.ParentID).Order(parent.Desc().NullsFirst(), ant.Col(&JrNotes.ID).Asc())
+			q = db.JrNotes.Column(&JrNotes.ParentID).
+				Order(parent.Desc().NullsFirst(), ant.Col(&JrNotes.ID).Asc())
 			require.Equal(t, []*int64{nil, nil, &one, &one}, parents(t, q))
 		})
 	})

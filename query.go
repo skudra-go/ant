@@ -788,7 +788,12 @@ func (q *Query[T]) Explain(ctx context.Context) (string, error) {
 
 	syntax := dialect.SyntaxOf(q.state.dialect)
 	if syntax.Lacks(dialect.ExplainPlan) {
-		return "", fmt.Errorf("%w: %s on %s", ErrUnsupported, dialect.ExplainPlan, q.state.dialect.Name())
+		return "", fmt.Errorf(
+			"%w: %s on %s",
+			ErrUnsupported,
+			dialect.ExplainPlan,
+			q.state.dialect.Name(),
+		)
 	}
 
 	stmt := q.statement(q.selection())
