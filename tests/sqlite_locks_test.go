@@ -71,7 +71,9 @@ func TestSQLiteRowLocksInImmediateTx(t *testing.T) {
 						return errors.New("ToSQLContext kept the lock: " + text)
 					}
 
-					if _, err := tx.Users.Where(ant.In(&Users.ID, ids...)).ForUpdate().Explain(ctx); err != nil {
+					if _, err := tx.Users.Where(ant.In(&Users.ID, ids...)).
+						ForUpdate().
+						Explain(ctx); err != nil {
 						return err
 					}
 
