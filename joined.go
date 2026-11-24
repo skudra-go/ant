@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"slices"
 	"strconv"
 	"unsafe"
@@ -23,6 +24,10 @@ type joinedInclude struct {
 // through a left join, instead of the extra query IncludeOne runs. It suits a
 // relation most rows have, read often enough that a round trip matters. Parents
 // with the same related row each get their own value unless tracked.
+//
+// The join applies the relation's Where conditions and Morph type, and a has-one
+// with Latest or Oldest joins only the row it picks, so the result is the one
+// IncludeOne loads. That pick needs a target with a single-column key.
 func (q *Query[T]) IncludeJoined[R any](rel **R) *Query[T] {
 	n := q.next()
 
@@ -40,6 +45,18 @@ func (q *Query[T]) IncludeJoined[R any](rel **R) *Query[T] {
 	}
 
 	target := sourceOf[R]()
+
+	if r.Pick != nil && target.model.Key() == nil {
+		n.fail(fmt.Errorf(
+			"%w: IncludeJoined on %s.%s picks one row by its key, and %s has no single-column key; use IncludeOne",
+			ErrNotImplemented,
+			r.Owner.Type.Name(),
+			r.Name,
+			target.model.Type.Name(),
+		))
+
+		return n
+	}
 	target.alias = "ant_joined" + strconv.Itoa(len(n.inJoin))
 	target.nullable = true
 
@@ -75,7 +92,13 @@ func (q *Query[T]) addJoined(stmt *qb.Select) {
 					Right: j.source.col(j.link.Foreign),
 				},
 			},
-			modelFilters(j.source, nil)...)
+			joinedScope(j.relation, j.source, true)...)
+
+		on = append(on, modelFilters(j.source, nil)...)
+
+		if j.relation.Pick != nil {
+			on = append(on, picked(j))
+		}
 
 		stmt.Joins = append(stmt.Joins, qb.Join{
 			Kind:   qb.LeftJoin,
@@ -86,6 +109,68 @@ func (q *Query[T]) addJoined(stmt *qb.Select) {
 		for _, f := range j.source.model.Stored() {
 			stmt.Columns = append(stmt.Columns, qb.Selected{Value: j.source.col(f)})
 		}
+	}
+}
+
+// joinedScope returns the relation's scope for a join of target, as Join applies
+// it: conditions on the target read target's alias. A morph condition on the
+// owner's side reads the owner, even when the owner is the target's table, and
+// owner says whether to keep it.
+func joinedScope(r *meta.Relation, target source, owner bool) []qb.Cond {
+	out := make([]qb.Cond, 0, len(r.Scope))
+
+	for _, c := range r.Scope {
+		switch {
+		case ownerSide(r, c):
+			if owner {
+				out = append(out, c)
+			}
+		default:
+			out = append(out, qb.Aliased(c, target.model.Table, target.alias))
+		}
+	}
+
+	return out
+}
+
+// picked returns the condition that keeps the one row a has-one's pick chooses
+// of the joined relation's rows, as IncludeOne reads it: the joined row's key is
+// the first key of the owner's rows in the pick's order, and the key breaks a tie.
+func picked(j joinedInclude) qb.Cond {
+	key := j.source.model.Key()
+	inner := source{model: j.source.model, alias: j.source.alias + "_pick"}
+	one := 1
+
+	pick := *j.relation.Pick
+	pick.Value = qb.Aliased(qb.Compare{Left: pick.Value}, inner.model.Table, inner.alias).(qb.Compare).Left
+
+	order := []qb.Order{pick}
+
+	// SQL Server refuses a column twice in an ORDER BY.
+	if pick.Value != qb.Expr(inner.col(key)) {
+		order = append(order, qb.Order{Value: inner.col(key)})
+	}
+
+	where := append(
+		[]qb.Cond{
+			qb.Compare{
+				Left:  inner.col(j.link.Foreign),
+				Op:    qb.OpEq,
+				Right: j.relation.Owner.Col(j.link.Local),
+			},
+		},
+		joinedScope(j.relation, inner, false)...)
+
+	return qb.Compare{
+		Left: j.source.col(key),
+		Op:   qb.OpEq,
+		Right: qb.Subquery{Select: &qb.Select{
+			Columns: []qb.Selected{{Value: inner.col(key)}},
+			From:    qb.Source{Table: inner.model.Table, Alias: inner.alias},
+			Where:   append(where, modelFilters(inner, nil)...),
+			Order:   order,
+			Limit:   &one,
+		}},
 	}
 }
 

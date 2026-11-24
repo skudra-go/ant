@@ -136,6 +136,7 @@ On 2026-11-20 the decisions moved from one file, `docs/DECISIONS.md`, to a file 
 | [145](145-helpers-take-a-field-of-any-type.md) | Helpers take a field of any type, and the database checks it | active | `Ordered` `Number` `OrderBy` `Gt` `Between` `Like` `Inc` `SumOf` `MaxOf` `Past` `nullable` `decimal` `uuid` |
 | [146](146-ne-matches-null-as-go-does.md) | Ne, NotIn and Not of Eq match NULL, as Go's != does | active | `Ne` `NotIn` `Not` `Eq` `In` `null` `nullable` `De-Morgan` `Expr` `sensitive` |
 | [147](147-a-projection-reads-null-into-a-plain-field-as-zero.md) | A projection reads NULL into a plain field as its zero value | active | `Project` `NULL` `zero-value` `LeftJoin` `Max` `aggregate` `Nullable` `sql.Null` |
+| [163](163-includejoined-applies-the-relations-own-conditions.md) | IncludeJoined applies the relation's own conditions in its join | active | `IncludeJoined` `Morph` `Where` `Latest` `Oldest` `has-one` `scope` |
 
 #### Writes
 
@@ -394,7 +395,7 @@ Before changing a file, read the decisions about it.
 | `internal/track/track.go` | [27](027-all-returns-t.md) [28](028-identity-and-relation-slices.md) [30](030-tracking-follows-keys-not-addresses.md) [32](032-navigation-and-foreign-key-changes.md) [79](079-a-tracking-context-serves-one-operation-at-a-time.md) [92](092-tracked-values-compare-as-stored.md) [93](093-tracking-follows-what-a-save-wrote.md) [99](099-a-retried-attempt-leaves-nothing-in-the-tracker.md) [107](107-hot-paths-allocate-for-the-operation-not-for-each-row.md) [108](108-kept-sql-by-shape-unboxed-keys-compact-snapshots-and.md) [121](121-a-rollback-forgets-what-its-transaction-began-tracking.md) [123](123-an-after-hooks-edit-is-a-change-to-save.md) [142](142-chunk-lets-go-of-a-group-that-has-nothing-to-save.md) |
 | `internal/track/track_test.go` | [79](079-a-tracking-context-serves-one-operation-at-a-time.md) [92](092-tracked-values-compare-as-stored.md) [121](121-a-rollback-forgets-what-its-transaction-began-tracking.md) |
 | `join.go` | [5](005-select-closures-run-client-side.md) [9](009-owner-review-of-step-1.md) [34](034-self-joins.md) [145](145-helpers-take-a-field-of-any-type.md) |
-| `joined.go` | [136](136-an-outer-joins-side-reads-what-only-the-driver-converts.md) [148](148-a-query-with-computed-fields-stays-tracked.md) |
+| `joined.go` | [136](136-an-outer-joins-side-reads-what-only-the-driver-converts.md) [148](148-a-query-with-computed-fields-stays-tracked.md) [163](163-includejoined-applies-the-relations-own-conditions.md) |
 | `json.go` | [42](042-converters-are-scanner-and-valuer.md) [95](095-in-means-eq-and-other-value-rules.md) [109](109-numbers-inside-an-interface-read-as-json-number.md) |
 | `json_test.go` | [42](042-converters-are-scanner-and-valuer.md) [95](095-in-means-eq-and-other-value-rules.md) [109](109-numbers-inside-an-interface-read-as-json-number.md) [151](151-deletedat-is-a-time-or-null-in-json.md) |
 | `merge.go` | [80](080-every-write-moves-the-version-on.md) [89](089-one-column-one-value.md) [90](090-merge-keeps-what-other-writes-keep.md) [150](150-a-zero-key-nothing-fills-is-refused.md) |
@@ -561,6 +562,7 @@ Before changing a file, read the decisions about it.
 | `tests/features/writing/upsert_test.go` | [47](047-hooks-run-inside-the-write.md) [75](075-generated-values-without-returning.md) [89](089-one-column-one-value.md) [103](103-an-upserts-update-stamps-updatedat.md) |
 | `tests/has_one_replace_test.go` | [149](149-a-has-one-pointer-is-the-truth-about-its-row.md) |
 | `tests/hook_tx_test.go` | [154](154-the-ctx-carries-the-transaction.md) |
+| `tests/joined_relations_test.go` | [163](163-includejoined-applies-the-relations-own-conditions.md) |
 | `tests/matrix` | [86](086-combinations-are-tested-against-an-oracle.md) |
 | `tests/matrix/dims_test.go` | [146](146-ne-matches-null-as-go-does.md) |
 | `tests/matrix/matrix_test.go` | [38](038-bulk-writes.md) [49](049-postgresql-first.md) [74](074-dialects-state-their-differences.md) [75](075-generated-values-without-returning.md) [86](086-combinations-are-tested-against-an-oracle.md) |
@@ -665,6 +667,7 @@ Tags on two or more decisions. Search the headers for the rest: `rg -l '^tags: .
 - `immutable`: [98](098-an-explicit-write-refuses-the-columns-ant-keeps.md) [139](139-a-field-can-not-ask-for-two-things-ant-can-not-both-do.md)
 - `In`: [24](024-raw-sql-arguments.md) [95](095-in-means-eq-and-other-value-rules.md) [146](146-ne-matches-null-as-go-does.md)
 - `Include`: [33](033-include-shape-functions.md) [44](044-many-to-many.md) [65](065-scoped-relations-use-the-same-filter-path.md) [93](093-tracking-follows-what-a-save-wrote.md) [108](108-kept-sql-by-shape-unboxed-keys-compact-snapshots-and.md)
+- `IncludeJoined`: [136](136-an-outer-joins-side-reads-what-only-the-driver-converts.md) [163](163-includejoined-applies-the-relations-own-conditions.md)
 - `inet`: [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) [135](135-a-column-ant-made-for-an-earlier-default-is-converted-as-ant-stored-it.md)
 - `Insert`: [22](022-inserts-run-one-statement-per-row.md) [157](157-insert-validation-leaves-zero-default-fields-to-the-database.md)
 - `InsertMany`: [22](022-inserts-run-one-statement-per-row.md) [38](038-bulk-writes.md) [103](103-an-upserts-update-stamps-updatedat.md) [119](119-an-upserts-update-writes-the-zero-a-default-field-holds.md) [124](124-a-conflict-target-repeats-a-partial-indexs-predicate.md)
@@ -674,6 +677,7 @@ Tags on two or more decisions. Search the headers for the rest: `rg -l '^tags: .
 - `JSON`: [42](042-converters-are-scanner-and-valuer.md) [109](109-numbers-inside-an-interface-read-as-json-number.md) [151](151-deletedat-is-a-time-or-null-in-json.md)
 - `jsonb`: [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) [135](135-a-column-ant-made-for-an-earlier-default-is-converted-as-ant-stored-it.md)
 - `LastInsertId`: [75](075-generated-values-without-returning.md) [122](122-what-the-database-fills-is-read-back-by-key.md)
+- `Latest`: [65](065-scoped-relations-use-the-same-filter-path.md) [163](163-includejoined-applies-the-relations-own-conditions.md)
 - `LeftJoin`: [136](136-an-outer-joins-side-reads-what-only-the-driver-converts.md) [147](147-a-projection-reads-null-into-a-plain-field-as-zero.md)
 - `LogValues`: [46](046-interceptors.md) [68](068-sensitive-values-are-wrapped-when-bound.md)
 - `many-to-many`: [33](033-include-shape-functions.md) [64](064-through-relations-are-read-only-pivots.md) [93](093-tracking-follows-what-a-save-wrote.md)
@@ -684,6 +688,7 @@ Tags on two or more decisions. Search the headers for the rest: `rg -l '^tags: .
 - `migrate`: [11](011-migration-model.md) [50](050-three-layers-for-migrations.md) [60](060-one-program-two-jobs.md) [113](113-a-missing-versions-folder-is-an-error.md)
 - `migrate-up`: [115](115-a-file-outside-a-transaction-is-recorded-before-it-runs.md) [116](116-code-files-rerun-after-versioned-migrations.md)
 - `migrations`: [49](049-postgresql-first.md) [58](058-squashing-needs-no-coordination.md) [82](082-a-rename-must-land-on-a-name-the-models-have.md) [94](094-migrations-keep-a-columns-dependents-working-while-it.md)
+- `Morph`: [65](065-scoped-relations-use-the-same-filter-path.md) [163](163-includejoined-applies-the-relations-own-conditions.md)
 - `mysql`: [13](013-mariadb-shares-the-mysql-package.md) [75](075-generated-values-without-returning.md) [85](085-mysql-reads-the-table-it-writes-through-a-derived-table.md) [91](091-an-upsert-checks-a-copys-version-on-mysql-and-mariadb.md) [122](122-what-the-database-fills-is-read-back-by-key.md)
 - `naming`: [53](053-names-follow-postgresqls-defaults.md) [67](067-naming-and-conventions-are-global.md) [100](100-probes-are-named-after-their-model-in-the-plural.md) [117](117-the-migrate-program-takes-the-applications-options.md) [132](132-default-names-are-valid-and-distinct.md)
 - `Ne`: [7](007-eq-with-a-nil-pointer.md) [146](146-ne-matches-null-as-go-does.md)
@@ -694,6 +699,7 @@ Tags on two or more decisions. Search the headers for the rest: `rg -l '^tags: .
 - `null`: [30](030-tracking-follows-keys-not-addresses.md) [95](095-in-means-eq-and-other-value-rules.md) [146](146-ne-matches-null-as-go-does.md)
 - `nullable`: [51](051-modeling-added-for-migrations.md) [145](145-helpers-take-a-field-of-any-type.md) [146](146-ne-matches-null-as-go-does.md)
 - `numeric`: [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) [138](138-a-uint64-column-on-postgresql-is-numeric.md)
+- `Oldest`: [65](065-scoped-relations-use-the-same-filter-path.md) [163](163-includejoined-applies-the-relations-own-conditions.md)
 - `on-conflict`: [44](044-many-to-many.md) [103](103-an-upserts-update-stamps-updatedat.md)
 - `on-duplicate-key`: [75](075-generated-values-without-returning.md) [85](085-mysql-reads-the-table-it-writes-through-a-derived-table.md) [91](091-an-upsert-checks-a-copys-version-on-mysql-and-mariadb.md)
 - `Open`: [12](012-additions-to-the-dialect-contract.md) [21](021-configuration-runs-when-a-context-opens.md) [66](066-several-models-can-share-a-table.md) [67](067-naming-and-conventions-are-global.md) [125](125-open-refuses-a-model-it-would-misread.md) [139](139-a-field-can-not-ask-for-two-things-ant-can-not-both-do.md) [152](152-open-refuses-values-the-driver-cannot-take.md)
@@ -772,7 +778,7 @@ Tags on two or more decisions. Search the headers for the rest: `rg -l '^tags: .
 - `valuer`: [42](042-converters-are-scanner-and-valuer.md) [92](092-tracked-values-compare-as-stored.md)
 - `version`: [80](080-every-write-moves-the-version-on.md) [90](090-merge-keeps-what-other-writes-keep.md) [91](091-an-upsert-checks-a-copys-version-on-mysql-and-mariadb.md) [93](093-tracking-follows-what-a-save-wrote.md) [102](102-updatemany-keeps-what-a-bulk-update-keeps.md) [110](110-a-version-the-application-sets-is-the-one-checked.md) [139](139-a-field-can-not-ask-for-two-things-ant-can-not-both-do.md) [140](140-an-update-that-changed-nothing-is-checked-against-the-row.md)
 - `warning`: [52](052-new-not-null-columns-fill-existing-rows.md) [55](055-renames.md)
-- `Where`: [18](018-wrong-model-detection.md) [37](037-references-to-outer-queries.md) [65](065-scoped-relations-use-the-same-filter-path.md) [156](156-scoped-relation-saves-apply-target-eq-values.md)
+- `Where`: [18](018-wrong-model-detection.md) [37](037-references-to-outer-queries.md) [65](065-scoped-relations-use-the-same-filter-path.md) [156](156-scoped-relation-saves-apply-target-eq-values.md) [163](163-includejoined-applies-the-relations-own-conditions.md)
 - `WithConflict`: [119](119-an-upserts-update-writes-the-zero-a-default-field-holds.md) [124](124-a-conflict-target-repeats-a-partial-indexs-predicate.md)
 - `WithConvention`: [67](067-naming-and-conventions-are-global.md) [117](117-the-migrate-program-takes-the-applications-options.md)
 - `WithLogger`: [46](046-interceptors.md) [61](061-sessions-take-options.md)
