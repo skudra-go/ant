@@ -1145,9 +1145,27 @@ func (q *Query[T]) delete(force bool) (qb.Statement, error) {
 // Delete removes every matching row and returns the number removed. A model with
 // a DeletedAt field is soft-deleted. With Limit or Offset, it removes only the
 // rows the query selects. Tracked instances of those rows stay tracked, so prefer
-// Remove with SaveChanges for loaded entities.
+// Remove with SaveChanges for loaded entities. Table.Find no longer answers from
+// the instances tracked before it, and reads the row.
 func (q *Query[T]) Delete(ctx context.Context) (int64, error) {
-	stmt, err := q.delete(false)
+	n, err := q.deleteRows(ctx, false)
+	q.swept(n)
+
+	return n, err
+}
+
+// ForceDelete removes rows for real, even from a soft-deleted model. Use
+// WithDeleted to reach rows that are already soft-deleted. Tracked instances
+// stay tracked, as with Delete.
+func (q *Query[T]) ForceDelete(ctx context.Context) (int64, error) {
+	n, err := q.deleteRows(ctx, true)
+	q.swept(n)
+
+	return n, err
+}
+
+func (q *Query[T]) deleteRows(ctx context.Context, force bool) (int64, error) {
+	stmt, err := q.delete(force)
 	if err != nil {
 		return 0, err
 	}
@@ -1155,15 +1173,12 @@ func (q *Query[T]) Delete(ctx context.Context) (int64, error) {
 	return q.state.run(ctx, stmt)
 }
 
-// ForceDelete removes rows for real, even from a soft-deleted model. Use
-// WithDeleted to reach rows that are already soft-deleted.
-func (q *Query[T]) ForceDelete(ctx context.Context) (int64, error) {
-	stmt, err := q.delete(true)
-	if err != nil {
-		return 0, err
+// swept tells the tracker that n of the model's rows were deleted, so that Find
+// does not answer with a tracked instance of one of them.
+func (q *Query[T]) swept(n int64) {
+	if n > 0 && q.state != nil {
+		q.state.tracker.Swept(q.model())
 	}
-
-	return q.state.run(ctx, stmt)
 }
 
 // Restore undeletes matching soft-deleted rows and returns how many.
@@ -1212,7 +1227,10 @@ func (q *Query[T]) DeleteReturning(ctx context.Context) ([]*T, error) {
 		s.Returning = q.returning()
 	}
 
-	return q.readRows(ctx, stmt)
+	gone, err := q.readRows(ctx, stmt)
+	q.swept(int64(len(gone)))
+
+	return gone, err
 }
 
 func (q *Query[T]) returning() []qb.Selected {

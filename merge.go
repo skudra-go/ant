@@ -183,7 +183,15 @@ func (m *Merger[T]) Exec(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 
-	return m.table.state.run(ctx, &stmt)
+	n, err := m.table.state.run(ctx, &stmt)
+
+	// The rows a delete removed are not known, so Find reads the row of every
+	// instance tracked before it.
+	if n > 0 && slices.ContainsFunc(stmt.Actions, func(a qb.MergeAction) bool { return a.Delete }) {
+		m.table.state.tracker.Swept(model)
+	}
+
+	return n, err
 }
 
 // maintained keeps what ant keeps on other writes. An update moves the version

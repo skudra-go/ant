@@ -603,6 +603,9 @@ type Tracker struct {
 	// so that a rollback that comes late can tell a newer deletion happened. It
 	// holds a row only while one of its deletions is unsettled.
 	deletions map[identity]*history
+	// swept holds the seq at each model's last bulk delete. An entry begun by
+	// then may be of a row that delete removed, which ant cannot name.
+	swept map[*meta.Model]uint64
 	// OnTrack and OnState report entities starting to be tracked and changing
 	// state. They run with the tracker locked, so they must not call back into it.
 	OnTrack func(*Entry)
@@ -1090,6 +1093,34 @@ func (t *Tracker) Find(m *meta.Model, key any) *Entry {
 	defer t.mu.Unlock()
 
 	return t.first.get(identityOf(m, key))
+}
+
+// Current returns the first tracked instance with the given key, or nil if there
+// is none, or if it was tracked before a bulk delete of its model, which may
+// have removed its row.
+func (t *Tracker) Current(m *meta.Model, key any) *Entry {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	e := t.first.get(identityOf(m, key))
+	if e != nil && e.seq <= t.swept[m] {
+		return nil
+	}
+
+	return e
+}
+
+// Swept records a bulk delete of m's rows, after which Current reads none of the
+// instances tracked so far.
+func (t *Tracker) Swept(m *meta.Model) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.swept == nil {
+		t.swept = map[*meta.Model]uint64{}
+	}
+
+	t.swept[m] = t.seq
 }
 
 // Remove stops tracking an entity.

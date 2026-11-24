@@ -144,7 +144,10 @@ func (t *Table[T]) insert(ctx context.Context, entities []*T, related bool) erro
 }
 
 // Find returns the entity with the given primary key, or ErrNotFound. A tracked
-// entity is returned without a query, with any unsaved changes.
+// entity is returned without a query, with any unsaved changes, unless it was
+// tracked before a bulk delete of its model: Delete, ForceDelete,
+// DeleteReturning, Prune or a Merge that deletes. Then Find reads the row, and
+// returns the tracked entity if it is still there.
 func (t *Table[T]) Find[K comparable](ctx context.Context, key K) (*T, error) {
 	model, field, err := t.keyed()
 	if err != nil {
@@ -164,7 +167,7 @@ func (t *Table[T]) Find[K comparable](ctx context.Context, key K) (*T, error) {
 
 	if t.state.settings.tracking && len(model.Filters) == 0 {
 		if v, ok := meta.KeyValue(key); ok {
-			if e := t.state.tracker.Find(model, v); e != nil && e.State != track.Deleted {
+			if e := t.state.tracker.Current(model, v); e != nil && e.State != track.Deleted {
 				return (*T)(e.Entity), nil
 			}
 		}
@@ -222,7 +225,9 @@ func (t *Table[T]) DeleteByID[K comparable](ctx context.Context, key K) error {
 	q.where = keyEquals(model, field, key)
 	q.filtered = true
 
-	n, err := q.Delete(ctx)
+	// Delete would mark every tracked row of the model as maybe deleted, where
+	// this one names the row it deletes.
+	n, err := q.deleteRows(ctx, false)
 	if err != nil {
 		return err
 	}
