@@ -822,7 +822,7 @@ func lastColumns(rows *sql.Rows) (out []string, err error) {
 	defer func() { err = errors.Join(err, rows.Close()) }()
 
 	columns, err := rows.Columns()
-	if err != nil {
+	if err != nil || len(columns) == 0 {
 		return nil, err
 	}
 
