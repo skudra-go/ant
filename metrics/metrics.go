@@ -80,10 +80,10 @@ func (m *Metrics) After(_ context.Context, s *ant.Statement, o ant.Outcome) {
 
 // Sample is one kind of statement's totals.
 type Sample struct {
-	Kind     string
-	Count    uint64
-	Errors   uint64
-	Duration time.Duration
+	Kind     string        `json:"kind"`
+	Count    uint64        `json:"count"`
+	Errors   uint64        `json:"errors"`
+	Duration time.Duration `json:"duration"`
 }
 
 // Snapshot returns the current totals.

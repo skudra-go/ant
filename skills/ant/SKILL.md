@@ -150,6 +150,9 @@ Calls that take columns of mixed types take `ant.FieldRef`, made with
   a live row and the deletion time otherwise, as a `*time.Time` is. `ant.JSON[T]`
   stores a value as JSON. A number read into an interface (`map[string]any`)
   is a `json.Number`, not a `float64`.
+- ant's own structs have camelCase JSON keys: `ant.Base` is `id`, `createdAt`,
+  `updatedAt`, `ant.Page` is `items`, `total`, `number`, `size`, and
+  `ant.CursorPage` is `items`, `next`, so a handler can return them as they are.
 - On PostgreSQL, a standard type takes PostgreSQL's own column: `time.Duration` is
   `interval`, `net.IP` and `netip.Addr` are `inet`, `netip.Prefix` is `cidr`,
   `json.RawMessage` and `map[string]any` are `jsonb`, `decimal.Decimal` is `numeric`, `uint64` is

@@ -17,12 +17,13 @@ func reflectZero(r *meta.Relation, entity unsafe.Pointer) {
 	reflect.NewAt(r.Type, r.Slot(entity)).Elem().SetZero()
 }
 
-// Page is one page of a query, with the totals needed to show paging links.
+// Page is one page of a query, with the totals needed to show paging links. In
+// JSON its fields are items, total, number and size.
 type Page[T any] struct {
-	Items  []*T
-	Total  int64
-	Number int // from 1
-	Size   int
+	Items  []*T  `json:"items"`
+	Total  int64 `json:"total"`
+	Number int   `json:"number"` // from 1
+	Size   int   `json:"size"`
 }
 
 // Pages returns the number of pages.
@@ -248,11 +249,11 @@ func (s *state) letGo(ctx context.Context, mark uint64) {
 	s.tracker.ForgetAlone(mark, end)
 }
 
-// CursorPage is one page from After.
+// CursorPage is one page from After. In JSON its fields are items and next.
 type CursorPage[T any] struct {
-	Items []*T
+	Items []*T `json:"items"`
 	// Next is the cursor for the following page, empty on the last page.
-	Next string
+	Next string `json:"next"`
 }
 
 // sortColumn is one column of a keyset ordering.

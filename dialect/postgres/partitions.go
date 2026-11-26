@@ -58,8 +58,8 @@ func monthStart(t time.Time) time.Time {
 
 // Partition is one month of a table.
 type Partition struct {
-	Name  string
-	Month time.Time // midnight UTC on the first
+	Name  string    `json:"name"`
+	Month time.Time `json:"month"` // midnight UTC on the first
 }
 
 // Ensure creates the partitions for the month holding from and the months after

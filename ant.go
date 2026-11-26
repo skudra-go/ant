@@ -49,10 +49,11 @@ type UnixTime = meta.UnixTime
 
 // Base is an optional embeddable model base. ID is a generated primary key. Any
 // model's time.Time fields named CreatedAt and UpdatedAt are maintained for it.
+// In JSON its fields are id, createdAt and updatedAt.
 type Base struct {
-	ID        int64
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID        int64     `json:"id"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 // Context is embedded in a user's database struct. Its methods are promoted,

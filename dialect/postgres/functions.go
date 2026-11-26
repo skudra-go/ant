@@ -116,7 +116,8 @@ func MatchVector[V any](field *V, config, query string) ant.Cond {
 // extension. For geography, with projections and real distances, use PostGIS through
 // .Type("geometry(Point,4326)") and ant.SQL.
 type Point struct {
-	X, Y float64
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
 }
 
 // ColumnType implements schema.Typed.
