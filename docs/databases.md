@@ -105,6 +105,18 @@ Error helpers mean the same everywhere. `ant.IsUniqueViolation` works on all fiv
 
 **Times.** SQLite stores times as text, and SQL Server's `DATETIME2` has no zone, so ant binds UTC on both to keep one clock, whatever holds the time: `*time.Time`, `sql.NullTime`, an `sql.Null` of a time, a pointer to one, or an interface holding one, types built on them such as `ant.DeletedAt`, and arguments of raw queries, each element of an `IN` list included. A `driver.Valuer` of your own is passed as it is, so have it give a time in UTC. MySQL's driver does the same. A time read back is held in UTC on every database, in each of those shapes, though pgx decodes `TIMESTAMPTZ` in the process's zone. `ant.Past` and `ant.Future` compare with the server's own clock, so run the server in UTC. On SQLite and MySQL, `CURRENT_TIMESTAMP` has whole seconds.
 
+**Text comparison.** Each database compares text by the column's collation, and the defaults differ, so the same `Eq`, `Like` and unique index match different rows. Measured on each server's default, with `José` and `ant` stored:
+
+| | `Eq(&Name, "jose")` finds `José` | `Eq(&Name, "ANT")` finds `ant` | `Like(&Name, "JOS%")` finds `José` | A unique `ant@x.io` refuses `ANT@x.io` |
+|---|---|---|---|---|
+| PostgreSQL | No | No | No | No |
+| MySQL, `utf8mb4_0900_ai_ci` | Yes | Yes | Yes | Yes |
+| MariaDB, `utf8mb4_uca1400_ai_ci` | Yes | Yes | Yes | Yes |
+| SQLite, `BINARY` | No | No | Yes, ASCII letters only | No |
+| SQL Server, `SQL_Latin1_General_CP1_CI_AS` | No | Yes | Yes | Yes |
+
+`ILike` ignores case on every database: natively on PostgreSQL, and as `LOWER(column) LIKE LOWER(pattern)` on the others. SQLite's `LOWER` folds ASCII letters only, so there `ILike(&Name, "JOSÉ")` does not find `José`. Accents count on PostgreSQL, SQLite and SQL Server, and not under MySQL's and MariaDB's defaults. For the same rows everywhere, give the column the collation you mean in its DDL, or store a normalized copy, such as an email in lower case, and compare that. `Collate` sets one for a single comparison, by a name each database spells its own way.
+
 **Parameters.** Limits differ: 65,535 on PostgreSQL and MySQL, 32,766 on SQLite, and about 2,100 on SQL Server, where ant stays at 2,000. `InsertMany`, `SaveChanges`, and `Include` split their work to fit. Your own `In` with a long list does not.
 
 **Types.** `postgres.Array`, `postgres.JSONSet`, `postgres.Vector`, and the rest of `dialect/postgres` need PostgreSQL. A `postgres.Array` holds plain values, so reading an array with a NULL element is an error, not the text `NULL`, `false`, or zero. `Collate` quotes its name, which SQL Server does not accept.
