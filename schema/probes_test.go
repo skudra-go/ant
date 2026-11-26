@@ -2657,6 +2657,64 @@ var probes = []probe{
 		},
 		back: true,
 	},
+	{
+		// an enum value is renamed: the rows and the default keep it (#189)
+		name: "67_enum_value_renamed",
+		seed: []string{"INSERT INTO t (id, m) VALUES (1, 'banned'), (2, 'active')"},
+		build: func(p string) (*schema.Schema, *schema.Schema) {
+			mk := func(gone string) *schema.Schema {
+				s := prWorld(prPK(
+					prTab("t", prReq("id", "bigint"), prDef("m", "status", "'"+gone+"'")),
+					"id",
+				))
+				s.Enums = []*schema.Enum{{Name: "status", Values: []string{"active", gone}}}
+
+				return s
+			}
+
+			return mk("banned"), mk("blocked")
+		},
+		renames:     []string{"status.banned=blocked"},
+		backRenames: []string{"status.blocked=banned"},
+		forbid:      []string{"ADD VALUE"},
+		verify: []prCheckQuery{{
+			"SELECT string_agg(m::text, ',' ORDER BY id) FROM t",
+			"blocked,active",
+		}},
+		back: true,
+	},
+	{
+		// a value is added before one that is renamed in the same migration
+		name: "68_enum_value_renamed_and_one_added_before_it",
+		seed: []string{"INSERT INTO t (id, m) VALUES (1, 'banned')"},
+		build: func(p string) (*schema.Schema, *schema.Schema) {
+			old := prWorld(prPK(prTab("t", prReq("id", "bigint"), prReq("m", "status")), "id"))
+			old.Enums = []*schema.Enum{{Name: "status", Values: []string{"active", "banned"}}}
+			next := prWorld(prPK(prTab("t", prReq("id", "bigint"), prReq("m", "status")), "id"))
+			next.Enums = []*schema.Enum{
+				{Name: "status", Values: []string{"active", "pending", "blocked"}},
+			}
+
+			return old, next
+		},
+		renames: []string{"status.banned=blocked"},
+		verify:  []prCheckQuery{{"SELECT m::text FROM t", "blocked"}},
+	},
+	{
+		// two enum values swap names
+		name: "69_enum_values_swapped",
+		seed: []string{"INSERT INTO t (id, m) VALUES (1, 'a')"},
+		build: func(p string) (*schema.Schema, *schema.Schema) {
+			old := prWorld(prPK(prTab("t", prReq("id", "bigint"), prReq("m", "ab")), "id"))
+			old.Enums = []*schema.Enum{{Name: "ab", Values: []string{"a", "b"}}}
+			next := prWorld(prPK(prTab("t", prReq("id", "bigint"), prReq("m", "ab")), "id"))
+			next.Enums = []*schema.Enum{{Name: "ab", Values: []string{"b", "a"}}}
+
+			return old, next
+		},
+		renames: []string{"ab.a=b", "ab.b=a"},
+		verify:  []prCheckQuery{{"SELECT m::text FROM t", "b"}},
+	},
 }
 
 // ---------------------------------------------------------------- extras

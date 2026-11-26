@@ -1209,6 +1209,167 @@ func TestTypeChanges(t *testing.T) {
 	require.Empty(t, run(t, seq(0, 0), seq(1, 1)), "zero is the default, 1")
 }
 
+// An enum value with a new name is a hint whose statement is RENAME VALUE, which
+// keeps the rows, and a rename written enum.value=new_name takes it up (#189).
+func TestEnumValueRenames(t *testing.T) {
+	status := func(values ...string) *schema.Schema {
+		return &schema.Schema{
+			Enums: []*schema.Enum{{Name: "item_status", Values: values}},
+			Tables: []*schema.Table{{
+				Name:    "items",
+				Columns: []*schema.Column{{Name: "status", Type: "item_status"}},
+			}},
+		}
+	}
+
+	t.Run("a value removed and one added are a hint", func(t *testing.T) {
+		plan, err := schema.Diff(status("active", "banned"), status("active", "blocked"))
+		require.NoError(t, err)
+		require.Len(t, plan.Hints, 1)
+		require.Equal(t, "item_status.banned=blocked", plan.Hints[0].Flag())
+
+		require.Equal(
+			t,
+			"value banned of enum item_status was removed and blocked was added",
+			plan.Hints[0].String(),
+		)
+
+		text, err := schema.Script(ddl(t), plan)
+		require.NoError(t, err)
+		require.Contains(t, text, `--   ALTER TYPE "item_status" RENAME VALUE 'banned' TO 'blocked';`)
+	})
+
+	t.Run("the rename is one statement, with no warning", func(t *testing.T) {
+		require.Equal(
+			t,
+			[]string{`ALTER TYPE "item_status" RENAME VALUE 'banned' TO 'blocked'`},
+			run(t, status("active", "banned"), status("active", "blocked"), "item_status.banned=blocked"),
+		)
+
+		plan, err := schema.Diff(
+			status("active", "banned"),
+			status("active", "blocked"),
+			"item_status.banned=blocked",
+		)
+		require.NoError(t, err)
+		require.Empty(t, plan.Warnings())
+		require.Empty(t, plan.Hints)
+		require.False(t, plan.Online(), "a renamed value is usable at once")
+	})
+
+	t.Run("a value added before the renamed one comes after the rename", func(t *testing.T) {
+		require.Equal(
+			t,
+			[]string{
+				`ALTER TYPE "item_status" RENAME VALUE 'banned' TO 'blocked'`,
+				`ALTER TYPE "item_status" ADD VALUE IF NOT EXISTS 'pending' BEFORE 'blocked'`,
+			},
+			run(
+				t,
+				status("active", "banned"),
+				status("active", "pending", "blocked"),
+				"item_status.banned=blocked",
+			),
+		)
+	})
+
+	t.Run("two values swap names through a spare one", func(t *testing.T) {
+		require.Equal(
+			t,
+			[]string{
+				`ALTER TYPE "item_status" RENAME VALUE 'a' TO 'ant_rename_1'`,
+				`ALTER TYPE "item_status" RENAME VALUE 'b' TO 'a'`,
+				`ALTER TYPE "item_status" RENAME VALUE 'ant_rename_1' TO 'b'`,
+			},
+			run(t, status("a", "b"), status("b", "a"), "item_status.a=b", "item_status.b=a"),
+		)
+	})
+
+	t.Run("a value with a dot or a quote in it", func(t *testing.T) {
+		from, to := status("v1.0", "it's"), status("v1.1", "it's")
+		plan, err := schema.Diff(from, to)
+		require.NoError(t, err)
+		require.Len(t, plan.Hints, 1)
+		require.Equal(t, `item_status."v1.0"="v1.1"`, plan.Hints[0].Flag())
+
+		require.Equal(
+			t,
+			[]string{`ALTER TYPE "item_status" RENAME VALUE 'v1.0' TO 'v1.1'`},
+			run(t, from, to, plan.Hints[0].Flag()),
+		)
+
+		require.Equal(
+			t,
+			[]string{`ALTER TYPE "item_status" RENAME VALUE 'it''s' TO 'its'`},
+			run(t, status("it's"), status("its"), `item_status.it's=its`),
+		)
+	})
+
+	t.Run("a rename that cannot keep the rows is refused", func(t *testing.T) {
+		clash := status("active", "banned")
+		clash.Tables = append(clash.Tables, &schema.Table{
+			Name:    "item_status",
+			Columns: []*schema.Column{{Name: "banned", Type: "text"}},
+		})
+
+		for _, c := range []struct {
+			name   string
+			from   *schema.Schema
+			to     *schema.Schema
+			rename string
+			err    string
+		}{
+			{
+				"a value the enum lacks",
+				status("active", "banned"),
+				status("active", "blocked"),
+				"item_status.gone=blocked",
+				"no value gone in enum item_status",
+			},
+			{
+				"a new name the models lack",
+				status("active", "banned"),
+				status("active", "blocked"),
+				"item_status.banned=blokced",
+				"models have no value blokced in enum item_status; new values of item_status in the models: blocked",
+			},
+			{
+				"onto a value the enum has",
+				status("active", "banned"),
+				status("active"),
+				"item_status.banned=active",
+				"enum item_status already has a value active",
+			},
+			{
+				"an enum the models drop",
+				status("active", "banned"),
+				&schema.Schema{},
+				"item_status.banned=blocked",
+				"models have no enum item_status",
+			},
+			{
+				"two onto one name",
+				status("a", "b"),
+				status("c"),
+				"item_status.a=c,item_status.b=c",
+				"enum item_status already has a value c",
+			},
+			{
+				"a name that is a column and an enum value",
+				clash,
+				clash,
+				"item_status.banned=blocked",
+				"names more than one thing",
+			},
+		} {
+			t.Run(c.name, func(t *testing.T) {
+				_, err := schema.Diff(c.from, c.to, strings.Split(c.rename, ",")...)
+				require.ErrorContains(t, err, c.err)
+			})
+		}
+	})
+}
+
 // A script's comments hold no line break, which would end one early and make the
 // rest of it SQL, and a name too long for the database is refused rather than
 // cut.
