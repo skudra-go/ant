@@ -478,7 +478,7 @@ The model is defined in [decision 11](decisions/011-migration-model.md). The gui
 - [x] Mute hooks while seeding
 - [x] Data migrations in Go: `migrate.Register(version, fn)`
 - [x] Export generated SQL for use with other tools: `migrate script --plain`
-- [x] Rename without losing data: `diff --rename users.name=title`, or a prompt in a terminal
+- [x] Rename without losing data: `diff --rename users.name=title`, an enum value too (`status.banned=blocked`), or a prompt in a terminal
 - [x] Fill existing rows when adding a `NOT NULL` column
 - [x] Start from an existing database: `migrate adopt`, `migrate baseline`
 - [x] Accept the models with no migration: `migrate snapshot`

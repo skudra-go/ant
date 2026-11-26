@@ -1236,14 +1236,24 @@ func TestEnumValueRenames(t *testing.T) {
 
 		text, err := schema.Script(ddl(t), plan)
 		require.NoError(t, err)
-		require.Contains(t, text, `--   ALTER TYPE "item_status" RENAME VALUE 'banned' TO 'blocked';`)
+
+		require.Contains(
+			t,
+			text,
+			`--   ALTER TYPE "item_status" RENAME VALUE 'banned' TO 'blocked';`,
+		)
 	})
 
 	t.Run("the rename is one statement, with no warning", func(t *testing.T) {
 		require.Equal(
 			t,
 			[]string{`ALTER TYPE "item_status" RENAME VALUE 'banned' TO 'blocked'`},
-			run(t, status("active", "banned"), status("active", "blocked"), "item_status.banned=blocked"),
+			run(
+				t,
+				status("active", "banned"),
+				status("active", "blocked"),
+				"item_status.banned=blocked",
+			),
 		)
 
 		plan, err := schema.Diff(
@@ -1255,6 +1265,25 @@ func TestEnumValueRenames(t *testing.T) {
 		require.Empty(t, plan.Warnings())
 		require.Empty(t, plan.Hints)
 		require.False(t, plan.Online(), "a renamed value is usable at once")
+	})
+
+	t.Run("a default that names the value is written after the rename", func(t *testing.T) {
+		from, to := status("active", "banned"), status("active", "blocked")
+		from.Tables[0].Columns[0].Default = "'banned'"
+		to.Tables[0].Columns[0].Default = "'blocked'"
+
+		require.Equal(
+			t,
+			[]string{
+				`ALTER TYPE "item_status" RENAME VALUE 'banned' TO 'blocked'`,
+				`ALTER TABLE "items" ALTER COLUMN "status" SET DEFAULT 'blocked'`,
+			},
+			run(t, from, to, "item_status.banned=blocked"),
+		)
+
+		plan, err := schema.Diff(from, to, "item_status.banned=blocked")
+		require.NoError(t, err)
+		require.False(t, plan.Online(), "probe 67 runs it in one transaction")
 	})
 
 	t.Run("a value added before the renamed one comes after the rename", func(t *testing.T) {

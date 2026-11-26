@@ -129,7 +129,11 @@ func Script(d Dialect, p *Plan) (string, error) {
 			Comment(hint.String()),
 		)
 
-		b.WriteString("-- replacing the drop and add below with:\n")
+		if hint.Enum != "" {
+			b.WriteString("-- replacing the added value below with:\n")
+		} else {
+			b.WriteString("-- replacing the drop and add below with:\n")
+		}
 
 		for _, statement := range rename {
 			fmt.Fprintf(&b, "--   %s;\n", Comment(statement))
@@ -229,6 +233,8 @@ func CheckNames(d Dialect, c Change) error {
 		}
 	case AddEnumValue:
 		names = append(names, named{"enum value", c.Value})
+	case RenameEnumValue:
+		names = append(names, named{"enum value", c.To})
 	case CreateSequence:
 		names = append(names, named{"sequence", c.Sequence.Name})
 	}

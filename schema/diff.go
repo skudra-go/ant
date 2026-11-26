@@ -18,6 +18,10 @@ type Hint struct {
 	To     string
 	// Schema is set when the table seems to have moved to another schema.
 	Schema string
+	// Enum is set when the hint is about Value, a value of that enum, which
+	// would be renamed To. Table and Column are empty then.
+	Enum  string
+	Value string
 }
 
 // Flag returns the value for a rename in Diff that takes up this hint. A name
@@ -30,6 +34,8 @@ func (h Hint) Flag() string {
 	}
 
 	switch {
+	case h.Enum != "":
+		return fmt.Sprintf("%s.%s=%s", flagName(h.Enum), flagName(h.Value), flagName(h.To))
 	case h.Column != "":
 		return fmt.Sprintf("%s.%s=%s", table, flagName(h.Column), flagName(h.To))
 	case h.moves():
@@ -40,7 +46,9 @@ func (h Hint) Flag() string {
 }
 
 // moves reports whether the hint is of a table that moved to another schema.
-func (h Hint) moves() bool { return h.Column == "" && h.Schema != "" && h.Schema != h.Table.Schema }
+func (h Hint) moves() bool {
+	return h.Enum == "" && h.Column == "" && h.Schema != "" && h.Schema != h.Table.Schema
+}
 
 // flagName writes a name for a rename, in double quotes if it holds anything a
 // rename reads as punctuation.
@@ -55,6 +63,8 @@ func flagName(name string) string {
 // Change returns the rename this hint suggests.
 func (h Hint) Change() Change {
 	switch {
+	case h.Enum != "":
+		return RenameEnumValue{Enum: h.Enum, From: h.Value, To: h.To}
 	case h.moves():
 		return MoveTable{Table: h.Table, Schema: h.Schema, To: h.To}
 	case h.Column == "":
@@ -67,6 +77,13 @@ func (h Hint) Change() Change {
 // String says what was seen, for a person to judge.
 func (h Hint) String() string {
 	switch {
+	case h.Enum != "":
+		return fmt.Sprintf(
+			"value %s of enum %s was removed and %s was added",
+			h.Value,
+			h.Enum,
+			h.To,
+		)
 	case h.moves():
 		return fmt.Sprintf("table %s was removed and %s was added", h.Table, Ref{h.Schema, h.To})
 	case h.Column == "":
@@ -273,12 +290,13 @@ func Diff(from, to *Schema, renames ...string) (*Plan, error) {
 
 	var p phases
 
-	renamed, err := old.renames(renames, to)
+	renamed, relabeled, err := old.renames(renames, to)
 	if err != nil {
 		return nil, err
 	}
 
-	p.renames = renamed
+	// Enum values are renamed before any is added, which may go before one.
+	p.renames, p.types = renamed, relabeled
 
 	for _, name := range to.Schemas {
 		if !slices.Contains(old.Schemas, name) {
@@ -1343,6 +1361,25 @@ func hints(old, to *Schema) []Hint {
 				// A rename names the schema a table moves to, which the
 				// connection's default cannot be.
 				out = append(out, Hint{Table: gone.Ref(), To: added.Name, Schema: added.Schema})
+			}
+		}
+	}
+
+	for _, e := range to.Enums {
+		o := old.Enum(e.Name)
+		if o == nil {
+			continue
+		}
+
+		for _, gone := range o.Values {
+			if slices.Contains(e.Values, gone) {
+				continue
+			}
+
+			for _, added := range e.Values {
+				if !slices.Contains(o.Values, added) {
+					out = append(out, Hint{Enum: e.Name, Value: gone, To: added})
+				}
 			}
 		}
 	}

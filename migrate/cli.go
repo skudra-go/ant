@@ -24,7 +24,8 @@ const usage = `Keep the database in step with your models.
 Writing migrations (no database needed):
   diff <name>            write a migration for what changed in the models
     --empty                write an empty migration to fill by hand
-    --rename a.b=c         treat a change as a rename, repeatable: users.name=title
+    --rename a.b=c         treat a change as a rename, repeatable: users.name=title,
+                           or an enum value: status.banned=blocked
     --dry-run              print the SQL and write nothing
   check                  fail if the models have changes with no migration, for CI
   snapshot               accept the models as they are, with no migration

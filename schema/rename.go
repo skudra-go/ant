@@ -7,41 +7,48 @@ import (
 	"strings"
 )
 
-// renaming is one rename asked for, found in the snapshot: a table, or a column
-// of one. The table is held, not its name, so that a column rename keeps
-// finding it once its table is renamed.
+// renaming is one rename asked for, found in the snapshot: a table, a column of
+// one, or a value of an enum. The table is held, not its name, so that a column
+// rename keeps finding it once its table is renamed, and a value by its place
+// in the enum, so that it is found once renamed.
 type renaming struct {
 	text   string
 	table  *Table
 	column *Column // nil for a table
+	enum   *Enum   // set for an enum value, with table nil
+	value  int     // the value's place in enum
 	to     Ref     // a table's new name, in its schema
-	name   string  // a column's new name
+	name   string  // a column's or an enum value's new name
 }
 
 // renames applies the renames to s, as the database would, and returns the
-// changes. Table renames run first, so a column can be named under its table's
-// old name or its new one. Within a table, or a schema, renames may swap names:
-// one that lands on a name another is leaving waits for it, and a cycle goes
-// through a temporary name.
-func (s *Schema) renames(texts []string, to *Schema) ([]Change, error) {
+// changes: those of tables and columns, then those of enum values. Table renames
+// run first, so a column can be named under its table's old name or its new
+// one. Within a table, a schema or an enum, renames may swap names: one that
+// lands on a name another is leaving waits for it, and a cycle goes through a
+// temporary name.
+func (s *Schema) renames(texts []string, to *Schema) ([]Change, []Change, error) {
 	var (
-		tables, columns []*renaming
-		later           []string
+		tables, columns, values []*renaming
+		later                   []string
 	)
 
 	for _, text := range texts {
 		path, name, err := splitRename(text)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		found, err := s.find(text, path)
 
 		switch {
 		case err != nil:
-			return nil, err
+			return nil, nil, err
 		case found == nil:
 			later = append(later, text)
+		case found.enum != nil:
+			found.name = columnName(name)
+			values = append(values, found)
 		case found.column == nil:
 			found.to = s.target(found.table, name, to)
 			tables = append(tables, found)
@@ -53,7 +60,7 @@ func (s *Schema) renames(texts []string, to *Schema) ([]Change, error) {
 
 	out, err := s.renameTables(tables, to)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	for _, text := range later {
@@ -61,11 +68,11 @@ func (s *Schema) renames(texts []string, to *Schema) ([]Change, error) {
 
 		found, err := s.find(text, path)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		if found == nil || found.column == nil {
-			return nil, s.missing(text, path)
+			return nil, nil, s.missing(text, path)
 		}
 
 		found.name = columnName(name)
@@ -74,10 +81,15 @@ func (s *Schema) renames(texts []string, to *Schema) ([]Change, error) {
 
 	more, err := s.renameColumns(columns, to)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return append(out, more...), nil
+	renamed, err := renameValues(values, to)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return append(out, more...), renamed, nil
 }
 
 // splitRename splits a rename into the path it names and the new name, at the
@@ -214,10 +226,11 @@ func groupings(parts []segment, n int) [][]string {
 }
 
 // find looks for what a rename's path names: a table, as table or
-// schema.table, or a column, as table.column or schema.table.column. A name may
-// hold dots, so every way to read the path is tried, and the reading with the
-// most names wins, then a column over a table, as table.column has always been
-// read; two that are left are an error. It returns nil if nothing matches.
+// schema.table, a column, as table.column or schema.table.column, or an enum
+// value, as enum.value. A name may hold dots, so every way to read the path is
+// tried, and the reading with the most names wins, then a column or a value over
+// a table, as table.column has always been read; two that are left are an
+// error. It returns nil if nothing matches.
 func (s *Schema) find(text string, path []segment) (*renaming, error) {
 	var found []*renaming
 
@@ -240,6 +253,14 @@ func (s *Schema) find(text string, path []segment) (*renaming, error) {
 				if t := s.Table(Ref{names[0], names[1]}); t != nil {
 					hits = append(hits, &renaming{text: text, table: t})
 				}
+
+				if e := s.Enum(names[0]); e != nil && slices.Contains(e.Values, names[1]) {
+					hits = append(hits, &renaming{
+						text:  text,
+						enum:  e,
+						value: slices.Index(e.Values, names[1]),
+					})
+				}
 			case 3:
 				if t := s.Table(Ref{names[0], names[1]}); t != nil && t.Column(names[2]) != nil {
 					hits = append(hits, &renaming{text: text, table: t, column: t.Column(names[2])})
@@ -256,10 +277,10 @@ func (s *Schema) find(text string, path []segment) (*renaming, error) {
 		}
 	}
 
-	if len(found) > 1 && slices.ContainsFunc(found, func(r *renaming) bool {
-		return r.column != nil
-	}) {
-		found = slices.DeleteFunc(found, func(r *renaming) bool { return r.column == nil })
+	table := func(r *renaming) bool { return r.column == nil && r.enum == nil }
+
+	if len(found) > 1 && slices.ContainsFunc(found, func(r *renaming) bool { return !table(r) }) {
+		found = slices.DeleteFunc(found, table)
 	}
 
 	switch len(found) {
@@ -276,7 +297,8 @@ func (s *Schema) find(text string, path []segment) (*renaming, error) {
 }
 
 // missing returns the error for a rename that names nothing, read the plain
-// way: table, schema.table, or table.column and schema.table.column.
+// way: table, schema.table, or table.column and schema.table.column, or
+// enum.value when the first name is an enum's and no table's.
 func (s *Schema) missing(text string, path []segment) error {
 	parts := make([]string, len(path))
 
@@ -285,6 +307,13 @@ func (s *Schema) missing(text string, path []segment) error {
 	}
 
 	switch {
+	case len(parts) >= 2 && s.Enum(parts[0]) != nil && s.Table(Ref{Name: parts[0]}) == nil:
+		return fmt.Errorf(
+			"ant: rename %q: no value %s in enum %s",
+			text,
+			strings.Join(parts[1:], "."),
+			parts[0],
+		)
 	case len(parts) == 1 || len(parts) == 2 && s.Table(Ref{Name: parts[0]}) == nil:
 		ref := Ref{Name: parts[len(parts)-1]}
 
@@ -478,6 +507,116 @@ func spareColumn(t *Table, to *Schema) string {
 	for n := 1; ; n++ {
 		name := fmt.Sprintf("ant_rename_%d", n)
 		if t.Column(name) == nil && (target == nil || target.Column(name) == nil) {
+			return name
+		}
+	}
+}
+
+// renameValues checks and applies enum value renames, and returns their changes.
+// A new name must be a value the models' enum has and the snapshot's lacks, or
+// has only in a value the same batch renames away, as for a column.
+func renameValues(list []*renaming, to *Schema) ([]Change, error) {
+	type slot struct {
+		enum *Enum
+		name string
+	}
+
+	targets := map[slot]bool{}
+
+	for _, r := range list {
+		leaving := slices.ContainsFunc(list, func(o *renaming) bool {
+			return o != r && o.enum == r.enum && o.enum.Values[o.value] == r.name
+		})
+
+		if err := canRenameValue(r, to, targets[slot{r.enum, r.name}], leaving); err != nil {
+			return nil, fmt.Errorf("ant: rename %q: %w", r.text, err)
+		}
+
+		targets[slot{r.enum, r.name}] = true
+	}
+
+	var out []Change
+
+	rename := func(r *renaming, name string) {
+		out = append(
+			out,
+			RenameEnumValue{Enum: r.enum.Name, From: r.enum.Values[r.value], To: name},
+		)
+
+		r.enum.Values[r.value] = name
+	}
+
+	for pending := slices.Clone(list); len(pending) > 0; {
+		i := slices.IndexFunc(pending, func(r *renaming) bool {
+			return !slices.Contains(r.enum.Values, r.name)
+		})
+
+		if i < 0 {
+			// Every new name is held by another value of the batch: one steps aside.
+			r := pending[0]
+			rename(r, spareValue(r.enum, to))
+
+			continue
+		}
+
+		r := pending[i]
+		pending = slices.Delete(pending, i, i+1)
+
+		rename(r, r.name)
+	}
+
+	return out, nil
+}
+
+// canRenameValue checks that the value r names can take its new name: the
+// models' enum has it, and the snapshot's does not, unless the value that has it
+// is renamed away by the same batch, and no other rename of the batch takes it.
+func canRenameValue(r *renaming, to *Schema, claimed, leaving bool) error {
+	e := r.enum
+
+	if r.name == e.Values[r.value] || claimed || slices.Contains(e.Values, r.name) && !leaving {
+		return fmt.Errorf("enum %s already has a value %s", e.Name, r.name)
+	}
+
+	target := to.Enum(e.Name)
+	if target == nil {
+		return fmt.Errorf("models have no enum %s", e.Name)
+	}
+
+	if slices.Contains(target.Values, r.name) {
+		return nil
+	}
+
+	fresh := slices.DeleteFunc(slices.Clone(target.Values), func(v string) bool {
+		return slices.Contains(e.Values, v)
+	})
+
+	if len(fresh) == 0 {
+		return fmt.Errorf(
+			"models have no value %s in enum %s; %s has no new value in the models",
+			r.name,
+			e.Name,
+			e.Name,
+		)
+	}
+
+	return fmt.Errorf(
+		"models have no value %s in enum %s; new values of %s in the models: %s",
+		r.name,
+		e.Name,
+		e.Name,
+		strings.Join(fresh, ", "),
+	)
+}
+
+// spareValue returns a temporary value that e does not have and will not.
+func spareValue(e *Enum, to *Schema) string {
+	target := to.Enum(e.Name)
+
+	for n := 1; ; n++ {
+		name := fmt.Sprintf("ant_rename_%d", n)
+		if !slices.Contains(e.Values, name) &&
+			(target == nil || !slices.Contains(target.Values, name)) {
 			return name
 		}
 	}

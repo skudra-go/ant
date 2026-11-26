@@ -581,6 +581,19 @@ func (c AddEnumValue) Warning() string {
 // plan runs.
 func (c AddEnumValue) RunsOnline() bool { return c.Used }
 
+// RenameEnumValue renames a value of an enum. The rows that hold it, and the
+// defaults and checks that name it, read the new name.
+type RenameEnumValue struct {
+	quiet
+	Enum     string
+	From, To string
+}
+
+// String implements Change.
+func (c RenameEnumValue) String() string {
+	return fmt.Sprintf("rename value %s of enum %s to %s", c.From, c.Enum, c.To)
+}
+
 // ReorderEnum reports an enum whose values sort in another order than the models
 // list, which needs a person: PostgreSQL cannot reorder them.
 type ReorderEnum struct {

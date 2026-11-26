@@ -912,6 +912,7 @@ schema: func (c RemoveEnumValue) String() string
 schema: func (c RemoveEnumValue) Warning() string
 schema: func (c RenameColumn) String() string
 schema: func (c RenameConstraint) String() string
+schema: func (c RenameEnumValue) String() string
 schema: func (c RenameIndex) String() string
 schema: func (c RenameTable) String() string
 schema: func (c ReorderEnum) String() string
@@ -990,6 +991,7 @@ schema: type Ref
 schema: type RemoveEnumValue
 schema: type RenameColumn
 schema: type RenameConstraint
+schema: type RenameEnumValue
 schema: type RenameIndex
 schema: type RenameTable
 schema: type ReorderEnum

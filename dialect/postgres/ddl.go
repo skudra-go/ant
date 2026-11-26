@@ -696,6 +696,16 @@ func (d impl) Statements(change schema.Change) ([]string, error) {
 		}
 
 		return []string{out}, nil
+	case schema.RenameEnumValue:
+		return []string{
+			"ALTER TYPE " + d.Quote(
+				c.Enum,
+			) + " RENAME VALUE " + literal(
+				c.From,
+			) + " TO " + literal(
+				c.To,
+			),
+		}, nil
 	case schema.RemoveEnumValue, schema.ReorderEnum, schema.Repartition:
 		return nil, nil // only a warning: see the change
 	case schema.AlterSequence:
