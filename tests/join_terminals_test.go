@@ -56,9 +56,11 @@ func TestConformanceJoinAndProjectionTerminals(t *testing.T) {
 
 		A := ant.Fields[authorName]()
 		P := ant.Fields[postsPerAuthor]()
+
 		names := func(q ant.Selectable) *ant.Projection[authorName] {
 			return ant.Project[authorName](q, ant.Into(&A.Name, &Users.Name))
 		}
+
 		perAuthor := func(g *ant.Grouped) *ant.Projection[postsPerAuthor] {
 			return ant.Project[postsPerAuthor](
 				g,
@@ -66,9 +68,11 @@ func TestConformanceJoinAndProjectionTerminals(t *testing.T) {
 				ant.IntoExpr(&P.Posts, ant.CountOf(&Posts.ID)),
 			)
 		}
+
 		byAuthor := app.Users.LeftJoinMany(&Users.Posts).GroupBy(&Users.Name)
 		joined := app.Posts.Join(&Posts.User)
 		titles := joined.Select(func(p *Post, u *User) string { return u.Name + "/" + p.Title })
+
 		published := app.Posts.Query().
 			FromCTE("published", app.Posts.Where(ant.Eq(&Posts.Published, true))).
 			Join(&Posts.User)

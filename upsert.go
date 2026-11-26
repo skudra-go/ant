@@ -181,16 +181,17 @@ func (c *Conflict) clause(
 		return nil, err
 	}
 
-	if offered != nil {
-		for _, name := range c.update {
-			if !slices.Contains(offered, name) {
-				return nil, fmt.Errorf(
-					"ant: DoUpdate names %s.%s, which the projection does not map",
-					model.Type.Name(),
-					model.Column(name).Name,
-				)
-			}
+	for _, name := range c.update {
+		if offered == nil || slices.Contains(offered, name) {
+			continue
 		}
+
+		what := "column " + name
+		if f := model.Column(name); f != nil {
+			what = model.Type.Name() + "." + f.Name
+		}
+
+		return nil, fmt.Errorf("ant: DoUpdate names %s, which the projection does not map", what)
 	}
 
 	names := c.update

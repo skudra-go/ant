@@ -177,6 +177,7 @@ func TestInsertFromWithConflict(t *testing.T) {
 				ant.IntoExpr(&Copies.Tag, ant.SQL[string]("?", tag)),
 			)
 		}
+
 		byTitle := ant.OnConflict(&Copies.Title)
 
 		n, err := db.Copies.InsertFrom(ctx, archive("first"))

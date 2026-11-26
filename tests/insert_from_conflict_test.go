@@ -78,6 +78,7 @@ func TestConformanceInsertFromWithConflict(t *testing.T) {
 				ant.Into(&Memberships.UpdatedAt, &Users.UpdatedAt),
 			)
 		}
+
 		byPair := ant.OnConflict(&Memberships.UserID).And(ant.F(&Memberships.Label))
 		older := app.Users.Where(ant.Gte(&Users.Age, 30))
 
@@ -143,6 +144,7 @@ func TestConformanceInsertFromWithConflict(t *testing.T) {
 			ant.WithConflict(byPair),
 		)
 		require.NoError(t, err)
+
 		require.Equal(
 			t,
 			map[int64]string{users[0].ID: "third", users[1].ID: "second", users[2].ID: "third"},
@@ -231,6 +233,7 @@ func TestConformanceInsertFromConflictColumns(t *testing.T) {
 			ant.Into(&Memberships.UserID, &Users.ID),
 			ant.IntoExpr(&Memberships.Label, ant.SQL[string]("?", "news")),
 		)
+
 		byPair := ant.OnConflict(&Memberships.UserID).And(ant.F(&Memberships.Label))
 
 		_, err := db.Memberships.InsertFrom(ctx, labelOnly, ant.WithConflict(byPair))
@@ -245,6 +248,13 @@ func TestConformanceInsertFromConflictColumns(t *testing.T) {
 			labelOnly,
 			ant.WithConflict(byPair.DoUpdate(ant.F(&Memberships.Note))),
 		)
-		require.ErrorContains(t, err, "Note")
+		require.ErrorContains(t, err, "Membership.Note")
+
+		_, err = db.Memberships.InsertFrom(
+			ctx,
+			labelOnly,
+			ant.WithConflict(byPair.DoUpdate(ant.F(&Users.Name))),
+		)
+		require.ErrorContains(t, err, "column name", "a field of another model")
 	})
 }
