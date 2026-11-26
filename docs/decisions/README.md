@@ -310,8 +310,9 @@ On 2026-11-20 the decisions moved from one file, `docs/DECISIONS.md`, to a file 
 | [62](062-the-statement-ast-is-public.md) | The statement AST is public | active | `qb` `AST` `Dialect` `public-package` `stability` |
 | [71](071-dependencies-stay-out-of-the-root-package.md) | Dependencies stay out of the root package | active | `dependencies` `pgxext` `ErrInTx` `contrib/otel` `antvet` `Copy` `Batch` |
 | [77](077-layout-is-enforced-by-tools.md) | Layout is enforced by tools | active | `make-fmt` `golines` `wsl_v5` `nlreturn` `antfmt` `lint` `layout` |
-| [83](083-antvet-judges-only-what-it-can-see.md) | antvet judges only what it can see | active | `antvet` `analyzer` `go-vet` `types-identical` `Find` `Configure` `subquery` `antvet-ignore` |
+| [83](083-antvet-judges-only-what-it-can-see.md) | antvet judges only what it can see | amended by [175](175-antvet-follows-a-query-built-up-in-a-variable.md) | `antvet` `analyzer` `go-vet` `types-identical` `Find` `Configure` `subquery` `antvet-ignore` |
 | [104](104-a-skill-for-coding-agents-ships-in-the-module.md) | A skill for coding agents ships in the module | active | `skill` `SKILL.md` `llms.txt` `claude-plugin` `agents` `doccheck` |
+| [175](175-antvet-follows-a-query-built-up-in-a-variable.md) | antvet follows a query built up in a variable | active | `antvet` `analyzer` `subquery` `variable` |
 
 #### Process and history
 
@@ -594,11 +595,12 @@ Before changing a file, read the decisions about it.
 | `tools/antfmt/main.go` | [77](077-layout-is-enforced-by-tools.md) |
 | `tools/antvet` | [71](071-dependencies-stay-out-of-the-root-package.md) |
 | `tools/antvet/analyzer` | [4](004-conditions-are-not-tied-to-a-model.md) |
-| `tools/antvet/analyzer/analyzer.go` | [83](083-antvet-judges-only-what-it-can-see.md) |
+| `tools/antvet/analyzer/analyzer.go` | [83](083-antvet-judges-only-what-it-can-see.md) [175](175-antvet-follows-a-query-built-up-in-a-variable.md) |
 | `tools/antvet/analyzer/analyzer_test.go` | [4](004-conditions-are-not-tied-to-a-model.md) [83](083-antvet-judges-only-what-it-can-see.md) |
 | `tools/antvet/analyzer/sessions.go` | [153](153-changes-saved-through-another-context-are-reported-by-antvet.md) |
 | `tools/antvet/analyzer/testdata` | [83](083-antvet-judges-only-what-it-can-see.md) |
 | `tools/antvet/analyzer/testdata/src/example/sessions.go` | [153](153-changes-saved-through-another-context-are-reported-by-antvet.md) |
+| `tools/antvet/analyzer/testdata/src/example/variables.go` | [175](175-antvet-follows-a-query-built-up-in-a-variable.md) |
 | `tools/antvet/cmd` | [83](083-antvet-judges-only-what-it-can-see.md) |
 | `tools/compare` | [71](071-dependencies-stay-out-of-the-root-package.md) |
 | `tx.go` | [2](002-tx-is-a-generic-method-on-context.md) [31](031-failed-saves.md) [47](047-hooks-run-inside-the-write.md) [48](048-replicas.md) [61](061-sessions-take-options.md) [70](070-dryrun-really-runs.md) [79](079-a-tracking-context-serves-one-operation-at-a-time.md) [99](099-a-retried-attempt-leaves-nothing-in-the-tracker.md) [106](106-begin-inside-a-transaction-opens-a-savepoint.md) [121](121-a-rollback-forgets-what-its-transaction-began-tracking.md) [141](141-a-statement-inside-an-each-loop-on-one-connection-is-refused.md) [154](154-the-ctx-carries-the-transaction.md) [155](155-a-bound-transaction-settles-what-its-contexts-did.md) [167](167-sqlite-row-locks-in-a-transaction-that-holds-the-write-lock.md) |
@@ -615,7 +617,8 @@ Tags on two or more decisions. Search the headers for the rest: `rg -l '^tags: .
 - `AfterInsert`: [47](047-hooks-run-inside-the-write.md) [123](123-an-after-hooks-edit-is-a-change-to-save.md)
 - `aggregate`: [35](035-typed-expressions.md) [147](147-a-projection-reads-null-into-a-plain-field-as-zero.md)
 - `All`: [6](006-return-shapes-and-tracking.md) [27](027-all-returns-t.md)
-- `antvet`: [4](004-conditions-are-not-tied-to-a-model.md) [71](071-dependencies-stay-out-of-the-root-package.md) [83](083-antvet-judges-only-what-it-can-see.md) [153](153-changes-saved-through-another-context-are-reported-by-antvet.md)
+- `analyzer`: [83](083-antvet-judges-only-what-it-can-see.md) [175](175-antvet-follows-a-query-built-up-in-a-variable.md)
+- `antvet`: [4](004-conditions-are-not-tied-to-a-model.md) [71](071-dependencies-stay-out-of-the-root-package.md) [83](083-antvet-judges-only-what-it-can-see.md) [153](153-changes-saved-through-another-context-are-reported-by-antvet.md) [175](175-antvet-follows-a-query-built-up-in-a-variable.md)
 - `arrays`: [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) [136](136-an-outer-joins-side-reads-what-only-the-driver-converts.md)
 - `Attach`: [110](110-a-version-the-application-sets-is-the-one-checked.md) [153](153-changes-saved-through-another-context-are-reported-by-antvet.md)
 - `Attempts`: [99](099-a-retried-attempt-leaves-nothing-in-the-tracker.md) [121](121-a-rollback-forgets-what-its-transaction-began-tracking.md)
@@ -767,7 +770,7 @@ Tags on two or more decisions. Search the headers for the rest: `rg -l '^tags: .
 - `sqlite`: [76](076-one-clock-for-times-without-a-zone.md) [84](084-every-time-is-bound-in-utc-where-columns-keep-no-zone.md) [118](118-a-sqlite-dsn-says-whether-foreign-keys-are-on.md) [159](159-a-sqlite-dsn-names-its-lock-behavior.md) [160](160-sqlite-time-aggregates-read-text.md) [164](164-explain-reads-each-databases-plan-statement.md) [167](167-sqlite-row-locks-in-a-transaction-that-holds-the-write-lock.md)
 - `sqlserver`: [76](076-one-clock-for-times-without-a-zone.md) [84](084-every-time-is-bound-in-utc-where-columns-keep-no-zone.md) [88](088-sql-server-recurses-with-union-all-and-a-path-of-keys.md) [164](164-explain-reads-each-databases-plan-statement.md) [165](165-sql-server-orders-only-where-it-counts.md)
 - `step-1`: [8](008-step-1-file-count.md) [9](009-owner-review-of-step-1.md)
-- `subquery`: [37](037-references-to-outer-queries.md) [38](038-bulk-writes.md) [83](083-antvet-judges-only-what-it-can-see.md) [165](165-sql-server-orders-only-where-it-counts.md)
+- `subquery`: [37](037-references-to-outer-queries.md) [38](038-bulk-writes.md) [83](083-antvet-judges-only-what-it-can-see.md) [165](165-sql-server-orders-only-where-it-counts.md) [175](175-antvet-follows-a-query-built-up-in-a-variable.md)
 - `tags`: [125](125-open-refuses-a-model-it-would-misread.md) [139](139-a-field-can-not-ask-for-two-things-ant-can-not-both-do.md)
 - `terminal-call`: [18](018-wrong-model-detection.md) [37](037-references-to-outer-queries.md)
 - `time`: [1](001-ant-ordered-replaces-cmp-ordered.md) [84](084-every-time-is-bound-in-utc-where-columns-keep-no-zone.md) [92](092-tracked-values-compare-as-stored.md) [160](160-sqlite-time-aggregates-read-text.md)

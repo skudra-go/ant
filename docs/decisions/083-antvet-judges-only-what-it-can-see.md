@@ -2,11 +2,11 @@
 id: 83
 title: "antvet judges only what it can see"
 area: tooling
-status: active
+status: amended
 tags: [antvet, analyzer, go-vet, types-identical, Find, Configure, subquery, antvet-ignore]
 issues: []
 related: [37]
-changed_by: []
+changed_by: [175]
 code: [tools/antvet/analyzer/analyzer.go, tools/antvet/cmd, Makefile]
 tests: [tools/antvet/analyzer/analyzer_test.go, tools/antvet/analyzer/testdata]
 ---
@@ -14,6 +14,8 @@ tests: [tools/antvet/analyzer/analyzer_test.go, tools/antvet/analyzer/testdata]
 # 83. antvet judges only what it can see
 
 **In short:** antvet compares models with types.Identical, reads Configure for the key, and reports a field of another model only in queries that plainly are not subqueries.
+
+> **Amended.** Decision 175 follows a query held in a variable of the function: when every use of the variable runs the query or builds it up into another such variable, its conditions are judged as its chain's would be (#220). The outer queries still end at a statement otherwise.
 
 ## Decision
 

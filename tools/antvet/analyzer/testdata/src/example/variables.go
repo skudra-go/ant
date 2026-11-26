@@ -37,6 +37,16 @@ func builtUp(ctx context.Context, users *ant.Table[User], posts *ant.Table[Post]
 	ok := users.Where(ant.Exists(posts.Where(ant.Eq(&U.Name, "x"))))
 	ok.All(ctx)
 
+	a, b := posts.Where(ant.Gt(&U.Age, 1)), users.Where() // want `condition on User in a query of Post`
+	a.All(ctx)
+	b.All(ctx)
+
+	// A join's models are in its type, which a variable keeps.
+	j := posts.Where().JoinUsing[User](&P.UserID)
+	j = j.Where(ant.Eq(&U.Name, "x"))
+	j = j.Where(ant.Eq(&models.Co.Code, "x")) // want `condition on Country in a query of Post and User`
+	j.Select(func(p *Post, u *User) string { return "" }).All(ctx)
+
 	// A closure that runs it is a use like any other.
 	c := posts.Where(ant.Gt(&U.Age, 1)) // want `condition on User in a query of Post`
 	run := func() { c.First(ctx) }
@@ -72,6 +82,14 @@ func unfollowed(ctx context.Context, users *ant.Table[User], posts *ant.Table[Po
 	q = q.Where(ant.Eq(&U.Name, "x"))
 	q.All(ctx)
 
+	more := posts.Where().JoinUsing[User](&P.UserID)
+	more = more.Where(ant.Eq(&D.Slug, "x"))
+	more.JoinOn[Doc]().JoinOn[Pair]().Select(func(*Post, *User, *Doc, *Pair) string { return "" }).All(ctx)
+
+	scoped := posts.Where(ant.Eq(&U.Name, "x"))
+	scoped = visible(scoped)
+	scoped.All(ctx)
+
 	global = global.Where(ant.Eq(&U.Name, "x"))
 	global.All(ctx)
 
@@ -82,5 +100,7 @@ func unfollowed(ctx context.Context, users *ant.Table[User], posts *ant.Table[Po
 
 var global *ant.Query[Post]
 
-func keepQuery(*ant.Query[Post])     {}
+func visible(q *ant.Query[Post]) *ant.Query[Post] { return q }
+
+func keepQuery(*ant.Query[Post])    {}
 func keepPointer(**ant.Query[Post]) {}

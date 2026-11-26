@@ -1167,7 +1167,8 @@ var singleModel = map[string]bool{
 // assignments of its updates, and the field an aggregate such as ant.SumOf reads
 // of it. A subquery may name its outer query's models in its conditions and its
 // ordering, so a query is judged there only where it is plainly not one: when
-// its chain ends in a call that runs it, such as All, or when it sits inside an
+// its chain ends in a call that runs it, such as All, when it is held in a
+// variable whose every use runs it or builds it up, or when it sits inside an
 // outer query, whose models it may also name.
 func (c *checker) checkScope(call *ast.CallExpr, stack []ast.Node) {
 	pass := c.pass
@@ -1267,7 +1268,7 @@ func (c *checker) scope(stack []ast.Node, own []types.Type) ([]types.Type, bool)
 		return nil, false
 	}
 
-	if c.runs(stack) {
+	if c.settles(stack) {
 		return own, true
 	}
 
@@ -1587,11 +1588,158 @@ walk:
 		outermost = i
 	}
 
-	if outermost < 0 || !c.runs(stack[:outermost+1]) {
+	if outermost < 0 || !c.settles(stack[:outermost+1]) {
 		return nil, false
 	}
 
 	return out, true
+}
+
+// settles reports whether the query whose chain the innermost node of stack
+// starts is judged where it is built: its chain runs it, or it is held in a
+// variable of the function that is followed, as in a filter built up with
+// q := posts.Where(...) and q = q.Where(...) before q.All(ctx) (#220).
+func (c *checker) settles(stack []ast.Node) bool {
+	if c.runs(stack) {
+		return true
+	}
+
+	at, body := funcBody(stack)
+	if body == nil {
+		return false
+	}
+
+	v := c.held(stack, body)
+
+	return v != nil && c.followed(stack[:at+1], body, v, map[*types.Var]bool{})
+}
+
+// funcBody returns the body of the outermost function in stack, and where the
+// function is in stack, or nil. Every use of a variable declared in it is in it.
+func funcBody(stack []ast.Node) (int, *ast.BlockStmt) {
+	for i, n := range stack {
+		switch fn := n.(type) {
+		case *ast.FuncDecl:
+			return i, fn.Body
+		case *ast.FuncLit:
+			return i, fn.Body
+		}
+	}
+
+	return 0, nil
+}
+
+// held returns the variable declared in body that the chain the innermost node
+// of stack starts is assigned to, as in q := posts.Where(...), or nil. Only a
+// chain of methods, in parentheses or not, is followed to the assignment.
+func (c *checker) held(stack []ast.Node, body *ast.BlockStmt) *types.Var {
+	node := stack[len(stack)-1]
+
+	for i := len(stack) - 2; i >= 0; i-- {
+		switch parent := stack[i].(type) {
+		case *ast.ParenExpr:
+			node = parent
+		case *ast.SelectorExpr:
+			call, at := calledAt(stack, i)
+			if call == nil || ast.Node(parent.X) != node || !builder(c.pass.TypesInfo.TypeOf(call)) {
+				return nil
+			}
+
+			node, i = call, at
+		case *ast.AssignStmt:
+			at := slices.IndexFunc(parent.Rhs, func(e ast.Expr) bool { return ast.Node(e) == node })
+			if at < 0 || len(parent.Lhs) != len(parent.Rhs) {
+				return nil
+			}
+
+			return c.local(parent.Lhs[at], body)
+		case *ast.ValueSpec:
+			at := slices.IndexFunc(parent.Values, func(e ast.Expr) bool { return ast.Node(e) == node })
+			if at < 0 || len(parent.Names) != len(parent.Values) {
+				return nil
+			}
+
+			return c.local(parent.Names[at], body)
+		default:
+			return nil
+		}
+	}
+
+	return nil
+}
+
+// local returns the variable that e names if it is declared in body, which a
+// parameter, a named result, and a variable of the package are not, or nil.
+func (c *checker) local(e ast.Expr, body *ast.BlockStmt) *types.Var {
+	ident, ok := ast.Unparen(e).(*ast.Ident)
+	if !ok {
+		return nil
+	}
+
+	v, ok := c.pass.TypesInfo.ObjectOf(ident).(*types.Var)
+	if !ok || v.Pos() < body.Pos() || v.Pos() >= body.End() {
+		return nil
+	}
+
+	return v
+}
+
+// followed reports whether every use of v in body, closures included, runs its
+// query, with no join to come, or builds it up into a variable of body that is
+// followed in turn. Being assigned to is no use, since the type of v fixes the
+// models it reads and a join changes it. Anything else, such as a subquery, an
+// argument to a function of one's own, a return, or the address of v, may put
+// the query where the analyzer does not look. The order of the uses does not
+// matter, as for probes. prefix holds the nodes above body.
+func (c *checker) followed(
+	prefix []ast.Node,
+	body *ast.BlockStmt,
+	v *types.Var,
+	seen map[*types.Var]bool,
+) bool {
+	if v == nil {
+		return false
+	}
+
+	if seen[v] {
+		return true // its uses are being followed already
+	}
+
+	seen[v] = true
+	ok := true
+	stack := slices.Clone(prefix)
+
+	ast.Inspect(body, func(n ast.Node) bool {
+		if n == nil {
+			stack = stack[:len(stack)-1]
+
+			return true
+		}
+
+		stack = append(stack, n)
+
+		ident, isIdent := n.(*ast.Ident)
+		if !ok || !isIdent || c.pass.TypesInfo.Uses[ident] != v || assignedTo(stack) {
+			return true
+		}
+
+		ok = !c.joinsLater(stack) &&
+			(c.runs(stack) || c.followed(prefix, body, c.held(stack, body), seen))
+
+		return true
+	})
+
+	return ok
+}
+
+// assignedTo reports whether the identifier that ends stack is assigned to.
+func assignedTo(stack []ast.Node) bool {
+	assign, ok := stack[len(stack)-2].(*ast.AssignStmt)
+
+	return ok && slices.ContainsFunc(
+		assign.Lhs,
+		func(e ast.Expr) bool { return ast.Node(e) == stack[len(stack)-1] },
+	)
 }
 
 // shapes reports whether the function literal at stack[lit] is the shape given to
