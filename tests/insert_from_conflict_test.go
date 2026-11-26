@@ -43,7 +43,7 @@ func openMemberships(t *testing.T, target testdb.Target) *MembershipsDB {
 		id `+serials[target.Name]+`,
 		user_id BIGINT NOT NULL,
 		label VARCHAR(30) NOT NULL,
-		note VARCHAR(30) NOT NULL,
+		note VARCHAR(30) NOT NULL DEFAULT '',
 		updated_at `+timestamps[target.Name]+` NULL,
 		UNIQUE (user_id, label))`)
 	require.NoError(t, err)
@@ -177,6 +177,32 @@ func TestConformanceInsertFromWithConflict(t *testing.T) {
 		ids, err := ant.Pluck(ctx, db.Memberships.Query(), &Memberships.ID)
 		require.NoError(t, err)
 		require.Len(t, ids, 3, "no conflict made a row")
+
+		// A list copied from the table it goes into names the same columns on
+		// both sides of the statement.
+		copyTo := func(label string) *ant.Projection[Membership] {
+			return ant.Project[Membership](
+				db.Memberships.Where(ant.Eq(&Memberships.Label, "news")),
+				ant.Into(&Memberships.UserID, &Memberships.UserID),
+				ant.IntoExpr(&Memberships.Label, ant.SQL[string]("?", label)),
+				ant.Into(&Memberships.Note, &Memberships.Note),
+			)
+		}
+
+		n, err = db.Memberships.InsertFrom(ctx, copyTo("sports"), ant.WithConflict(byPair.DoNothing()))
+		require.NoError(t, err)
+		require.EqualValues(t, 3, n)
+
+		n, err = db.Memberships.InsertFrom(ctx, copyTo("sports"), ant.WithConflict(byPair.DoNothing()))
+		require.NoError(t, err)
+		require.Zero(t, n, "every pair is there")
+
+		_, err = db.Memberships.InsertFrom(ctx, copyTo("sports"), ant.WithConflict(byPair))
+		require.NoError(t, err)
+
+		sports, err := db.Memberships.Where(ant.Eq(&Memberships.Label, "sports")).Count(ctx)
+		require.NoError(t, err)
+		require.EqualValues(t, 3, sports)
 	})
 }
 

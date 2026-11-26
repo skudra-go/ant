@@ -304,7 +304,7 @@ The work keeps to these. A change that breaks one needs a decision.
 - [x] Batched `SaveChanges` statements
   - Inserts only, up to 200 rows a statement. A model with insert hooks, a `.Touch()` relation, or a `WithoutAutoTx` save is written one row at a time, because each of those needs a result per row. Updates stay one statement each, since a shared statement could only apply one set of columns.
 - [x] Batched bulk insert: `db.Users.InsertMany(ctx, users, ant.BatchSize(500))`
-- [x] Insert from a query: `db.Users.InsertFrom(ctx, ant.Project[T](q, mappings...))`
+- [x] Insert from a query: `db.Users.InsertFrom(ctx, ant.Project[T](q, mappings...))`, with `ant.WithConflict` to skip or update rows a unique constraint holds
 - [x] Insert ignoring conflicts: `ant.OnConflict(&Users.Email).DoNothing()`
 - [x] Upsert on conflict: `db.Users.Upsert(ctx, v, ant.OnConflict(&Users.Email))`
 - [x] Upsert selected columns: `.DoUpdate(ant.F(&Users.Name))`, `.Set(...)`

@@ -155,3 +155,43 @@ func TestInsertFrom(t *testing.T) {
 		require.ErrorIs(t, err, ant.ErrNoColumns)
 	})
 }
+
+// WithConflict makes InsertFrom skip, or update, the rows a unique constraint
+// already holds, in the same statement, so a concurrent insert can't race it
+// into a unique violation.
+func TestInsertFromWithConflict(t *testing.T) {
+	ddl := `CREATE TABLE copies (id BIGSERIAL PRIMARY KEY, title TEXT NOT NULL UNIQUE, tag TEXT NOT NULL)`
+	fixture.RunWith(t, ddl, func(t *testing.T, db *ArchiveDB) {
+		ctx := t.Context()
+		owner := &fixture.User{Name: "o", Email: "o"}
+		require.NoError(t, db.Users.Insert(ctx, owner))
+
+		require.NoError(t, db.Posts.Insert(ctx,
+			&fixture.Post{UserID: owner.ID, Title: "one"},
+			&fixture.Post{UserID: owner.ID, Title: "two"}))
+
+		archive := func(tag string) *ant.Projection[Copy] {
+			return ant.Project[Copy](
+				db.Posts.Query(),
+				ant.Into(&Copies.Title, &Posts.Title),
+				ant.IntoExpr(&Copies.Tag, ant.SQL[string]("?", tag)),
+			)
+		}
+		byTitle := ant.OnConflict(&Copies.Title)
+
+		n, err := db.Copies.InsertFrom(ctx, archive("first"))
+		require.NoError(t, err)
+		require.EqualValues(t, 2, n)
+
+		n, err = db.Copies.InsertFrom(ctx, archive("again"), ant.WithConflict(byTitle.DoNothing()))
+		require.NoError(t, err)
+		require.Zero(t, n, "both titles are there")
+
+		_, err = db.Copies.InsertFrom(ctx, archive("again"), ant.WithConflict(byTitle))
+		require.NoError(t, err)
+
+		tags, err := ant.Pluck(ctx, db.Copies.Query(), &Copies.Tag)
+		require.NoError(t, err)
+		require.Equal(t, []string{"again", "again"}, tags, "the update overwrites the mapped columns")
+	})
+}

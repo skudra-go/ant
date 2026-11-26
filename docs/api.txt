@@ -332,7 +332,7 @@ ant: func (t *Table[T]) IncludeJoined[R any](rel **R) *Query[T]
 ant: func (t *Table[T]) IncludeOne[R any](rel **R, shape ...func(*Query[R]) *Query[R]) *Query[T]
 ant: func (t *Table[T]) Include[R any](rel *[]R, shape ...func(*Query[R]) *Query[R]) *Query[T]
 ant: func (t *Table[T]) Insert(ctx context.Context, entities ...*T) error
-ant: func (t *Table[T]) InsertFrom(ctx context.Context, rows *Projection[T]) (int64, error)
+ant: func (t *Table[T]) InsertFrom(ctx context.Context, rows *Projection[T], options ...InsertOption) (int64, error)
 ant: func (t *Table[T]) InsertMany(ctx context.Context, entities []*T, options ...InsertOption) (int64, error)
 ant: func (t *Table[T]) InsertOnly(ctx context.Context, entities ...*T) error
 ant: func (t *Table[T]) JoinMany[J any](rel *[]J) *Join2[T, J]

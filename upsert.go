@@ -161,10 +161,15 @@ func (c *Conflict) Set(assignments ...Assignment) *Conflict {
 // the insert leaves the column to the database: a zero field with a default,
 // whose offered value is the database's default. There it writes what e holds,
 // zero or not, as Update would (#142). E is nil when the clause is only checked.
+//
+// Offered names the columns of an INSERT ... SELECT, nil for rows of entities.
+// Its offered row holds the default of every other column, so the update
+// overwrites only the offered ones, and naming another in DoUpdate is an error.
 func (c *Conflict) clause(
 	model *meta.Model,
 	now time.Time,
 	e unsafe.Pointer,
+	offered []string,
 ) (*qb.Conflict, error) {
 	out := &qb.Conflict{Columns: c.columns, Target: partialTarget(model, c.columns)}
 
@@ -176,10 +181,26 @@ func (c *Conflict) clause(
 		return nil, err
 	}
 
+	if offered != nil {
+		for _, name := range c.update {
+			if !slices.Contains(offered, name) {
+				return nil, fmt.Errorf(
+					"ant: DoUpdate names %s.%s, which the projection does not map",
+					model.Type.Name(),
+					model.Column(name).Name,
+				)
+			}
+		}
+	}
+
 	names := c.update
 	if len(names) == 0 && len(c.set) == 0 {
 		for _, f := range model.Updatable() {
-			if !slices.Contains(c.columns, f.Column) && f != model.Version && f != model.Updated {
+			if slices.Contains(c.columns, f.Column) || f == model.Version || f == model.Updated {
+				continue
+			}
+
+			if offered == nil || slices.Contains(offered, f.Column) {
 				names = append(names, f.Column)
 			}
 		}
@@ -383,7 +404,7 @@ func (t *Table[T]) Upsert(ctx context.Context, e *T, conflict *Conflict) (bool, 
 	t = t.in(ctx)
 	now := t.state.settings.timestamp()
 
-	if _, err := conflict.clause(model, now, nil); err != nil {
+	if _, err := conflict.clause(model, now, nil, nil); err != nil {
 		return false, err
 	}
 
@@ -433,7 +454,7 @@ func (t *Table[T]) Upsert(ctx context.Context, e *T, conflict *Conflict) (bool, 
 
 			// The clause is made from e as the hooks and stamps left it, as the
 			// insert is, so that both leave the same columns to the database.
-			clause, err := conflict.clause(model, now, unsafe.Pointer(e))
+			clause, err := conflict.clause(model, now, unsafe.Pointer(e), nil)
 			if err != nil {
 				return err
 			}
@@ -597,13 +618,13 @@ type insertOptions struct {
 	conflict *Conflict
 }
 
-// InsertOption configures InsertMany.
+// InsertOption configures InsertMany and InsertFrom.
 type InsertOption func(*insertOptions)
 
 // BatchSize sets the most rows in one statement. The default is 1000.
 func BatchSize(n int) InsertOption { return func(o *insertOptions) { o.batch = n } }
 
-// WithConflict applies a Conflict to every row of InsertMany.
+// WithConflict applies a Conflict to every row of InsertMany or InsertFrom.
 func WithConflict(c *Conflict) InsertOption { return func(o *insertOptions) { o.conflict = c } }
 
 // InsertMany writes many rows quickly, in multi-row statements inside one
@@ -647,7 +668,7 @@ func (t *Table[T]) InsertMany(
 	}
 
 	if o.conflict != nil {
-		if _, err := o.conflict.clause(model, time.Time{}, nil); err != nil {
+		if _, err := o.conflict.clause(model, time.Time{}, nil, nil); err != nil {
 			return 0, err
 		}
 	}
@@ -833,6 +854,7 @@ func (t *Table[T]) insertBatch(
 			model,
 			t.state.settings.timestamp(),
 			unsafe.Pointer(batch[0]),
+			nil,
 		)
 		if err != nil {
 			return 0, err
@@ -906,10 +928,31 @@ func (t *Table[T]) insertBatch(
 //
 //	db.Archive.InsertFrom(ctx, ant.Project[Archive](db.Posts.Where(old),
 //		ant.Into(&Archives.Title, &Posts.Title)))
-func (t *Table[T]) InsertFrom(ctx context.Context, rows *Projection[T]) (int64, error) {
+//
+// WithConflict skips or updates the rows a unique constraint already holds, as
+// in one INSERT ... SELECT ... ON CONFLICT, which no concurrent insert can race
+// into a unique violation. Its update overwrites only the columns the mappings
+// name, sets UpdatedAt and moves the version on. SQL Server has no such clause,
+// so there WithConflict returns ErrUnsupported. BatchSize has no effect, since
+// InsertFrom runs one statement.
+func (t *Table[T]) InsertFrom(
+	ctx context.Context,
+	rows *Projection[T],
+	options ...InsertOption,
+) (int64, error) {
 	model, err := t.model()
 	if err != nil {
 		return 0, err
+	}
+
+	var o insertOptions
+
+	for _, option := range options {
+		option(&o)
+	}
+
+	if o.conflict != nil && o.conflict.err != nil {
+		return 0, o.conflict.err
 	}
 
 	if err := rows.ready(); err != nil {
@@ -928,6 +971,15 @@ func (t *Table[T]) InsertFrom(ctx context.Context, rows *Projection[T]) (int64, 
 
 	if err := assignedTwice(model, "mappings", stmt.Columns); err != nil {
 		return 0, err
+	}
+
+	if o.conflict != nil {
+		clause, err := o.conflict.clause(model, t.state.settings.timestamp(), nil, stmt.Columns)
+		if err != nil {
+			return 0, err
+		}
+
+		stmt.Conflict = clause
 	}
 
 	return t.state.run(ctx, stmt)

@@ -1207,8 +1207,8 @@ func (r *renderer) insert(s *qb.Insert) {
 	switch {
 	case s.From != nil:
 		r.write(" ")
-		r.rows = s.From
-		r.selectStmt(s.From)
+		r.rows = r.insertSelect(s)
+		r.selectStmt(r.rows)
 	case len(s.Rows) > 0 && r.updateReadsTable(s):
 		r.rowsSelect(s.Rows)
 	case len(s.Rows) == 0 && r.s.EmptyValues:
@@ -1230,6 +1230,38 @@ func (r *renderer) insert(s *qb.Insert) {
 	}
 
 	r.returning(s.Returning)
+}
+
+// insertSelect returns the SELECT of an INSERT ... SELECT, ready for a conflict
+// clause after it. SQLite reads the ON of an ON CONFLICT that follows a FROM as
+// a join's, so a SELECT with no WHERE gets one that every row meets. MySQL and
+// MariaDB see the SELECT's columns in ON DUPLICATE KEY UPDATE, where one named
+// as the table's is ambiguous, so the rows come from a derived table whose
+// columns have names of their own, as rowsSelect gives them.
+func (r *renderer) insertSelect(s *qb.Insert) *qb.Select {
+	switch {
+	case s.Conflict == nil:
+		return s.From
+	case r.s.DuplicateKey:
+		inner := *s.From
+		inner.Columns = make([]qb.Selected, len(s.From.Columns))
+
+		for i, c := range s.From.Columns {
+			inner.Columns[i] = qb.Selected{Value: c.Value, Alias: fmt.Sprintf("ant_c%d", i+1)}
+		}
+
+		return &qb.Select{
+			Columns: []qb.Selected{{Value: qb.Star{}}},
+			From:    qb.Source{Sub: &inner, Alias: "ant_rows"},
+		}
+	case len(s.From.Where) > 0:
+		return s.From
+	}
+
+	from := *s.From
+	from.Where = []qb.Cond{qb.Fragment{SQL: "1 = 1"}}
+
+	return &from
 }
 
 func (r *renderer) conflict(s *qb.Insert) {
