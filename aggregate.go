@@ -51,12 +51,12 @@ func (q *Query[T]) Count(ctx context.Context) (int64, error) {
 		}
 	}
 
-	return countRows(ctx, &q.builder, q.selection)
+	return countRows(ctx, &q.builder, q.selection, false)
 }
 
 // Exists reports whether any row matches. It stops at the first one.
 func (q *Query[T]) Exists(ctx context.Context) (bool, error) {
-	return existsRows(ctx, &q.builder, q.selection)
+	return existsRows(ctx, &q.builder, q.selection, false)
 }
 
 // picksRows reports whether Limit, Offset, Distinct or GroupBy decide which rows
@@ -67,9 +67,16 @@ func (b *builder) picksRows() bool {
 
 // countRows counts the rows b returns, whose select list columns gives: with
 // COUNT(*) in its place when nothing picks the rows, and otherwise over a
-// subquery that selects them.
-func countRows(ctx context.Context, b *builder, columns func() []qb.Selected) (int64, error) {
-	if !b.picksRows() {
+// subquery that selects them. computed says the select list can decide the rows
+// itself, as a projection's expressions can: an aggregate makes one row of
+// many, or of none, and a set-returning function many of one.
+func countRows(
+	ctx context.Context,
+	b *builder,
+	columns func() []qb.Selected,
+	computed bool,
+) (int64, error) {
+	if !computed && !b.picksRows() {
 		return scalar(ctx, b, Count())
 	}
 
@@ -115,11 +122,18 @@ func numberedColumns(columns []qb.Selected) []qb.Selected {
 }
 
 // existsRows reports whether b returns any row, stopping at the first, with
-// columns its select list. It selects 1 in their place, except where Distinct
-// or GroupBy decide the rows an Offset skips: MySQL, MariaDB and SQLite drop
-// either from an EXISTS subquery, and with a 1 DISTINCT would leave one row, so
-// the rows are read from a derived table of the columns.
-func existsRows(ctx context.Context, b *builder, columns func() []qb.Selected) (bool, error) {
+// columns its select list. It selects 1 in their place, except where the
+// columns decide the rows: when computed says they can, as in countRows, and
+// where Distinct or GroupBy decide the rows an Offset skips, since MySQL,
+// MariaDB and SQLite drop either from an EXISTS subquery, and with a 1 DISTINCT
+// would leave one row. There the rows are read from a derived table of the
+// columns.
+func existsRows(
+	ctx context.Context,
+	b *builder,
+	columns func() []qb.Selected,
+	computed bool,
+) (bool, error) {
 	if err := b.ready(); err != nil {
 		return false, err
 	}
@@ -128,7 +142,7 @@ func existsRows(ctx context.Context, b *builder, columns func() []qb.Selected) (
 
 	var inner *qb.Select
 
-	if (b.distinct || len(b.group) > 0) && b.offset != nil {
+	if computed || (b.distinct || len(b.group) > 0) && b.offset != nil {
 		picked := b.statement(numberedColumns(columns()))
 		picked.Order = nil
 		picked.Lock = nil

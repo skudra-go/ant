@@ -323,14 +323,15 @@ func (p *Projection[R]) ToSQLContext(ctx context.Context) (string, []any, error)
 	return p.selectSQL(ctx, p.columns)
 }
 
-// Count returns the number of rows the projection returns. Limit, Offset,
-// Distinct and GroupBy are honored, by counting over a subquery.
+// Count returns the number of rows the projection returns, counted over a
+// subquery of its SELECT, so that Limit, Offset, Distinct, GroupBy and the
+// columns themselves, such as an aggregate with no GroupBy, decide them.
 func (p *Projection[R]) Count(ctx context.Context) (int64, error) {
 	if err := p.runnable(); err != nil {
 		return 0, err
 	}
 
-	return countRows(ctx, &p.builder, p.selection)
+	return countRows(ctx, &p.builder, p.selection, true)
 }
 
 // Exists reports whether the projection returns any row. It stops at the
@@ -340,7 +341,7 @@ func (p *Projection[R]) Exists(ctx context.Context) (bool, error) {
 		return false, err
 	}
 
-	return existsRows(ctx, &p.builder, p.selection)
+	return existsRows(ctx, &p.builder, p.selection, true)
 }
 
 func (p *Projection[R]) open(ctx context.Context) (*sql.Rows, func() (R, error), error) {

@@ -28,6 +28,10 @@ type postsPerAuthor struct {
 	Posts int64
 }
 
+type joinTotal struct {
+	N int64
+}
+
 // seedJoinRows makes alice with posts a1 (published) and a2, bob with b1
 // (published), and carol with none.
 func seedJoinRows(t *testing.T, app *AppDB) {
@@ -56,6 +60,7 @@ func TestConformanceJoinAndProjectionTerminals(t *testing.T) {
 
 		A := ant.Fields[authorName]()
 		P := ant.Fields[postsPerAuthor]()
+		T := ant.Fields[joinTotal]()
 
 		names := func(q ant.Selectable) *ant.Projection[authorName] {
 			return ant.Project[authorName](q, ant.Into(&A.Name, &Users.Name))
@@ -67,6 +72,11 @@ func TestConformanceJoinAndProjectionTerminals(t *testing.T) {
 				ant.Into(&P.Name, &Users.Name),
 				ant.IntoExpr(&P.Posts, ant.CountOf(&Posts.ID)),
 			)
+		}
+
+		// An aggregate with no GroupBy makes one row of all of them, even of none.
+		total := func(q ant.Selectable) *ant.Projection[joinTotal] {
+			return ant.Project[joinTotal](q, ant.IntoExpr(&T.N, ant.CountOf(&Posts.ID)))
 		}
 
 		byAuthor := app.Users.LeftJoinMany(&Users.Posts).GroupBy(&Users.Name)
@@ -110,6 +120,9 @@ func TestConformanceJoinAndProjectionTerminals(t *testing.T) {
 				0,
 				false,
 			},
+			{"aggregate", total(joined), 1, true},
+			{"aggregate of no rows", total(joined.Where(ant.Eq(&Posts.Title, "none"))), 1, true},
+			{"aggregate offset past", total(joined.Offset(1)), 0, false},
 			{"grouped", perAuthor(byAuthor), 3, true},
 			{
 				"grouped ordered limit",

@@ -124,12 +124,12 @@ func (j *Join2[A, B]) ToSQLContext(ctx context.Context) (string, []any, error) {
 // Count returns the number of joined rows. Limit, Offset and Distinct are
 // honored, by counting over a subquery.
 func (j *Join2[A, B]) Count(ctx context.Context) (int64, error) {
-	return countRows(ctx, &j.builder, j.allColumns)
+	return countRows(ctx, &j.builder, j.allColumns, false)
 }
 
 // Exists reports whether the join has any row. It stops at the first one.
 func (j *Join2[A, B]) Exists(ctx context.Context) (bool, error) {
-	return existsRows(ctx, &j.builder, j.allColumns)
+	return existsRows(ctx, &j.builder, j.allColumns, false)
 }
 
 // GroupBy groups the joined rows by a column. See Query.GroupBy.
@@ -286,12 +286,12 @@ func (j *Join3[A, B, C]) ToSQLContext(ctx context.Context) (string, []any, error
 // Count returns the number of joined rows. Limit, Offset and Distinct are
 // honored, by counting over a subquery.
 func (j *Join3[A, B, C]) Count(ctx context.Context) (int64, error) {
-	return countRows(ctx, &j.builder, j.allColumns)
+	return countRows(ctx, &j.builder, j.allColumns, false)
 }
 
 // Exists reports whether the join has any row. It stops at the first one.
 func (j *Join3[A, B, C]) Exists(ctx context.Context) (bool, error) {
-	return existsRows(ctx, &j.builder, j.allColumns)
+	return existsRows(ctx, &j.builder, j.allColumns, false)
 }
 
 // GroupBy groups the joined rows by a column. See Query.GroupBy.
@@ -448,12 +448,12 @@ func (j *Join4[A, B, C, D]) ToSQLContext(ctx context.Context) (string, []any, er
 // Count returns the number of joined rows. Limit, Offset and Distinct are
 // honored, by counting over a subquery.
 func (j *Join4[A, B, C, D]) Count(ctx context.Context) (int64, error) {
-	return countRows(ctx, &j.builder, j.allColumns)
+	return countRows(ctx, &j.builder, j.allColumns, false)
 }
 
 // Exists reports whether the join has any row. It stops at the first one.
 func (j *Join4[A, B, C, D]) Exists(ctx context.Context) (bool, error) {
-	return existsRows(ctx, &j.builder, j.allColumns)
+	return existsRows(ctx, &j.builder, j.allColumns, false)
 }
 
 // GroupBy groups the joined rows by a column. See Query.GroupBy.
