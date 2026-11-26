@@ -168,7 +168,7 @@ func TestConformanceInsertFromWithConflict(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "fourth", notes()[users[2].ID], "DoUpdate names the column")
 
-		n, err = db.Memberships.InsertFrom(
+		_, err = db.Memberships.InsertFrom(
 			ctx,
 			list("news", "fifth", older),
 			ant.WithConflict(byPair.Set(ant.Set(&Memberships.Note, "set"))),
