@@ -975,6 +975,8 @@ schema: type DropPrimaryKey
 schema: type DropSequence
 schema: type DropTable
 schema: type Enum
+schema: type ExternalType
+schema: type ExternalTypes
 schema: type Facets
 schema: type Failure
 schema: type ForeignKey

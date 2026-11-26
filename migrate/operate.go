@@ -390,11 +390,19 @@ func (e *engine) drift(
 		e.say("%s", pendingNote(pending))
 	}
 
+	external, err := e.externalTypes(ctx, conn, target)
+	if err != nil {
+		return err
+	}
+
 	if plan.Empty() && len(sequences) == 0 {
 		e.say("No drift: the database matches %s.", source)
+		e.sayExternal(external)
 
 		return nil
 	}
+
+	defer e.sayExternal(external)
 
 	e.say("The database differs from %s. To match, it would need to:", source)
 
@@ -422,6 +430,52 @@ func (e *engine) drift(
 	}
 
 	return fmt.Errorf("%w: %s", ErrDrift, driftNote(len(plan.Changes)+len(sequences)))
+}
+
+// externalTypes returns the types that target's columns use and target does not
+// create, if the dialect can tell, leaving out the tables Config.Ignore names.
+func (e *engine) externalTypes(
+	ctx context.Context,
+	conn *sql.Conn,
+	target *schema.Schema,
+) ([]schema.ExternalType, error) {
+	d, ok := e.d.(schema.ExternalTypes)
+	if !ok {
+		return nil, nil
+	}
+
+	kept, err := prune(target, e.config.Ignore)
+	if err != nil {
+		return nil, err
+	}
+
+	return d.ExternalTypes(ctx, conn, kept)
+}
+
+// sayExternal names the types the models use and do not create. The database
+// has them, so they are no drift, but an empty one does not, and a migration
+// made from the models alone fails there (#193).
+func (e *engine) sayExternal(types []schema.ExternalType) {
+	if len(types) == 0 {
+		return
+	}
+
+	e.say("\nThe models name types they do not create, which an empty database lacks:")
+
+	for _, t := range types {
+		what := t.Kind
+
+		if t.Extension != "" {
+			what = "from extension " + t.Extension
+		}
+
+		e.say("  %s, %s: %s", t.Name, what, strings.Join(t.Columns, ", "))
+	}
+
+	e.say(
+		"A migration made from the models alone fails without them: create them in one of " +
+			"your own (diff --empty) before the tables that use them, or adopt the database's dump.",
+	)
 }
 
 // serialSequenceChanges reports different explicit serial defaults separately
