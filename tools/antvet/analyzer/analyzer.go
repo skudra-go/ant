@@ -1641,7 +1641,8 @@ func (c *checker) held(stack []ast.Node, body *ast.BlockStmt) *types.Var {
 			node = parent
 		case *ast.SelectorExpr:
 			call, at := calledAt(stack, i)
-			if call == nil || ast.Node(parent.X) != node || !builder(c.pass.TypesInfo.TypeOf(call)) {
+			if call == nil || ast.Node(parent.X) != node ||
+				!builder(c.pass.TypesInfo.TypeOf(call)) {
 				return nil
 			}
 
@@ -1654,7 +1655,10 @@ func (c *checker) held(stack []ast.Node, body *ast.BlockStmt) *types.Var {
 
 			return c.local(parent.Lhs[at], body)
 		case *ast.ValueSpec:
-			at := slices.IndexFunc(parent.Values, func(e ast.Expr) bool { return ast.Node(e) == node })
+			at := slices.IndexFunc(parent.Values, func(e ast.Expr) bool {
+				return ast.Node(e) == node
+			})
+
 			if at < 0 || len(parent.Names) != len(parent.Values) {
 				return nil
 			}
