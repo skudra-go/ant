@@ -2,6 +2,7 @@ package model_definition
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 	"time"
 
@@ -69,6 +70,11 @@ func TestJSONKeysAreCamelCase(t *testing.T) {
 			text, err := json.Marshal(c.value)
 			require.NoError(t, err)
 			require.JSONEq(t, c.want, string(text))
+
+			// A request body in the same keys reads back into the same value.
+			back := reflect.New(reflect.TypeOf(c.value))
+			require.NoError(t, json.Unmarshal([]byte(c.want), back.Interface()))
+			require.Equal(t, c.value, back.Elem().Interface())
 		})
 	}
 
