@@ -141,6 +141,7 @@ On 2026-11-20 the decisions moved from one file, `docs/DECISIONS.md`, to a file 
 | [163](163-includejoined-applies-the-relations-own-conditions.md) | IncludeJoined applies the relation's own conditions in its join | active | `IncludeJoined` `Morph` `Where` `Latest` `Oldest` `has-one` `scope` |
 | [164](164-explain-reads-each-databases-plan-statement.md) | Explain reads each database's plan statement, and plans the statement All runs | active | `Explain` `sqlite` `mysql` `mariadb` `sqlserver` `IncludeJoined` `dialect` |
 | [169](169-a-join-and-a-projection-count-and-show-their-sql.md) | A join and a projection count, test for rows, show their SQL and log it, as a query does | active | `joins` `projections` `Count` `Exists` `ToSQL` `Debug` `Distinct` `Offset` `GroupBy` |
+| [171](171-after-pages-a-nullable-column-whose-order-places-its-nulls.md) | After pages a column that can hold NULL once the order places its NULLs | active | `After` `keyset` `cursor` `ErrCursor` `NULL` `NullsFirst` `NullsLast` `paging` |
 
 #### Writes
 
@@ -425,7 +426,7 @@ Before changing a file, read the decisions about it.
 | `migrate/registry.go` | [56](056-failure.md) |
 | `migrate/source.go` | [11](011-migration-model.md) [60](060-one-program-two-jobs.md) [113](113-a-missing-versions-folder-is-an-error.md) |
 | `options.go` | [29](029-sessions.md) [48](048-replicas.md) [61](061-sessions-take-options.md) [69](069-errors-carry-their-sql.md) [120](120-the-root-does-not-track-and-a-session-does.md) [167](167-sqlite-row-locks-in-a-transaction-that-holds-the-write-lock.md) |
-| `paging.go` | [81](081-a-set-operations-members-keep-their-own-paging.md) [142](142-chunk-lets-go-of-a-group-that-has-nothing-to-save.md) [143](143-paging-arguments-out-of-range-are-errpaging.md) [176](176-ants-structs-have-camelcase-json-keys.md) |
+| `paging.go` | [81](081-a-set-operations-members-keep-their-own-paging.md) [142](142-chunk-lets-go-of-a-group-that-has-nothing-to-save.md) [143](143-paging-arguments-out-of-range-are-errpaging.md) [171](171-after-pages-a-nullable-column-whose-order-places-its-nulls.md) [176](176-ants-structs-have-camelcase-json-keys.md) |
 | `pivot.go` | [44](044-many-to-many.md) [64](064-through-relations-are-read-only-pivots.md) [138](138-a-uint64-column-on-postgresql-is-numeric.md) |
 | `projection.go` | [5](005-select-closures-run-client-side.md) [35](035-typed-expressions.md) [136](136-an-outer-joins-side-reads-what-only-the-driver-converts.md) [141](141-a-statement-inside-an-each-loop-on-one-connection-is-refused.md) [147](147-a-projection-reads-null-into-a-plain-field-as-zero.md) [169](169-a-join-and-a-projection-count-and-show-their-sql.md) |
 | `qb/aliased_test.go` | [14](014-the-dialect-interface-exposes-an-internal-type.md) [62](062-the-statement-ast-is-public.md) |
@@ -529,7 +530,7 @@ Before changing a file, read the decisions about it.
 | `tests/features/model_definition/refused_test.go` | [125](125-open-refuses-a-model-it-would-misread.md) [132](132-default-names-are-valid-and-distinct.md) |
 | `tests/features/model_definition/table_groups_test.go` | [66](066-several-models-can-share-a-table.md) |
 | `tests/features/performance/chunk_test.go` | [142](142-chunk-lets-go-of-a-group-that-has-nothing-to-save.md) [143](143-paging-arguments-out-of-range-are-errpaging.md) |
-| `tests/features/performance/paging_test.go` | [143](143-paging-arguments-out-of-range-are-errpaging.md) |
+| `tests/features/performance/paging_test.go` | [143](143-paging-arguments-out-of-range-are-errpaging.md) [171](171-after-pages-a-nullable-column-whose-order-places-its-nulls.md) |
 | `tests/features/querying/all_test.go` | [27](027-all-returns-t.md) |
 | `tests/features/querying/any_column_test.go` | [145](145-helpers-take-a-field-of-any-type.md) |
 | `tests/features/querying/cte_test.go` | [36](036-derived-tables-keep-the-models-name.md) |
@@ -583,6 +584,7 @@ Before changing a file, read the decisions about it.
 | `tests/insert_from_conflict_test.go` | [170](170-insertfrom-takes-a-conflict-clause.md) |
 | `tests/join_terminals_test.go` | [169](169-a-join-and-a-projection-count-and-show-their-sql.md) |
 | `tests/joined_relations_test.go` | [163](163-includejoined-applies-the-relations-own-conditions.md) |
+| `tests/keyset_nulls_test.go` | [171](171-after-pages-a-nullable-column-whose-order-places-its-nulls.md) |
 | `tests/matrix` | [86](086-combinations-are-tested-against-an-oracle.md) |
 | `tests/matrix/dims_test.go` | [146](146-ne-matches-null-as-go-does.md) |
 | `tests/matrix/matrix_test.go` | [38](038-bulk-writes.md) [49](049-postgresql-first.md) [74](074-dialects-state-their-differences.md) [75](075-generated-values-without-returning.md) [86](086-combinations-are-tested-against-an-oracle.md) |
@@ -623,7 +625,7 @@ Tags on two or more decisions. Search the headers for the rest: `rg -l '^tags: .
 
 - `_txlock`: [159](159-a-sqlite-dsn-names-its-lock-behavior.md) [167](167-sqlite-row-locks-in-a-transaction-that-holds-the-write-lock.md)
 - `adopt`: [59](059-adopting-an-existing-database.md) [108](108-kept-sql-by-shape-unboxed-keys-compact-snapshots-and.md) [128](128-adopt-leaves-out-roles.md)
-- `After`: [81](081-a-set-operations-members-keep-their-own-paging.md) [143](143-paging-arguments-out-of-range-are-errpaging.md)
+- `After`: [81](081-a-set-operations-members-keep-their-own-paging.md) [143](143-paging-arguments-out-of-range-are-errpaging.md) [171](171-after-pages-a-nullable-column-whose-order-places-its-nulls.md)
 - `AfterInsert`: [47](047-hooks-run-inside-the-write.md) [123](123-an-after-hooks-edit-is-a-change-to-save.md)
 - `aggregate`: [35](035-typed-expressions.md) [147](147-a-projection-reads-null-into-a-plain-field-as-zero.md)
 - `All`: [6](006-return-shapes-and-tracking.md) [27](027-all-returns-t.md)
@@ -670,7 +672,7 @@ Tags on two or more decisions. Search the headers for the rest: `rg -l '^tags: .
 - `ErrBadSchema`: [66](066-several-models-can-share-a-table.md) [125](125-open-refuses-a-model-it-would-misread.md) [132](132-default-names-are-valid-and-distinct.md) [139](139-a-field-can-not-ask-for-two-things-ant-can-not-both-do.md)
 - `ErrChecksum`: [127](127-commands-refuse-to-guess-which-migration-is-meant.md) [129](129-status-check-fails-a-deploy-gate.md)
 - `ErrConcurrency`: [31](031-failed-saves.md) [91](091-an-upsert-checks-a-copys-version-on-mysql-and-mariadb.md) [110](110-a-version-the-application-sets-is-the-one-checked.md)
-- `ErrCursor`: [81](081-a-set-operations-members-keep-their-own-paging.md) [143](143-paging-arguments-out-of-range-are-errpaging.md)
+- `ErrCursor`: [81](081-a-set-operations-members-keep-their-own-paging.md) [143](143-paging-arguments-out-of-range-are-errpaging.md) [171](171-after-pages-a-nullable-column-whose-order-places-its-nulls.md)
 - `ErrNoColumnType`: [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) [152](152-open-refuses-values-the-driver-cannot-take.md)
 - `ErrTxDone`: [31](031-failed-saves.md) [155](155-a-bound-transaction-settles-what-its-contexts-did.md)
 - `ErrUnsupported`: [50](050-three-layers-for-migrations.md) [74](074-dialects-state-their-differences.md)
@@ -730,8 +732,11 @@ Tags on two or more decisions. Search the headers for the rest: `rg -l '^tags: .
 - `nextval`: [114](114-an-identity-columns-default-is-not-ants-to-change.md) [158](158-drift-compares-two-explicit-serial-defaults.md)
 - `no-transaction`: [115](115-a-file-outside-a-transaction-is-recorded-before-it-runs.md) [126](126-a-migration-runs-as-it-says-or-not-at-all.md) [144](144-script-stops-before-a-go-migration.md)
 - `NotIn`: [95](095-in-means-eq-and-other-value-rules.md) [146](146-ne-matches-null-as-go-does.md)
+- `NULL`: [147](147-a-projection-reads-null-into-a-plain-field-as-zero.md) [171](171-after-pages-a-nullable-column-whose-order-places-its-nulls.md)
 - `null`: [30](030-tracking-follows-keys-not-addresses.md) [95](095-in-means-eq-and-other-value-rules.md) [146](146-ne-matches-null-as-go-does.md)
 - `nullable`: [51](051-modeling-added-for-migrations.md) [145](145-helpers-take-a-field-of-any-type.md) [146](146-ne-matches-null-as-go-does.md)
+- `NullsFirst`: [94](094-migrations-keep-a-columns-dependents-working-while-it.md) [171](171-after-pages-a-nullable-column-whose-order-places-its-nulls.md)
+- `NullsLast`: [94](094-migrations-keep-a-columns-dependents-working-while-it.md) [171](171-after-pages-a-nullable-column-whose-order-places-its-nulls.md)
 - `numeric`: [134](134-a-type-postgresql-has-a-column-for-maps-to-it-and-reads-back.md) [138](138-a-uint64-column-on-postgresql-is-numeric.md)
 - `Offset`: [143](143-paging-arguments-out-of-range-are-errpaging.md) [169](169-a-join-and-a-projection-count-and-show-their-sql.md)
 - `Oldest`: [65](065-scoped-relations-use-the-same-filter-path.md) [163](163-includejoined-applies-the-relations-own-conditions.md)
@@ -745,6 +750,7 @@ Tags on two or more decisions. Search the headers for the rest: `rg -l '^tags: .
 - `orphan`: [30](030-tracking-follows-keys-not-addresses.md) [149](149-a-has-one-pointer-is-the-truth-about-its-row.md)
 - `otel`: [46](046-interceptors.md) [97](097-spans-name-the-database-the-dialect-talks-to.md)
 - `Page`: [81](081-a-set-operations-members-keep-their-own-paging.md) [143](143-paging-arguments-out-of-range-are-errpaging.md) [176](176-ants-structs-have-camelcase-json-keys.md)
+- `paging`: [165](165-sql-server-orders-only-where-it-counts.md) [171](171-after-pages-a-nullable-column-whose-order-places-its-nulls.md)
 - `partitions`: [72](072-partitions-are-not-migrations.md) [130](130-partitioning-is-part-of-the-table.md) [161](161-a-month-is-read-from-its-bounds.md)
 - `pg_dump`: [59](059-adopting-an-existing-database.md) [128](128-adopt-leaves-out-roles.md)
 - `pivot`: [44](044-many-to-many.md) [64](064-through-relations-are-read-only-pivots.md)

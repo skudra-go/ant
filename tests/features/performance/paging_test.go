@@ -256,7 +256,10 @@ type TasksDB struct {
 const tasksDDL = `CREATE TABLE tasks (
 	id BIGSERIAL PRIMARY KEY, title TEXT NOT NULL, due_at TIMESTAMPTZ, done_at TIMESTAMPTZ, rank INT NOT NULL)`
 
-func TestAfterRefusesNullableOrdering(t *testing.T) {
+// A column that can hold NULL pages once the ordering says where its NULLs go,
+// since PostgreSQL puts them last by default and the other databases first.
+// Without NullsFirst or NullsLast, After returns ErrCursor.
+func TestAfterOrdersByANullableColumn(t *testing.T) {
 	fixture.RunWith(t, tasksDDL, func(t *testing.T, db *TasksDB) {
 		ctx := t.Context()
 		due := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -273,32 +276,18 @@ func TestAfterRefusesNullableOrdering(t *testing.T) {
 			require.NoError(t, db.Tasks.Insert(ctx, task))
 		}
 
-		for name, q := range map[string]*ant.Query[Task]{
-			"a pointer column":             db.Tasks.Order(ant.Col(&Tasks.DueAt).Asc()),
-			"a pointer column, NULLs last": db.Tasks.Order(ant.Col(&Tasks.DueAt).Asc().NullsLast()),
-			"descending":                   db.Tasks.Order(ant.Col(&Tasks.DueAt).Desc()),
-			"a sql.Null column":            db.Tasks.Order(ant.Col(&Tasks.DoneAt).Asc()),
-			"after a column that is not":   db.Tasks.Order(ant.Col(&Tasks.Title).Asc(), ant.Col(&Tasks.DueAt).Asc()),
-		} {
-			t.Run(name, func(t *testing.T) {
-				// The third row has a value, so only the column says it may not.
-				_, err := q.After(ctx, "", 3)
-				require.ErrorIs(t, err, ant.ErrCursor)
-				require.ErrorContains(t, err, "can be NULL")
-			})
-		}
-
-		t.Run("a pointer column configured NotNull pages", func(t *testing.T) {
-			var titles []string
+		// titles reads every page of q, three rows at a time.
+		titles := func(t *testing.T, q *ant.Query[Task]) []string {
+			var out []string
 
 			cursor := ""
 
 			for range 5 {
-				page, err := db.Tasks.Order(ant.Col(&Tasks.Rank).Desc()).After(ctx, cursor, 3)
+				page, err := q.After(ctx, cursor, 3)
 				require.NoError(t, err)
 
 				for _, task := range page.Items {
-					titles = append(titles, task.Title)
+					out = append(out, task.Title)
 				}
 
 				if cursor = page.Next; cursor == "" {
@@ -306,10 +295,52 @@ func TestAfterRefusesNullableOrdering(t *testing.T) {
 				}
 			}
 
+			return out
+		}
+
+		t.Run("a pointer column, NULLs last", func(t *testing.T) {
+			// Rows that tie, as the NULLs do, follow the key.
+			q := db.Tasks.Order(ant.Col(&Tasks.DueAt).Asc().NullsLast())
+
+			require.Equal(
+				t,
+				[]string{"t0", "t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8", "t9"},
+				titles(t, q),
+			)
+		})
+
+		t.Run("a sql.Null column, newest first and NULLs first", func(t *testing.T) {
+			q := db.Tasks.Order(ant.Col(&Tasks.DoneAt).Desc().NullsFirst())
+
+			require.Equal(
+				t,
+				[]string{"t5", "t6", "t7", "t8", "t9", "t4", "t3", "t2", "t1", "t0"},
+				titles(t, q),
+			)
+		})
+
+		for name, q := range map[string]*ant.Query[Task]{
+			"a pointer column":           db.Tasks.Order(ant.Col(&Tasks.DueAt).Asc()),
+			"descending":                 db.Tasks.Order(ant.Col(&Tasks.DueAt).Desc()),
+			"a sql.Null column":          db.Tasks.Order(ant.Col(&Tasks.DoneAt).Asc()),
+			"after a column that is not": db.Tasks.Order(ant.Col(&Tasks.Title).Asc(), ant.Col(&Tasks.DueAt).Asc()),
+		} {
+			t.Run(name+" without a place for NULLs is refused", func(t *testing.T) {
+				// The third row has a value, so only the column says it may not.
+				_, err := q.After(ctx, "", 3)
+				require.ErrorIs(t, err, ant.ErrCursor)
+				require.ErrorContains(t, err, "can be NULL")
+				require.ErrorContains(t, err, "NullsFirst or NullsLast")
+			})
+		}
+
+		t.Run("a pointer column configured NotNull pages", func(t *testing.T) {
+			q := db.Tasks.Order(ant.Col(&Tasks.Rank).Desc())
+
 			require.Equal(
 				t,
 				[]string{"t9", "t8", "t7", "t6", "t5", "t4", "t3", "t2", "t1", "t0"},
-				titles,
+				titles(t, q),
 			)
 		})
 	})

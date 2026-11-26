@@ -260,6 +260,9 @@ type CursorPage[T any] struct {
 type sortColumn struct {
 	field *meta.Field
 	desc  bool
+	// nulls says where the NULLs of a column that can hold one go, first or
+	// last, and is NullsDefault for a column that cannot.
+	nulls qb.NullsOrder
 }
 
 // keyset returns the query's ordering as columns, ending in the primary key so
@@ -275,18 +278,26 @@ func (q *Query[T]) keyset() ([]sortColumn, error) {
 			return nil, fmt.Errorf("%w: order by columns of the queried table", ErrCursor)
 		}
 
-		// No comparison matches NULL, so the pages would end where the NULL
-		// rows begin, wherever NullsFirst or NullsLast puts them.
+		// No comparison matches NULL, so seek tests for it, and needs to know
+		// where the NULL rows are: by default PostgreSQL puts them after every
+		// value, and the other databases before.
 		f := model.Column(column.Name)
+		nulls := qb.NullsDefault
+
 		if canBeNull(f) {
-			return nil, fmt.Errorf(
-				"%w: %s can be NULL; order by columns that cannot",
-				ErrCursor,
-				f.Short,
-			)
+			if o.Nulls == qb.NullsDefault {
+				return nil, fmt.Errorf(
+					"%w: %s can be NULL, and each database puts NULLs in its own place: "+
+						"order it with NullsFirst or NullsLast",
+					ErrCursor,
+					f.Short,
+				)
+			}
+
+			nulls = o.Nulls
 		}
 
-		out = append(out, sortColumn{f, o.Desc})
+		out = append(out, sortColumn{f, o.Desc, nulls})
 	}
 
 	if len(model.Keys) == 0 {
@@ -304,12 +315,17 @@ func (q *Query[T]) keyset() ([]sortColumn, error) {
 
 // After returns the page following cursor, which is empty for the first page.
 // Each page costs the same however deep it is, and rows added meanwhile do not
-// shift it. The ordering must use columns of this table that cannot hold NULL:
-// a pointer or sql.Null field can, unless its column is configured NotNull, and
-// ordering by one returns ErrCursor. Pass Next from the previous page to
-// continue. The cursor is made of the ordering and the key, so those columns
-// are read even if Column or Omit left them out. A cursor holds a place and no
-// count of the rows before it, so a query with a Limit or Offset is refused.
+// shift it. The ordering must use columns of this table. A column that can hold
+// NULL, as a pointer or sql.Null field can unless its column is configured
+// NotNull, needs NullsFirst or NullsLast, since databases put NULLs in
+// different places, and returns ErrCursor without:
+//
+//	db.Posts.Order(ant.Col(&Posts.PublishedAt).Desc().NullsLast()).After(ctx, cursor, 20)
+//
+// Pass Next from the previous page to continue. The cursor is made of the
+// ordering and the key, so those columns are read even if Column or Omit left
+// them out. A cursor holds a place and no count of the rows before it, so a
+// query with a Limit or Offset is refused.
 func (q *Query[T]) After(ctx context.Context, cursor string, size int) (*CursorPage[T], error) {
 	if size < 1 {
 		return nil, fmt.Errorf("%w: page size %d", ErrPaging, size)
@@ -332,7 +348,7 @@ func (q *Query[T]) After(ctx context.Context, cursor string, size int) (*CursorP
 	n.order = make([]qb.Order, len(columns))
 
 	for i, c := range columns {
-		n.order[i] = qb.Order{Value: q.sources[0].col(c.field), Desc: c.desc}
+		n.order[i] = qb.Order{Value: q.sources[0].col(c.field), Desc: c.desc, Nulls: c.nulls}
 
 		n.need(c.field)
 	}
@@ -366,41 +382,58 @@ func (q *Query[T]) After(ctx context.Context, cursor string, size int) (*CursorP
 }
 
 // seek returns the condition for rows after values: (a > x) OR (a = x AND b > y).
+// A NULL in a column that can hold one is matched by IS NULL, and placed where
+// the column's NullsFirst or NullsLast says.
 func seek(s source, columns []sortColumn, values []any) qb.Cond {
-	var branches []qb.Cond
+	var (
+		branches []qb.Cond
+		equal    []qb.Cond // the columns so far hold the cursor's values
+	)
 
 	for i, c := range columns {
-		var all []qb.Cond
+		column := s.col(c.field)
+		null := c.nulls != qb.NullsDefault && isNull(values[i])
 
-		for j := range i {
-			all = append(
-				all,
-				qb.Compare{
-					Left:  s.col(columns[j].field),
-					Op:    qb.OpEq,
-					Right: fieldParam(columns[j].field, values[j]),
-				},
+		if past := c.past(column, values[i], null); past != nil {
+			branches = append(branches, qb.And{Children: append(slices.Clip(equal), past)})
+		}
+
+		if null {
+			equal = append(equal, qb.IsNull{Left: column})
+		} else {
+			equal = append(
+				equal,
+				qb.Compare{Left: column, Op: qb.OpEq, Right: fieldParam(c.field, values[i])},
 			)
 		}
-
-		op := qb.OpGt
-
-		if c.desc {
-			op = qb.OpLt
-		}
-
-		branches = append(
-			branches,
-			qb.And{
-				Children: append(
-					all,
-					qb.Compare{Left: s.col(c.field), Op: op, Right: fieldParam(c.field, values[i])},
-				),
-			},
-		)
 	}
 
 	return qb.Or{Children: branches}
+}
+
+// past returns the condition for a value of the column that comes after v in
+// the ordering, or nil if none does, as after a NULL that goes last.
+func (c sortColumn) past(column qb.Expr, v any, null bool) qb.Cond {
+	switch {
+	case null && c.nulls == qb.NullsFirst:
+		return qb.IsNull{Left: column, Negate: true}
+	case null:
+		return nil
+	}
+
+	op := qb.OpGt
+
+	if c.desc {
+		op = qb.OpLt
+	}
+
+	beyond := qb.Compare{Left: column, Op: op, Right: fieldParam(c.field, v)}
+
+	if c.nulls == qb.NullsLast {
+		return qb.Or{Children: []qb.Cond{beyond, qb.IsNull{Left: column}}}
+	}
+
+	return beyond
 }
 
 func encodeCursor(columns []sortColumn, entity unsafe.Pointer) (string, error) {
@@ -408,7 +441,7 @@ func encodeCursor(columns []sortColumn, entity unsafe.Pointer) (string, error) {
 
 	for i, c := range columns {
 		value := c.field.Value(entity)
-		if value.Kind() == reflect.Pointer && value.IsNil() {
+		if c.nulls == qb.NullsDefault && value.Kind() == reflect.Pointer && value.IsNil() {
 			return "", fmt.Errorf("%w: %s is NULL", ErrCursor, c.field.Short)
 		}
 

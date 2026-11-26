@@ -33,40 +33,80 @@ func TestConformanceAfterOrdersByANullableColumn(t *testing.T) {
 		}
 
 		for i, p := range people {
-			u := &User{Name: p.name, Email: p.name + "@x", Age: i, Bio: p.bio}
+			u := &User{
+				Name:  p.name,
+				Email: p.name + "@x",
+				Age:   i,
+				Bio:   p.bio,
+			}
 			require.NoError(t, app.Users.Insert(ctx, u))
 		}
 
 		bios := ant.Col(&Users.Bio)
 		names := ant.Col(&Users.Name)
 
+		everyone := app.Users.Query()
+		withBio := app.Users.Where(ant.IsNotNull(&Users.Bio))
+		noBio := app.Users.Where(ant.IsNull(&Users.Bio))
+
 		cases := []struct {
 			name  string
 			q     *ant.Query[User]
+			order []ant.Sort
 			first []string // the order begins so, to show where the NULLs went
 		}{
-			{"asc, nulls first", app.Users.Order(bios.Asc().NullsFirst()), []string{"", "", "", "b1"}},
-			{"asc, nulls last", app.Users.Order(bios.Asc().NullsLast()), []string{"b1", "b2", "b2", "b3", ""}},
-			{"desc, nulls first", app.Users.Order(bios.Desc().NullsFirst()), []string{"", "", "", "b3"}},
-			{"desc, nulls last", app.Users.Order(bios.Desc().NullsLast()), []string{"b3", "b2", "b2", "b1", ""}},
-			{"then a name", app.Users.Order(bios.Asc().NullsLast(), names.Desc()), []string{"b1", "b2", "b2"}},
-			{"after a name", app.Users.Order(names.Asc(), bios.Asc().NullsFirst()), []string{"b2", ""}},
+			{
+				"asc, nulls first",
+				everyone,
+				[]ant.Sort{bios.Asc().NullsFirst()},
+				[]string{"", "", "", "b1"},
+			},
+			{
+				"asc, nulls last",
+				everyone,
+				[]ant.Sort{bios.Asc().NullsLast()},
+				[]string{"b1", "b2", "b2", "b3", ""},
+			},
+			{
+				"desc, nulls first",
+				everyone,
+				[]ant.Sort{bios.Desc().NullsFirst()},
+				[]string{"", "", "", "b3"},
+			},
+			{
+				"desc, nulls last",
+				everyone,
+				[]ant.Sort{bios.Desc().NullsLast()},
+				[]string{"b3", "b2", "b2", "b1", ""},
+			},
+			{
+				"then a name",
+				everyone,
+				[]ant.Sort{bios.Asc().NullsLast(), names.Desc()},
+				[]string{"b1", "b2", "b2"},
+			},
+			{
+				"after a name",
+				everyone,
+				[]ant.Sort{names.Asc(), bios.Asc().NullsFirst()},
+				[]string{"b2", ""},
+			},
 			{
 				"IsNotNull, newest first",
-				app.Users.Where(ant.IsNotNull(&Users.Bio)).Order(bios.Desc().NullsLast()),
+				withBio,
+				[]ant.Sort{bios.Desc().NullsLast()},
 				[]string{"b3", "b2", "b2", "b1"},
 			},
-			{
-				"only NULLs",
-				app.Users.Where(ant.IsNull(&Users.Bio)).Order(bios.Asc().NullsLast()),
-				[]string{"", "", ""},
-			},
+			{"only NULLs", noBio, []ant.Sort{bios.Asc().NullsLast()}, []string{"", "", ""}},
 		}
 
 		for _, c := range cases {
 			t.Run(c.name, func(t *testing.T) {
-				want, err := c.q.All(ctx)
+				// After ends the ordering with the key, so ties come by key.
+				want, err := c.q.Order(append(c.order, ant.Col(&Users.ID).Asc())...).All(ctx)
 				require.NoError(t, err)
+
+				q := c.q.Order(c.order...)
 
 				for _, size := range []int{1, 2, 3, 10} {
 					var got []*User
@@ -74,7 +114,7 @@ func TestConformanceAfterOrdersByANullableColumn(t *testing.T) {
 					cursor := ""
 
 					for range len(people) + 1 {
-						page, err := c.q.After(ctx, cursor, size)
+						page, err := q.After(ctx, cursor, size)
 						require.NoError(t, err)
 
 						got = append(got, page.Items...)
