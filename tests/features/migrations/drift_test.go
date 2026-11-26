@@ -112,6 +112,71 @@ func TestDrift(t *testing.T) {
 	})
 }
 
+// Film names a domain and a composite type, which the database has and the
+// models do not create, and an enum, which they do.
+type Film struct {
+	ID          int64
+	Title       string
+	ReleaseYear int64
+	Years       []int64
+	Pair        string
+	Code        string
+	Kind        string
+}
+
+func (Film) Configure(b *ant.ModelBuilder[Film]) {
+	b.Column(&Films.ReleaseYear).Type("year")
+	b.Column(&Films.Years).Type("year[]")
+	b.Column(&Films.Pair).Type("pair")
+	b.Column(&Films.Code).Type("film_code")
+	b.Column(&Films.Kind).Enum("film_kind", "short", "feature")
+}
+
+var Films = ant.Fields[Film]()
+
+type FilmDB struct {
+	ant.Context
+	Films ant.Table[Film]
+}
+
+// A database that matches the models is no drift, but a type the models use
+// and do not create is not in an empty database, so a migration made from the
+// models alone fails there. drift names such types (#193).
+func TestDriftNamesTypesTheModelsDoNotCreate(t *testing.T) {
+	each(t, func(t *testing.T, p *project) {
+		p.sql("CREATE DOMAIN year AS integer CHECK (VALUE BETWEEN 1901 AND 2155)")
+		p.sql("CREATE TYPE pair AS (a integer, b integer)")
+		p.sql("CREATE DOMAIN film_code AS text")
+		// Marking the dependency stands in for an extension's type, as in
+		// TestDriftSkipsExtensionTables.
+		p.sql(
+			`INSERT INTO pg_depend (classid, objid, objsubid, refclassid, refobjid, refobjsubid, deptype)
+			SELECT 'pg_type'::regclass, 'film_code'::regtype, 0, 'pg_extension'::regclass, oid, 0, 'e'
+			FROM pg_extension WHERE extname = 'plpgsql'`,
+		)
+
+		t.Cleanup(func() {
+			_, _ = p.target.DB.ExecContext(
+				context.Background(),
+				"DELETE FROM pg_depend WHERE deptype = 'e' AND objid = 'film_code'::regtype",
+			)
+		})
+
+		must[FilmDB](p, "diff", "start")
+		must[FilmDB](p, "up")
+
+		out := must[FilmDB](p, "drift")
+		require.Contains(t, out, "No drift")
+		require.Contains(t, out, "The models name types they do not create")
+		require.Contains(t, out, "year, a domain: films.release_year, films.years")
+		require.Contains(t, out, "pair, a composite type: films.pair")
+		require.Contains(t, out, "film_code, from extension plpgsql: films.code")
+		require.Contains(t, out, "diff --empty")
+		require.NotContains(t, out, "film_kind", "the models create it")
+		require.NotContains(t, out, "bigint", "PostgreSQL has it")
+	})
+}
+
 // Things outside the schema's reach are not reported: tables ant does not manage
 // are named, and history is not drift.
 func TestDriftIgnores(t *testing.T) {
