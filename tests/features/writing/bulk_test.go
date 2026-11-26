@@ -193,6 +193,12 @@ func TestInsertFromWithConflict(t *testing.T) {
 
 		tags, err := ant.Pluck(ctx, db.Copies.Query(), &Copies.Tag)
 		require.NoError(t, err)
-		require.Equal(t, []string{"again", "again"}, tags, "the update overwrites the mapped columns")
+
+		require.Equal(
+			t,
+			[]string{"again", "again"},
+			tags,
+			"the update overwrites the mapped columns",
+		)
 	})
 }

@@ -133,7 +133,10 @@ func existsRows(ctx context.Context, b *builder, columns func() []qb.Selected) (
 		picked.Order = nil
 		picked.Lock = nil
 
-		inner = lift(&qb.Select{Columns: one, From: qb.Source{Sub: picked, Alias: "ant_rows"}}, picked)
+		inner = lift(
+			&qb.Select{Columns: one, From: qb.Source{Sub: picked, Alias: "ant_rows"}},
+			picked,
+		)
 	} else {
 		inner = b.statement(one)
 		inner.Order = nil

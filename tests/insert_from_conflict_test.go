@@ -191,11 +191,19 @@ func TestConformanceInsertFromWithConflict(t *testing.T) {
 			)
 		}
 
-		n, err = db.Memberships.InsertFrom(ctx, copyTo("sports"), ant.WithConflict(byPair.DoNothing()))
+		n, err = db.Memberships.InsertFrom(
+			ctx,
+			copyTo("sports"),
+			ant.WithConflict(byPair.DoNothing()),
+		)
 		require.NoError(t, err)
 		require.EqualValues(t, 3, n)
 
-		n, err = db.Memberships.InsertFrom(ctx, copyTo("sports"), ant.WithConflict(byPair.DoNothing()))
+		n, err = db.Memberships.InsertFrom(
+			ctx,
+			copyTo("sports"),
+			ant.WithConflict(byPair.DoNothing()),
+		)
 		require.NoError(t, err)
 		require.Zero(t, n, "every pair is there")
 

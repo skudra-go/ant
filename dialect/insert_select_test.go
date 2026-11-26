@@ -40,10 +40,16 @@ func TestRenderInsertSelectWithConflict(t *testing.T) {
 
 	update := &qb.Conflict{
 		Columns: []string{"user_id"},
-		Set:     []qb.Assignment{{Column: "note", Value: qb.Column{Alias: "excluded", Name: "note"}}},
+		Set: []qb.Assignment{
+			{Column: "note", Value: qb.Column{Alias: "excluded", Name: "note"}},
+		},
 	}
 
-	adult := qb.Compare{Left: qb.Column{Table: users, Name: "age"}, Op: qb.OpGte, Right: qb.Param{Value: 18}}
+	adult := qb.Compare{
+		Left:  qb.Column{Table: users, Name: "age"},
+		Op:    qb.OpGte,
+		Right: qb.Param{Value: 18},
+	}
 
 	cases := []struct {
 		name string

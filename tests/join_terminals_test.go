@@ -104,9 +104,19 @@ func TestConformanceJoinAndProjectionTerminals(t *testing.T) {
 			{"project distinct offset", names(joined.Distinct().Offset(1)), 1, true},
 			{"project distinct offset past", names(joined.Distinct().Offset(2)), 0, false},
 			{"project of a cte, distinct", names(published.Distinct()), 2, true},
-			{"project of a cte, distinct offset past", names(published.Distinct().Offset(2)), 0, false},
+			{
+				"project of a cte, distinct offset past",
+				names(published.Distinct().Offset(2)),
+				0,
+				false,
+			},
 			{"grouped", perAuthor(byAuthor), 3, true},
-			{"grouped ordered limit", perAuthor(byAuthor.Order(ant.Col(&Users.Name).Desc()).Limit(2)), 2, true},
+			{
+				"grouped ordered limit",
+				perAuthor(byAuthor.Order(ant.Col(&Users.Name).Desc()).Limit(2)),
+				2,
+				true,
+			},
 			{"grouped having", perAuthor(byAuthor.Having(ant.CountOf(&Posts.ID).Gt(1))), 1, true},
 			{"grouped limit", perAuthor(byAuthor.Limit(2)), 2, true},
 			{"grouped offset past", perAuthor(byAuthor.Offset(3)), 0, false},
@@ -234,7 +244,12 @@ func TestConformanceDebugCarriesThroughJoins(t *testing.T) {
 			run  func() error
 		}{
 			{"Debug before the join", func() error {
-				_, err := app.Posts.Query().Debug().Join(&Posts.User).Where(bob).Select(postTitle).All(ctx)
+				_, err := app.Posts.Query().
+					Debug().
+					Join(&Posts.User).
+					Where(bob).
+					Select(postTitle).
+					All(ctx)
 
 				return err
 			}},
@@ -244,7 +259,11 @@ func TestConformanceDebugCarriesThroughJoins(t *testing.T) {
 				return err
 			}},
 			{"Debug on a join3", func() error {
-				_, err := app.Posts.Join(&Posts.User).JoinMany(&Users.Posts).Where(bob).Debug().Count(ctx)
+				_, err := app.Posts.Join(&Posts.User).
+					JoinMany(&Users.Posts).
+					Where(bob).
+					Debug().
+					Count(ctx)
 
 				return err
 			}},

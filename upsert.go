@@ -187,6 +187,7 @@ func (c *Conflict) clause(
 		}
 
 		what := "column " + name
+
 		if f := model.Column(name); f != nil {
 			what = model.Type.Name() + "." + f.Name
 		}
