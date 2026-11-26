@@ -28,7 +28,9 @@ Once the order says where the NULLs are, the seek condition can say which rows f
 
 Descending order uses `<`. The earlier columns of the order are matched with `a = x`, or `a IS NULL` when the cursor's value is NULL, and the key, which the order always ends with, breaks the ties among NULLs. The cursor stores a NULL as JSON `null`, and cursors of orderings that were accepted before read as they did.
 
-The order must name a place for the NULLs because the databases differ: PostgreSQL puts them after every value, MySQL, MariaDB, SQLite and SQL Server before, and the seek has to agree with the ORDER BY the database runs. With the place written in the query, the same query gives the same pages on every database. On SQL Server under `Distinct`, `Asc().NullsLast()` and `Desc().NullsFirst()` still return `ErrUnsupported`, as decision 165 says.
+The order must name a place for the NULLs because the databases differ: PostgreSQL puts them after every value, MySQL, MariaDB, SQLite and SQL Server before, and the seek has to agree with the ORDER BY the database runs. With the place written in the query, the same query gives the same pages on every database. On SQL Server under `Distinct`, `Asc().NullsLast()` and `Desc().NullsFirst()` on such a column still return `ErrUnsupported`, as decision 165 says. A column that cannot hold NULL has no NULLs to place, so `After` leaves its `NullsFirst` or `NullsLast` out of the ORDER BY it sends.
+
+A `Where(IsNotNull(...))` does not stand in for the place (#307 offered either): see the second rejected option below. The error says what to add instead.
 
 Rejected:
 
