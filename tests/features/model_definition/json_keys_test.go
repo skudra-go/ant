@@ -35,7 +35,12 @@ func TestJSONKeysAreCamelCase(t *testing.T) {
 		{"a model that embeds Base", note, noteJSON},
 		{
 			"a page",
-			ant.Page[Note]{Items: []*Note{note}, Total: 3, Number: 2, Size: 1},
+			ant.Page[Note]{
+				Items:  []*Note{note},
+				Total:  3,
+				Number: 2,
+				Size:   1,
+			},
 			`{"items":[` + noteJSON + `],"total":3,"number":2,"size":1}`,
 		},
 		{
@@ -51,7 +56,12 @@ func TestJSONKeysAreCamelCase(t *testing.T) {
 		},
 		{
 			"a metrics sample",
-			metrics.Sample{Kind: "select", Count: 2, Errors: 1, Duration: time.Second},
+			metrics.Sample{
+				Kind:     "select",
+				Count:    2,
+				Errors:   1,
+				Duration: time.Second,
+			},
 			`{"kind":"select","count":2,"errors":1,"duration":1000000000}`,
 		},
 	} {
