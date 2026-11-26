@@ -1,6 +1,7 @@
 package ant
 
 import (
+	"context"
 	"unsafe"
 
 	"github.com/skudra-go/ant/qb"
@@ -17,6 +18,16 @@ func joinChained[J, V any](b *builder, kind qb.JoinKind, rel *V) {
 	}
 
 	joinRelation(b, kind, sourceOf[J](), r, link)
+}
+
+// joinedSQL returns the SELECT of every column of every model in a join, which
+// Select runs.
+func joinedSQL(ctx context.Context, b *builder) (string, []any, error) {
+	if err := b.ready(); err != nil {
+		return "", nil, err
+	}
+
+	return b.selectSQL(ctx, b.allColumns())
 }
 
 // Join2 is a query across two joined models.
@@ -90,6 +101,36 @@ func (j *Join2[A, B]) Select[R any](f func(*A, *B) R) *Projection[R] {
 }
 
 func (j *Join2[A, B]) base() *builder { return &j.builder }
+
+// Debug logs the SQL and values of each SELECT the join runs. See Query.Debug.
+func (j *Join2[A, B]) Debug() *Join2[A, B] {
+	n := j.next()
+	n.debug = true
+
+	return n
+}
+
+// ToSQL returns the SELECT that Select runs for the join. Global filters that
+// need a context see an empty one.
+func (j *Join2[A, B]) ToSQL() (string, []any, error) {
+	return j.ToSQLContext(context.Background())
+}
+
+// ToSQLContext is ToSQL with global filters resolved against ctx.
+func (j *Join2[A, B]) ToSQLContext(ctx context.Context) (string, []any, error) {
+	return joinedSQL(ctx, &j.builder)
+}
+
+// Count returns the number of joined rows. Limit, Offset and Distinct are
+// honored, by counting over a subquery.
+func (j *Join2[A, B]) Count(ctx context.Context) (int64, error) {
+	return countRows(ctx, &j.builder, j.allColumns)
+}
+
+// Exists reports whether the join has any row. It stops at the first one.
+func (j *Join2[A, B]) Exists(ctx context.Context) (bool, error) {
+	return existsRows(ctx, &j.builder, j.allColumns)
+}
 
 // GroupBy groups the joined rows by a column. See Query.GroupBy.
 func (j *Join2[A, B]) GroupBy[V any](field *V) *Grouped {
@@ -223,6 +264,36 @@ func (j *Join3[A, B, C]) Select[R any](f func(*A, *B, *C) R) *Projection[R] {
 
 func (j *Join3[A, B, C]) base() *builder { return &j.builder }
 
+// Debug logs the SQL and values of each SELECT the join runs. See Query.Debug.
+func (j *Join3[A, B, C]) Debug() *Join3[A, B, C] {
+	n := j.next()
+	n.debug = true
+
+	return n
+}
+
+// ToSQL returns the SELECT that Select runs for the join. Global filters that
+// need a context see an empty one.
+func (j *Join3[A, B, C]) ToSQL() (string, []any, error) {
+	return j.ToSQLContext(context.Background())
+}
+
+// ToSQLContext is ToSQL with global filters resolved against ctx.
+func (j *Join3[A, B, C]) ToSQLContext(ctx context.Context) (string, []any, error) {
+	return joinedSQL(ctx, &j.builder)
+}
+
+// Count returns the number of joined rows. Limit, Offset and Distinct are
+// honored, by counting over a subquery.
+func (j *Join3[A, B, C]) Count(ctx context.Context) (int64, error) {
+	return countRows(ctx, &j.builder, j.allColumns)
+}
+
+// Exists reports whether the join has any row. It stops at the first one.
+func (j *Join3[A, B, C]) Exists(ctx context.Context) (bool, error) {
+	return existsRows(ctx, &j.builder, j.allColumns)
+}
+
 // GroupBy groups the joined rows by a column. See Query.GroupBy.
 func (j *Join3[A, B, C]) GroupBy[V any](field *V) *Grouped {
 	return groupedBy(j.builder, Col(field))
@@ -354,6 +425,36 @@ func (j *Join4[A, B, C, D]) Select[R any](f func(*A, *B, *C, *D) R) *Projection[
 }
 
 func (j *Join4[A, B, C, D]) base() *builder { return &j.builder }
+
+// Debug logs the SQL and values of each SELECT the join runs. See Query.Debug.
+func (j *Join4[A, B, C, D]) Debug() *Join4[A, B, C, D] {
+	n := j.next()
+	n.debug = true
+
+	return n
+}
+
+// ToSQL returns the SELECT that Select runs for the join. Global filters that
+// need a context see an empty one.
+func (j *Join4[A, B, C, D]) ToSQL() (string, []any, error) {
+	return j.ToSQLContext(context.Background())
+}
+
+// ToSQLContext is ToSQL with global filters resolved against ctx.
+func (j *Join4[A, B, C, D]) ToSQLContext(ctx context.Context) (string, []any, error) {
+	return joinedSQL(ctx, &j.builder)
+}
+
+// Count returns the number of joined rows. Limit, Offset and Distinct are
+// honored, by counting over a subquery.
+func (j *Join4[A, B, C, D]) Count(ctx context.Context) (int64, error) {
+	return countRows(ctx, &j.builder, j.allColumns)
+}
+
+// Exists reports whether the join has any row. It stops at the first one.
+func (j *Join4[A, B, C, D]) Exists(ctx context.Context) (bool, error) {
+	return existsRows(ctx, &j.builder, j.allColumns)
+}
 
 // GroupBy groups the joined rows by a column. See Query.GroupBy.
 func (j *Join4[A, B, C, D]) GroupBy[V any](field *V) *Grouped {

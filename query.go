@@ -23,7 +23,6 @@ import (
 type Query[T any] struct {
 	builder
 	noTracking bool
-	debug      bool
 	resolved   bool          // one instance per row, even with no tracking
 	inSlice    bool          // results become copies in a relation, tracked there
 	selected   []*meta.Field // chosen columns, or nil for all
@@ -147,9 +146,11 @@ func (q *Query[T]) Tag(name string) *Query[T] {
 	return n
 }
 
-// Debug logs this query's SQL and values when it runs, at info level, through
-// slog's default logger. It is for a moment of curiosity at a desk: unlike
-// WithLogger, it shows values, so do not leave it in code.
+// Debug logs the SQL and values of each SELECT this query runs, at info level,
+// through slog's default logger: its rows, Count, Exists and the aggregates,
+// and those of a join or a projection made from it. It is for a moment of
+// curiosity at a desk: unlike WithLogger, it shows values, so do not leave it
+// in code.
 func (q *Query[T]) Debug() *Query[T] {
 	n := q.next()
 	n.debug = true
@@ -467,11 +468,7 @@ func (q *Query[T]) fetch(ctx context.Context, stmt *qb.Select) ([]*T, error) {
 	return q.fetchWith(ctx, stmt.Limit, func(ctx context.Context) (*sql.Rows, error) {
 		q.addJoined(stmt)
 
-		if q.debug {
-			q.state.debugStatement(ctx, stmt)
-		}
-
-		return q.state.query(ctx, stmt)
+		return q.query(ctx, stmt)
 	})
 }
 
@@ -901,7 +898,7 @@ func (q *Query[T]) Each(ctx context.Context) iter.Seq2[T, error] {
 		if text, args, ok := q.cachedSQL(nil, nil, q.limit); ok {
 			rows, err = q.state.querySQL(ctx, text, args)
 		} else {
-			rows, err = q.state.query(ctx, q.statement(q.selection()))
+			rows, err = q.query(ctx, q.statement(q.selection()))
 		}
 
 		if err != nil {

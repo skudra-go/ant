@@ -281,6 +281,9 @@ titles, err := db.Posts.
 	All(ctx)
 ```
 
+A join and a projection have `Count`, `Exists`, `ToSQL` and `Debug`, as a query
+does, so a page of joined rows can show its total.
+
 In `ant.Project`, a NULL from a left join's side or an aggregate over no rows
 reads into a plain field as its zero value, as `MaxOf` returns one. Wrap the
 expression in `ant.Nullable` and use an `sql.Null[V]` field to tell "no row"

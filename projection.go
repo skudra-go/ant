@@ -284,13 +284,67 @@ func (r *rowReader) read() ([]unsafe.Pointer, error) {
 	return r.values, nil
 }
 
-func (p *Projection[R]) open(ctx context.Context) (*sql.Rows, func() (R, error), error) {
-	err := p.ready()
-	if err == nil && len(p.columns) == 0 {
-		err = ErrNoColumns
+// runnable returns every error that stops the projection from running.
+func (p *Projection[R]) runnable() error {
+	if err := p.ready(); err != nil {
+		return err
 	}
 
-	if err != nil {
+	if len(p.columns) == 0 {
+		return ErrNoColumns
+	}
+
+	return nil
+}
+
+func (p *Projection[R]) selection() []qb.Selected { return p.columns }
+
+// Debug logs the SQL and values of each SELECT the projection runs. See
+// Query.Debug.
+func (p *Projection[R]) Debug() *Projection[R] {
+	n := *p
+	n.debug = true
+
+	return &n
+}
+
+// ToSQL returns the SELECT the projection runs. Global filters that need a
+// context see an empty one.
+func (p *Projection[R]) ToSQL() (string, []any, error) {
+	return p.ToSQLContext(context.Background())
+}
+
+// ToSQLContext is ToSQL with global filters resolved against ctx.
+func (p *Projection[R]) ToSQLContext(ctx context.Context) (string, []any, error) {
+	if err := p.runnable(); err != nil {
+		return "", nil, err
+	}
+
+	return p.selectSQL(ctx, p.columns)
+}
+
+// Count returns the number of rows the projection returns. Limit, Offset,
+// Distinct and GroupBy are honored, by counting over a subquery.
+func (p *Projection[R]) Count(ctx context.Context) (int64, error) {
+	if err := p.runnable(); err != nil {
+		return 0, err
+	}
+
+	return countRows(ctx, &p.builder, p.selection)
+}
+
+// Exists reports whether the projection returns any row. It stops at the
+// first one.
+func (p *Projection[R]) Exists(ctx context.Context) (bool, error) {
+	if err := p.runnable(); err != nil {
+		return false, err
+	}
+
+	return existsRows(ctx, &p.builder, p.selection)
+}
+
+func (p *Projection[R]) open(ctx context.Context) (*sql.Rows, func() (R, error), error) {
+	if err := p.runnable(); err != nil {
 		return nil, nil, err
 	}
 
@@ -298,7 +352,7 @@ func (p *Projection[R]) open(ctx context.Context) (*sql.Rows, func() (R, error),
 		p.state.warnCartesian(ctx, p.toMany)
 	}
 
-	rows, err := p.state.query(ctx, p.statement(p.columns))
+	rows, err := p.query(ctx, p.statement(p.columns))
 	if err != nil {
 		return nil, nil, err
 	}

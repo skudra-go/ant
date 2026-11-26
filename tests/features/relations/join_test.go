@@ -227,3 +227,31 @@ func TestJoinOn(t *testing.T) {
 		})
 	})
 }
+
+// A join counts and tests for rows as a query does, so a page of joined rows
+// can show its total, and ToSQL shows the SELECT that Select runs.
+func TestJoinCount(t *testing.T) {
+	fixture.Run(t, func(t *testing.T, db *fixture.AppDB) {
+		seed(t, db)
+		ctx := t.Context()
+
+		published := db.Posts.Join(&Posts.User).Where(ant.Eq(&Posts.Published, true))
+
+		total, err := published.Count(ctx)
+		require.NoError(t, err)
+		require.EqualValues(t, 2, total)
+
+		page, err := published.OrderBy(&Posts.Title).Limit(1).Select(toByline).All(ctx)
+		require.NoError(t, err)
+		require.Equal(t, []byline{{"Bob", "Bob's post"}}, page)
+
+		found, err := published.Where(ant.Eq(&Users.Name, "Carol")).Exists(ctx)
+		require.NoError(t, err)
+		require.False(t, found, "Carol has no posts")
+
+		sql, args, err := published.ToSQL()
+		require.NoError(t, err)
+		require.Contains(t, sql, "JOIN")
+		require.Equal(t, []any{true}, args)
+	})
+}

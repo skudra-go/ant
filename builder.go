@@ -2,6 +2,7 @@ package ant
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"slices"
@@ -52,7 +53,8 @@ type builder struct {
 	lock         *qb.Lock
 	comment      string
 	hint         string
-	toMany       int // joins through a one-to-many relation
+	debug        bool // Debug was called, so each statement read with it is logged
+	toMany       int  // joins through a one-to-many relation
 	with         []qb.CTE
 	recursive    bool
 	from         *qb.Source // replaces the root table, keeping its name
@@ -356,6 +358,23 @@ func (b *builder) statement(columns []qb.Selected) *qb.Select {
 		Offset:    b.offset,
 		Lock:      b.lock,
 	}
+}
+
+// query runs stmt, a statement that returns rows, and logs it first if Debug
+// was called.
+func (b *builder) query(ctx context.Context, stmt qb.Statement) (*sql.Rows, error) {
+	if b.debug {
+		b.state.debugStatement(ctx, stmt)
+	}
+
+	return b.state.query(ctx, stmt)
+}
+
+// selectSQL returns the SELECT of columns that b runs, as ToSQL shows it.
+func (b *builder) selectSQL(ctx context.Context, columns []qb.Selected) (string, []any, error) {
+	return b.state.dialect.Render(
+		qb.Contextual{Context: ctx, Statement: b.state.heldLock(ctx, b.statement(columns))},
+	)
 }
 
 // allColumns selects every stored column of every source.

@@ -121,7 +121,10 @@ ant: func (i *IndexBuilder) Using(method string) *IndexBuilder
 ant: func (i *IndexBuilder) Where(condition string) *IndexBuilder
 ant: func (j *JSON[V]) Scan(src any) error
 ant: func (j *JSON[V]) UnmarshalJSON(data []byte) error
+ant: func (j *Join2[A, B]) Count(ctx context.Context) (int64, error)
+ant: func (j *Join2[A, B]) Debug() *Join2[A, B]
 ant: func (j *Join2[A, B]) Distinct() *Join2[A, B]
+ant: func (j *Join2[A, B]) Exists(ctx context.Context) (bool, error)
 ant: func (j *Join2[A, B]) GroupByExpr[V any](e Expr[V]) *Grouped
 ant: func (j *Join2[A, B]) GroupBy[V any](field *V) *Grouped
 ant: func (j *Join2[A, B]) JoinMany[C any](rel *[]C) *Join3[A, B, C]
@@ -136,8 +139,13 @@ ant: func (j *Join2[A, B]) Order(terms ...Sort) *Join2[A, B]
 ant: func (j *Join2[A, B]) OrderByDesc[V any](field *V) *Join2[A, B]
 ant: func (j *Join2[A, B]) OrderBy[V any](field *V) *Join2[A, B]
 ant: func (j *Join2[A, B]) Select[R any](f func(*A, *B) R) *Projection[R]
+ant: func (j *Join2[A, B]) ToSQL() (string, []any, error)
+ant: func (j *Join2[A, B]) ToSQLContext(ctx context.Context) (string, []any, error)
 ant: func (j *Join2[A, B]) Where(c ...Cond) *Join2[A, B]
+ant: func (j *Join3[A, B, C]) Count(ctx context.Context) (int64, error)
+ant: func (j *Join3[A, B, C]) Debug() *Join3[A, B, C]
 ant: func (j *Join3[A, B, C]) Distinct() *Join3[A, B, C]
+ant: func (j *Join3[A, B, C]) Exists(ctx context.Context) (bool, error)
 ant: func (j *Join3[A, B, C]) GroupByExpr[V any](e Expr[V]) *Grouped
 ant: func (j *Join3[A, B, C]) GroupBy[V any](field *V) *Grouped
 ant: func (j *Join3[A, B, C]) JoinMany[D any](rel *[]D) *Join4[A, B, C, D]
@@ -152,8 +160,13 @@ ant: func (j *Join3[A, B, C]) Order(terms ...Sort) *Join3[A, B, C]
 ant: func (j *Join3[A, B, C]) OrderByDesc[V any](field *V) *Join3[A, B, C]
 ant: func (j *Join3[A, B, C]) OrderBy[V any](field *V) *Join3[A, B, C]
 ant: func (j *Join3[A, B, C]) Select[R any](f func(*A, *B, *C) R) *Projection[R]
+ant: func (j *Join3[A, B, C]) ToSQL() (string, []any, error)
+ant: func (j *Join3[A, B, C]) ToSQLContext(ctx context.Context) (string, []any, error)
 ant: func (j *Join3[A, B, C]) Where(c ...Cond) *Join3[A, B, C]
+ant: func (j *Join4[A, B, C, D]) Count(ctx context.Context) (int64, error)
+ant: func (j *Join4[A, B, C, D]) Debug() *Join4[A, B, C, D]
 ant: func (j *Join4[A, B, C, D]) Distinct() *Join4[A, B, C, D]
+ant: func (j *Join4[A, B, C, D]) Exists(ctx context.Context) (bool, error)
 ant: func (j *Join4[A, B, C, D]) GroupByExpr[V any](e Expr[V]) *Grouped
 ant: func (j *Join4[A, B, C, D]) GroupBy[V any](field *V) *Grouped
 ant: func (j *Join4[A, B, C, D]) Limit(limit int) *Join4[A, B, C, D]
@@ -162,6 +175,8 @@ ant: func (j *Join4[A, B, C, D]) Order(terms ...Sort) *Join4[A, B, C, D]
 ant: func (j *Join4[A, B, C, D]) OrderByDesc[V any](field *V) *Join4[A, B, C, D]
 ant: func (j *Join4[A, B, C, D]) OrderBy[V any](field *V) *Join4[A, B, C, D]
 ant: func (j *Join4[A, B, C, D]) Select[R any](f func(*A, *B, *C, *D) R) *Projection[R]
+ant: func (j *Join4[A, B, C, D]) ToSQL() (string, []any, error)
+ant: func (j *Join4[A, B, C, D]) ToSQLContext(ctx context.Context) (string, []any, error)
 ant: func (j *Join4[A, B, C, D]) Where(c ...Cond) *Join4[A, B, C, D]
 ant: func (j JSON[V]) ColumnType(dialect string) string
 ant: func (j JSON[V]) MarshalJSON() ([]byte, error)
@@ -189,8 +204,13 @@ ant: func (m *ModelConvention) Table() string
 ant: func (p *Page[T]) HasNext() bool
 ant: func (p *Page[T]) Pages() int
 ant: func (p *Projection[R]) All(ctx context.Context) (out []R, err error)
+ant: func (p *Projection[R]) Count(ctx context.Context) (int64, error)
+ant: func (p *Projection[R]) Debug() *Projection[R]
 ant: func (p *Projection[R]) Each(ctx context.Context) iter.Seq2[R, error]
+ant: func (p *Projection[R]) Exists(ctx context.Context) (bool, error)
 ant: func (p *Projection[R]) First(ctx context.Context) (*R, error)
+ant: func (p *Projection[R]) ToSQL() (string, []any, error)
+ant: func (p *Projection[R]) ToSQLContext(ctx context.Context) (string, []any, error)
 ant: func (q *Query[T]) After(ctx context.Context, cursor string, size int) (*CursorPage[T], error)
 ant: func (q *Query[T]) All(ctx context.Context) ([]*T, error)
 ant: func (q *Query[T]) Chunk(ctx context.Context, size int, f func([]*T) error) error

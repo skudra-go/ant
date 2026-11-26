@@ -69,6 +69,9 @@ func TestConformanceJoinAndProjectionTerminals(t *testing.T) {
 		byAuthor := app.Users.LeftJoinMany(&Users.Posts).GroupBy(&Users.Name)
 		joined := app.Posts.Join(&Posts.User)
 		titles := joined.Select(func(p *Post, u *User) string { return u.Name + "/" + p.Title })
+		published := app.Posts.Query().
+			FromCTE("published", app.Posts.Where(ant.Eq(&Posts.Published, true))).
+			Join(&Posts.User)
 
 		cases := []struct {
 			name   string
@@ -84,6 +87,8 @@ func TestConformanceJoinAndProjectionTerminals(t *testing.T) {
 			{"join offset past", joined.Offset(3), 0, false},
 			{"join distinct", joined.Distinct(), 3, true},
 			{"join distinct offset", joined.Distinct().Offset(2), 1, true},
+			{"left join", app.Users.LeftJoinMany(&Users.Posts), 4, true},
+			{"join of a cte, distinct offset", published.Distinct().Offset(1), 1, true},
 			{"join3", joined.JoinMany(&Users.Posts), 5, true},
 			{"join3 limit", joined.JoinMany(&Users.Posts).Limit(4), 4, true},
 			{"join4", joined.JoinMany(&Users.Posts).Join(&Posts.User), 5, true},
@@ -94,7 +99,10 @@ func TestConformanceJoinAndProjectionTerminals(t *testing.T) {
 			{"project distinct", names(joined.Distinct()), 2, true},
 			{"project distinct offset", names(joined.Distinct().Offset(1)), 1, true},
 			{"project distinct offset past", names(joined.Distinct().Offset(2)), 0, false},
+			{"project of a cte, distinct", names(published.Distinct()), 2, true},
+			{"project of a cte, distinct offset past", names(published.Distinct().Offset(2)), 0, false},
 			{"grouped", perAuthor(byAuthor), 3, true},
+			{"grouped ordered limit", perAuthor(byAuthor.Order(ant.Col(&Users.Name).Desc()).Limit(2)), 2, true},
 			{"grouped having", perAuthor(byAuthor.Having(ant.CountOf(&Posts.ID).Gt(1))), 1, true},
 			{"grouped limit", perAuthor(byAuthor.Limit(2)), 2, true},
 			{"grouped offset past", perAuthor(byAuthor.Offset(3)), 0, false},
@@ -170,21 +178,28 @@ func TestConformanceJoinAndProjectionTerminals(t *testing.T) {
 	})
 }
 
-// Exists on a query with Distinct and Offset skips distinct rows, not one row
-// for the constant it selects (#169).
+// Exists on a query with Distinct and Offset skips distinct rows: not the one
+// row DISTINCT leaves of a constant, and not every row, as MySQL, MariaDB and
+// SQLite read an EXISTS subquery without its DISTINCT (#169).
 func TestConformanceExistsDistinctOffset(t *testing.T) {
 	testdb.ForEach(t, func(t *testing.T, target testdb.Target) {
 		app := openApp(t, target)
 		ctx := t.Context()
-		seedUsers(t, app, "alice", 30, "bob", 25, "carol", 40)
+		seedUsers(t, app, "alice", 30, "bob", 30, "carol", 40)
 
-		found, err := app.Users.Distinct().Offset(2).Exists(ctx)
-		require.NoError(t, err)
-		require.True(t, found, "the third of three distinct users")
+		ages := app.Users.Column(&Users.Age).Distinct()
 
-		found, err = app.Users.Distinct().Offset(3).Exists(ctx)
+		n, err := ages.Count(ctx)
 		require.NoError(t, err)
-		require.False(t, found)
+		require.EqualValues(t, 2, n, "two distinct ages")
+
+		found, err := ages.Offset(1).Exists(ctx)
+		require.NoError(t, err)
+		require.True(t, found, "the second of two distinct ages")
+
+		found, err = ages.Offset(2).Exists(ctx)
+		require.NoError(t, err)
+		require.False(t, found, "past two distinct ages, though three rows")
 	})
 }
 
