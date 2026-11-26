@@ -213,6 +213,25 @@ func TestConformanceInsertFromWithConflict(t *testing.T) {
 		sports, err := db.Memberships.Where(ant.Eq(&Memberships.Label, "sports")).Count(ctx)
 		require.NoError(t, err)
 		require.EqualValues(t, 3, sports)
+
+		// A conflict update may read the table it writes. MySQL refuses that
+		// after VALUES (error 1093), and takes it after a SELECT.
+		latest := ant.SubExpr(db.Memberships.Query(), ant.Max(&Memberships.Note)).Expr()
+
+		_, err = db.Memberships.InsertFrom(
+			ctx,
+			copyTo("sports"),
+			ant.WithConflict(byPair.Set(ant.SetExpr(&Memberships.Note, latest))),
+		)
+		require.NoError(t, err)
+
+		sportsNotes, err := ant.Pluck(
+			ctx,
+			db.Memberships.Where(ant.Eq(&Memberships.Label, "sports")),
+			&Memberships.Note,
+		)
+		require.NoError(t, err)
+		require.Equal(t, []string{"set", "set", "set"}, sportsNotes, "the largest note")
 	})
 }
 
