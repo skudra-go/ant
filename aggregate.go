@@ -77,7 +77,7 @@ func countRows(ctx context.Context, b *builder, columns func() []qb.Selected) (i
 		return 0, err
 	}
 
-	inner := b.statement(numbered(columns()))
+	inner := b.statement(numberedColumns(columns()))
 	inner.Order = nil
 	inner.Lock = nil
 
@@ -102,9 +102,9 @@ func countRows(ctx context.Context, b *builder, columns func() []qb.Selected) (i
 	return *n, nil
 }
 
-// numbered names the columns ant_1, ant_2 and so on: a derived table needs
-// names that differ, and the sides of a join share some, such as id.
-func numbered(columns []qb.Selected) []qb.Selected {
+// numberedColumns names the columns ant_1, ant_2 and so on: a derived table
+// needs names that differ, and the sides of a join share some, such as id.
+func numberedColumns(columns []qb.Selected) []qb.Selected {
 	out := make([]qb.Selected, len(columns))
 
 	for i, c := range columns {
@@ -129,7 +129,7 @@ func existsRows(ctx context.Context, b *builder, columns func() []qb.Selected) (
 	var inner *qb.Select
 
 	if (b.distinct || len(b.group) > 0) && b.offset != nil {
-		picked := b.statement(numbered(columns()))
+		picked := b.statement(numberedColumns(columns()))
 		picked.Order = nil
 		picked.Lock = nil
 
