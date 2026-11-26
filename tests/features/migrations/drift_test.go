@@ -177,6 +177,114 @@ func TestDriftNamesTypesTheModelsDoNotCreate(t *testing.T) {
 	})
 }
 
+// viewSchema holds a materialized view that TestDriftComparesViewModels reads.
+// No table is in it.
+const viewSchema = "ant_view_reports"
+
+// Subscriber is a table the views read.
+type Subscriber struct {
+	ID     int64
+	ListID int64
+	Name   string
+}
+
+// ListStat reads a view.
+type ListStat struct {
+	ListID          int64
+	SubscriberCount int64
+}
+
+func (ListStat) Configure(b *ant.ModelBuilder[ListStat]) {
+	b.View("list_stats")
+	b.NoKey()
+}
+
+// YearlyStat reads a materialized view in a schema of its own.
+type YearlyStat struct {
+	Year  int64
+	Total int64
+}
+
+func (YearlyStat) Configure(b *ant.ModelBuilder[YearlyStat]) {
+	b.Schema(viewSchema)
+	b.View("yearly_stats")
+	b.NoKey()
+}
+
+// SubscriberName reads the subscribers table without writing it.
+type SubscriberName struct {
+	ID   int64
+	Name string
+}
+
+func (SubscriberName) Configure(b *ant.ModelBuilder[SubscriberName]) {
+	b.View("subscribers")
+}
+
+type StatDB struct {
+	ant.Context
+	Subscribers ant.Table[Subscriber]
+	ListStats   ant.Table[ListStat]
+	YearlyStats ant.Table[YearlyStat]
+	Names       ant.Table[SubscriberName]
+}
+
+// Migrations do not create views: their SQL lives in the code folder. drift
+// still checks that each view a model reads is there with the columns the model
+// reads, since a query fails without them (#232).
+func TestDriftComparesViewModels(t *testing.T) {
+	each(t, func(t *testing.T, p *project) {
+		dropSchemaAfter(p, viewSchema)
+
+		t.Run("a view that is not there is drift, before any snapshot too", func(t *testing.T) {
+			out, err := run[StatDB](p, "drift")
+			require.ErrorIs(t, err, migrate.ErrDrift)
+			require.Contains(t, out, "view list_stats is missing")
+			require.Contains(t, out, "view "+viewSchema+".yearly_stats is missing")
+			require.NotContains(t, out, "view subscribers", "the models create that table")
+		})
+
+		p.write(
+			"code/stats.sql",
+			`CREATE OR REPLACE VIEW list_stats AS
+				SELECT list_id, count(*) AS subscriber_count, max(name) AS last_name
+				FROM subscribers GROUP BY list_id;
+			CREATE SCHEMA IF NOT EXISTS `+viewSchema+`;
+			CREATE MATERIALIZED VIEW IF NOT EXISTS `+viewSchema+`.yearly_stats AS
+				SELECT 2026::bigint AS year, count(*) AS total FROM subscribers;`,
+		)
+
+		must[StatDB](p, "diff", "start")
+		must[StatDB](p, "up")
+
+		t.Run("views with the columns the models read are no drift", func(t *testing.T) {
+			require.Contains(t, must[StatDB](p, "drift"), "No drift")
+			require.NotContains(t, p.read("versions/schema.snapshot.json"), "list_stats")
+		})
+
+		p.sql("DROP VIEW list_stats")
+
+		p.sql(
+			"CREATE VIEW list_stats AS SELECT list_id, count(*) AS subscriber_cnt FROM subscribers GROUP BY list_id",
+		)
+
+		t.Run("a column the view lacks is drift", func(t *testing.T) {
+			out, err := run[StatDB](p, "drift")
+			require.ErrorIs(t, err, migrate.ErrDrift)
+			require.ErrorContains(t, err, "1 difference")
+			require.Contains(t, out, "view list_stats has no column subscriber_count")
+			require.NotContains(t, out, "To match", "the tables match")
+		})
+
+		t.Run("unless Config.Ignore names the view or the column", func(t *testing.T) {
+			for _, pattern := range []string{"list_*", "list_stats.subscriber_count"} {
+				p.config.Ignore = []string{pattern}
+				require.Contains(t, must[StatDB](p, "drift"), "No drift", pattern)
+			}
+		})
+	})
+}
+
 // Things outside the schema's reach are not reported: tables ant does not manage
 // are named, and history is not drift.
 func TestDriftIgnores(t *testing.T) {

@@ -230,5 +230,14 @@ func TestDBShow(t *testing.T) {
 		out := must[V1DB](p, "db-show")
 		require.Contains(t, out, "on postgres")
 		require.Contains(t, out, "accounts")
+		require.NotContains(t, out, "MATERIALIZED VIEW", "there is none")
+
+		t.Run("materialized views follow the tables", func(t *testing.T) {
+			p.sql("CREATE MATERIALIZED VIEW account_names AS SELECT name FROM accounts")
+			p.sql("CREATE VIEW plain_names AS SELECT name FROM accounts")
+			out := must[V1DB](p, "db-show")
+			require.Regexp(t, `(?s)TABLE.*accounts.*MATERIALIZED VIEW\s+ROWS.*account_names`, out)
+			require.NotContains(t, out, "plain_names", "a view holds no rows")
+		})
 	})
 }
