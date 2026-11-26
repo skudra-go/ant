@@ -229,6 +229,22 @@ type StatDB struct {
 	Names       ant.Table[SubscriberName]
 }
 
+// SubscriberNick reads a column that the subscribers table does not have.
+type SubscriberNick struct {
+	ID   int64
+	Nick string
+}
+
+func (SubscriberNick) Configure(b *ant.ModelBuilder[SubscriberNick]) {
+	b.View("subscribers")
+}
+
+type NickDB struct {
+	ant.Context
+	Subscribers ant.Table[Subscriber]
+	Nicks       ant.Table[SubscriberNick]
+}
+
 // Migrations do not create views: their SQL lives in the code folder. drift
 // still checks that each view a model reads is there with the columns the model
 // reads, since a query fails without them (#232).
@@ -281,6 +297,28 @@ func TestDriftComparesViewModels(t *testing.T) {
 				p.config.Ignore = []string{pattern}
 				require.Contains(t, must[StatDB](p, "drift"), "No drift", pattern)
 			}
+
+			p.config.Ignore = nil
+		})
+
+		t.Run(
+			"a read-only model of a table the models create reads what migrations make of it",
+			func(t *testing.T) {
+				out, err := run[NickDB](p, "drift")
+				require.ErrorIs(t, err, migrate.ErrDrift)
+				require.ErrorContains(t, err, "1 difference")
+				require.Contains(t, out, "view subscribers has no column nick")
+			},
+		)
+
+		t.Run("a view with no columns is there, without the columns", func(t *testing.T) {
+			p.sql("DROP VIEW list_stats")
+			p.sql("CREATE VIEW list_stats AS SELECT")
+			out, err := run[StatDB](p, "drift")
+			require.ErrorIs(t, err, migrate.ErrDrift)
+			require.Contains(t, out, "view list_stats has no column list_id")
+			require.Contains(t, out, "view list_stats has no column subscriber_count")
+			require.NotContains(t, out, "list_stats is missing")
 		})
 	})
 }
@@ -396,12 +434,24 @@ func (Log) Configure(b *ant.ModelBuilder[Log]) {
 	b.ExcludeFromMigrations()
 }
 
+// RackName is a view in the default schema.
+type RackName struct {
+	ID   int64
+	Name string
+}
+
+func (RackName) Configure(b *ant.ModelBuilder[RackName]) {
+	b.Schema(explicitSchema)
+	b.View("rack_names")
+}
+
 // ArchiveDB holds them.
 type ArchiveDB struct {
 	ant.Context
 	Racks   ant.Table[Rack]
 	Volumes ant.Table[Volume]
 	Logs    ant.Table[Log]
+	Names   ant.Table[RackName]
 }
 
 // Volumes is Volume's probe.
@@ -437,7 +487,21 @@ func TestDriftExplicitDefaultSchema(t *testing.T) {
 		must[ArchiveDB](p, "diff", "start")
 		must[ArchiveDB](p, "up")
 
+		p.sql(
+			"CREATE VIEW " + explicitSchema + ".rack_names AS SELECT id, name FROM " + explicitSchema + ".racks",
+		)
+
 		require.Contains(t, must[ArchiveDB](p, "drift"), "No drift")
+
+		t.Run("Config.Ignore names a view there without the schema", func(t *testing.T) {
+			p.sql("DROP VIEW " + explicitSchema + ".rack_names")
+			_, err := run[ArchiveDB](p, "drift")
+			require.ErrorIs(t, err, migrate.ErrDrift)
+
+			p.config.Ignore = []string{"rack_names"}
+			require.Contains(t, must[ArchiveDB](p, "drift"), "No drift")
+			p.config.Ignore = nil
+		})
 
 		t.Run("EnsureCreated leaves the tables alone", func(t *testing.T) {
 			db := open[ArchiveDB](p)

@@ -331,7 +331,9 @@ func buildSchema(d schema.Dialect, db any) (*schema.Schema, error) {
 				b.out.Unmanaged,
 				schema.Ref{Schema: m.Table.Schema, Name: m.Table.Name},
 			)
-		case !m.ReadOnly:
+		case m.ReadOnly:
+			b.view(m)
+		default:
 			if err := b.table(m); err != nil {
 				return nil, err
 			}
@@ -365,6 +367,26 @@ func buildSchema(d schema.Dialect, db any) (*schema.Schema, error) {
 	b.out.Sort()
 
 	return b.out, nil
+}
+
+// view records the columns a read-only model reads from its view, which drift
+// checks are there (#232). Two models may read one view.
+func (b *schemaBuilder) view(m *meta.Model) {
+	ref := schema.Ref{Schema: m.Table.Schema, Name: m.Table.Name}
+	i := slices.IndexFunc(b.out.Views, func(v *schema.View) bool { return v.Ref() == ref })
+
+	if i < 0 {
+		i = len(b.out.Views)
+		b.out.Views = append(b.out.Views, &schema.View{Schema: ref.Schema, Name: ref.Name})
+	}
+
+	v := b.out.Views[i]
+
+	for _, f := range m.Stored() {
+		if !slices.Contains(v.Columns, f.Column) {
+			v.Columns = append(v.Columns, f.Column)
+		}
+	}
 }
 
 func (b *schemaBuilder) table(m *meta.Model) error {

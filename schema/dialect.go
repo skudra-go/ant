@@ -119,15 +119,26 @@ type ExternalType struct {
 	Columns []string
 }
 
-// Summary is a short description of a live database.
-type Summary struct {
-	Version string
-	Name    string
-	Size    string
-	Tables  []TableSummary
+// RelationColumns is implemented by a dialect that can read the columns of a
+// table or view by name, which drift compares with the views that read-only
+// models read.
+type RelationColumns interface {
+	// RelationColumns returns the columns of the relation ref names, found as a
+	// query of it would find it, in their order. ok is false if there is none.
+	RelationColumns(ctx context.Context, q Querier, ref Ref) (columns []string, ok bool, err error)
 }
 
-// TableSummary is one table in a Summary. Rows is the database's estimate.
+// Summary is a short description of a live database.
+type Summary struct {
+	Version           string
+	Name              string
+	Size              string
+	Tables            []TableSummary
+	MaterializedViews []TableSummary
+}
+
+// TableSummary is one table or materialized view in a Summary. Rows is the
+// database's estimate.
 type TableSummary struct {
 	Name string
 	Rows int64

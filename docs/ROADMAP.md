@@ -452,7 +452,7 @@ The model is defined in [decision 11](decisions/011-migration-model.md). The gui
 - [x] Checksum validation of applied files
 - [x] Repair stored checksums: `migrate repair`
 - [x] Migration lock during apply
-- [x] Drift detection against a live database: `migrate drift`
+- [x] Drift detection against a live database: `migrate drift`, including the columns that view models read
 - [x] Destructive change warnings in generated SQL
 - [x] Rename warning comment in generated SQL
 - [x] Default source from `io/fs.FS`, including `go:embed`
@@ -563,7 +563,7 @@ The model is defined in [decision 11](decisions/011-migration-model.md). The gui
 - [ ] Reverse engineering structs from a database: `migrate scaffold`
   - Skipped: Owner decision. A database does not say which integer is an enum, what a relation should be called, or what belongs together, so the output needs reading line by line anyway. Instead, [adopting a database](https://skudra.net/migrations/adopting) gives an AI assistant a prompt, and `drift` checks the result until nothing differs.
 - [x] Model inspection command: `migrate inspect`
-- [x] Database summary command: `migrate db-show`
+- [x] Database summary command: `migrate db-show`, with materialized views
 - [x] Documentation site: [skudra.net](https://skudra.net), built from [ant-docs](https://github.com/skudra-go/ant-docs)
   - Docusaurus, with every Go sample type-checked against ant.
 - [ ] Runnable examples for every public API

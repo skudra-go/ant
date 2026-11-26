@@ -60,6 +60,58 @@ func (impl) DefaultSchema(ctx context.Context, q schema.Querier) (string, error)
 	return current, nil
 }
 
+var _ schema.RelationColumns = impl{}
+
+// relationColumns reads the columns of the relation that to_regclass finds, as a
+// query does, through the search path when the name has no schema. A relation
+// with no columns reads one empty name, and a missing one no row.
+const relationColumns = `SELECT coalesce(a.attname::text, '')
+FROM (SELECT to_regclass($1) AS oid) r
+LEFT JOIN pg_attribute a ON a.attrelid = r.oid AND a.attnum > 0 AND NOT a.attisdropped
+WHERE r.oid IS NOT NULL
+ORDER BY a.attnum`
+
+// RelationColumns implements schema.RelationColumns, for any table, view,
+// materialized view, or foreign table.
+func (d impl) RelationColumns(
+	ctx context.Context,
+	q schema.Querier,
+	ref schema.Ref,
+) ([]string, bool, error) {
+	name := d.Quote(ref.Name)
+
+	if ref.Schema != "" {
+		name = d.Quote(ref.Schema) + "." + name
+	}
+
+	rows, err := q.QueryContext(ctx, relationColumns, name)
+	if err != nil {
+		return nil, false, wrapInspect(err, "columns of "+ref.String())
+	}
+
+	var (
+		columns []string
+		found   bool
+	)
+
+	err = each(rows, func() error {
+		found = true
+
+		var column string
+		if err := rows.Scan(&column); err != nil {
+			return err
+		}
+
+		if column != "" {
+			columns = append(columns, column)
+		}
+
+		return nil
+	})
+
+	return columns, found, wrapInspect(err, "columns of "+ref.String())
+}
+
 func (d impl) read(
 	ctx context.Context,
 	q schema.Querier,

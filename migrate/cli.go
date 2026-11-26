@@ -46,7 +46,8 @@ Running them (needs a database):
     --dry-run              print what would run, and change nothing
   status                 list every migration and whether it has run
     --check                fail if any is waiting, or up would refuse to run
-  drift                  compare the live database with the migrations
+  drift                  compare the live database with the migrations, and the
+                           views that view models read
     --sql                  also print SQL that would close the gap
   db-show                summarize the live database
   baseline [version]     record migrations as applied without running them, through
@@ -300,20 +301,26 @@ func Run[DB any](ctx context.Context, d dialect.Dialect, args []string, config .
 }
 
 // expected is what the database should hold: the snapshot, since that is what
-// migrations produce, or the models if nothing was generated yet.
+// migrations produce, or the models if nothing was generated yet. Migrations do
+// not create views, so the views always come from the models (#232).
 func (t *tool) expected(ctx context.Context) (*schema.Schema, string, error) {
 	snapshot, err := t.snapshot(ctx)
 	if err != nil {
 		return nil, "", err
 	}
 
-	if snapshot != nil {
-		return snapshot, "the snapshot", nil
+	target, err := t.models()
+	if err != nil {
+		return nil, "", err
 	}
 
-	target, err := t.models()
+	if snapshot == nil {
+		return target, "the models", nil
+	}
 
-	return target, "the models", err
+	snapshot.Views = target.Views
+
+	return snapshot, "the snapshot", nil
 }
 
 // terminalQuestions returns a way to ask a person a question, or nil in CI and
@@ -457,6 +464,14 @@ func (e *engine) show(ctx context.Context) error {
 
 	for _, t := range summary.Tables {
 		fmt.Fprintf(w, "%s\t%d\t%s\n", t.Name, t.Rows, t.Size)
+	}
+
+	if len(summary.MaterializedViews) > 0 {
+		fmt.Fprintln(w, "\nMATERIALIZED VIEW\tROWS (ESTIMATE)\tSIZE")
+
+		for _, v := range summary.MaterializedViews {
+			fmt.Fprintf(w, "%s\t%d\t%s\n", v.Name, v.Rows, v.Size)
+		}
 	}
 
 	return w.Flush()

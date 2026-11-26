@@ -936,6 +936,7 @@ schema: func (s *Schema) Sort()
 schema: func (s *Schema) Table(ref Ref) *Table
 schema: func (t *Table) Column(name string) *Column
 schema: func (t *Table) Ref() Ref
+schema: func (v *View) Ref() Ref
 schema: func Backfill(d Dialect, p *Plan)
 schema: func CheckNames(d Dialect, c Change) error
 schema: func Comment(text string) string
@@ -990,6 +991,7 @@ schema: type Partition
 schema: type Plan
 schema: type Querier
 schema: type Ref
+schema: type RelationColumns
 schema: type RemoveEnumValue
 schema: type RenameColumn
 schema: type RenameConstraint
@@ -1006,6 +1008,7 @@ schema: type Summary
 schema: type Table
 schema: type TableSummary
 schema: type Typed
+schema: type View
 schema: var ErrNewerFormat
 schema: var ErrUnsupported
 secure: func (Value[V]) ColumnType(string) string

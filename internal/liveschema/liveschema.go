@@ -56,6 +56,12 @@ func Relative(
 		}
 	}
 
+	for _, v := range out.Views {
+		if v.Schema == current {
+			v.Schema = ""
+		}
+	}
+
 	out.Sort()
 
 	return out, nil

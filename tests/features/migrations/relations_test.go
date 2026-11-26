@@ -75,6 +75,15 @@ type Report struct{ ID int64 }
 
 func (Report) Configure(b *ant.ModelBuilder[Report]) { b.View("reports") }
 
+// ReportPages reads the same view, and a value no column holds.
+type ReportPages struct {
+	ID    int64
+	Pages int64
+	Rank  int64 `ant:"computed"`
+}
+
+func (ReportPages) Configure(b *ant.ModelBuilder[ReportPages]) { b.View("reports") }
+
 // Linked refers to External, with and without a foreign key.
 type Linked struct {
 	ID         int64
@@ -95,6 +104,7 @@ type LibraryDB struct {
 	Books     ant.Table[Book]
 	Externals ant.Table[External]
 	Reports   ant.Table[Report]
+	Pages     ant.Table[ReportPages]
 	Linked    ant.Table[Linked]
 }
 
@@ -185,6 +195,14 @@ func TestRelationsBecomeForeignKeys(t *testing.T) {
 		require.Equal(t, []schema.Ref{{Name: "externals"}}, s.Unmanaged)
 	})
 
+	t.Run("a view keeps the columns its models read, for drift", func(t *testing.T) {
+		require.Equal(
+			t,
+			[]*schema.View{{Name: "reports", Columns: []string{"id", "pages"}}},
+			s.Views,
+		)
+	})
+
 	t.Run("a key to an excluded table stays, and NoForeignKey removes one", func(t *testing.T) {
 		linked := keys(s.Table(schema.Ref{Name: "linkeds"}))
 		require.Contains(t, linked, "linkeds_external_id_fkey")
@@ -196,6 +214,13 @@ func TestRelationsBecomeForeignKeys(t *testing.T) {
 func TestRelationsApply(t *testing.T) {
 	each(t, func(t *testing.T, p *project) {
 		p.sql("CREATE TABLE externals (id bigint PRIMARY KEY)")
+		// Migrations leave views to the code folder, and drift checks the one
+		// Report reads is there.
+		p.write(
+			"code/reports.sql",
+			"CREATE OR REPLACE VIEW reports AS SELECT 1::bigint AS id, 2::bigint AS pages;",
+		)
+
 		must[LibraryDB](p, "diff", "start")
 		must[LibraryDB](p, "up")
 		require.Contains(t, must[LibraryDB](p, "drift"), "No drift")

@@ -99,15 +99,32 @@ func (impl) Summary(ctx context.Context, q schema.Querier) (*schema.Summary, err
 		return nil, err
 	}
 
+	if out.Tables, err = relations(ctx, q, "'r', 'p'"); err != nil {
+		return nil, err
+	}
+
+	// A materialized view holds rows, as a table does (#232).
+	if out.MaterializedViews, err = relations(ctx, q, "'m'"); err != nil {
+		return nil, err
+	}
+
+	return out, nil
+}
+
+// relations summarizes the relations of the given pg_class kinds in the current
+// schema.
+func relations(ctx context.Context, q schema.Querier, kinds string) ([]schema.TableSummary, error) {
 	rows, err := q.QueryContext(ctx, `
 		SELECT c.relname, GREATEST(c.reltuples, 0)::bigint, pg_size_pretty(pg_total_relation_size(c.oid))
 		FROM pg_class c
 		JOIN pg_namespace n ON n.oid = c.relnamespace
-		WHERE c.relkind IN ('r', 'p') AND n.nspname = current_schema()
+		WHERE c.relkind IN (`+kinds+`) AND n.nspname = current_schema()
 		ORDER BY c.relname`)
 	if err != nil {
 		return nil, err
 	}
+
+	var out []schema.TableSummary
 
 	err = each(rows, func() error {
 		var t schema.TableSummary
@@ -115,7 +132,7 @@ func (impl) Summary(ctx context.Context, q schema.Querier) (*schema.Summary, err
 			return err
 		}
 
-		out.Tables = append(out.Tables, t)
+		out = append(out, t)
 
 		return nil
 	})

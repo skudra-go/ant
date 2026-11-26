@@ -51,7 +51,22 @@ type Schema struct {
 	Enums     []*Enum     `json:"enums,omitempty"`
 	Sequences []*Sequence `json:"sequences,omitempty"`
 	Tables    []*Table    `json:"tables"`
+	// Views are the views that read-only models read. Migrations do not create
+	// them, since their SQL lives in repeatable migrations, so a snapshot leaves
+	// them out and Diff does not compare them.
+	Views []*View `json:"views,omitempty"`
 }
+
+// View is a view, or another relation a read-only model reads, with the columns
+// the model reads from it.
+type View struct {
+	Schema  string   `json:"schema,omitempty"`
+	Name    string   `json:"name"`
+	Columns []string `json:"columns"`
+}
+
+// Ref returns the view's name.
+func (v *View) Ref() Ref { return Ref{v.Schema, v.Name} }
 
 // Enum is a native enum type.
 type Enum struct {
@@ -297,6 +312,10 @@ func (s *Schema) Sort() {
 	slices.SortFunc(s.Enums, func(a, b *Enum) int { return compare(a.Name, b.Name) })
 	slices.SortFunc(s.Sequences, func(a, b *Sequence) int { return compare(a.Name, b.Name) })
 
+	slices.SortFunc(s.Views, func(a, b *View) int {
+		return compare(a.Ref().String(), b.Ref().String())
+	})
+
 	for _, t := range s.Tables {
 		slices.SortFunc(t.Uniques, func(a, b *Key) int { return compare(a.Name, b.Name) })
 		slices.SortFunc(t.Checks, func(a, b *Check) int { return compare(a.Name, b.Name) })
@@ -324,6 +343,7 @@ func compare(a, b string) int {
 func (s *Schema) Encode() ([]byte, error) {
 	out := s.Clone()
 	out.Format = Format
+	out.Views = nil // migrations do not create them
 	out.Sort()
 
 	var b bytes.Buffer
