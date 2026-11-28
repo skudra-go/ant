@@ -485,9 +485,17 @@ If the application opens with `ant.WithNaming` or `ant.WithConvention`, pass the
 
 ```bash
 go run ./cmd/migrate diff add_bio   # writes migrations/versions/0002_add_bio.up.sql
-go run ./cmd/migrate up             # needs DATABASE_URL or --dsn
+go run ./cmd/migrate up             # connects using --dsn, DATABASE_URL, or Config.DSN
 go run ./cmd/migrate check          # in CI: fails if a struct changed without a migration
 ```
+
+The migrate program can build its DSN from the same application configuration and
+pass it as `migrate.Config{DSN: appDSN}`. A non-empty `--dsn` wins, followed by
+`DATABASE_URL`, then `Config.DSN`. Load `.env` in the application before calling
+`Main` or export its values beforehand. `up`, `status`, `baseline`, `repair` and
+`seed` print the server address, the database name and a fixed source label. `up --dry-run`
+keeps its existing output. Call `migrate.Up(ctx, db, config)` at startup to use the
+application's existing connection.
 
 After changing a model, run `diff` and show the user the SQL; don't hand-write the
 migration it would generate. `db.EnsureCreated(ctx)` creates tables straight from the

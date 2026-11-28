@@ -279,6 +279,7 @@ On 2026-11-20 the decisions moved from one file, `docs/DECISIONS.md`, to a file 
 | [172](172-an-enum-value-renames-in-place.md) | An enum value renames in place | active | `enum` `rename` `RENAME VALUE` `Hint` `diff` `schema-diff` `migrations` |
 | [173](173-drift-names-the-types-the-models-use-and-do-not-create.md) | drift names the types the models use and do not create | active | `drift` `adopt` `domain` `extension` `types` `migrations` |
 | [174](174-drift-checks-the-views-that-view-models-read.md) | drift checks the views that view models read | active | `drift` `view` `materialized-view` `db-show` `migrations` |
+| [177](177-the-migrate-commands-name-their-database.md) | The migrate commands name their database | active | `migrate` `dsn` `DATABASE_URL` `output` |
 
 #### Performance
 
@@ -419,8 +420,8 @@ Before changing a file, read the decisions about it.
 | `json_test.go` | [42](042-converters-are-scanner-and-valuer.md) [95](095-in-means-eq-and-other-value-rules.md) [109](109-numbers-inside-an-interface-read-as-json-number.md) [151](151-deletedat-is-a-time-or-null-in-json.md) |
 | `merge.go` | [80](080-every-write-moves-the-version-on.md) [89](089-one-column-one-value.md) [90](090-merge-keeps-what-other-writes-keep.md) [150](150-a-zero-key-nothing-fills-is-refused.md) [166](166-find-reads-the-row-after-a-bulk-delete.md) |
 | `metrics/metrics.go` | [176](176-ants-structs-have-camelcase-json-keys.md) |
-| `migrate/cli.go` | [11](011-migration-model.md) [55](055-renames.md) [58](058-squashing-needs-no-coordination.md) [59](059-adopting-an-existing-database.md) [116](116-code-files-rerun-after-versioned-migrations.md) [117](117-the-migrate-program-takes-the-applications-options.md) [127](127-commands-refuse-to-guess-which-migration-is-meant.md) [129](129-status-check-fails-a-deploy-gate.md) [144](144-script-stops-before-a-go-migration.md) [172](172-an-enum-value-renames-in-place.md) [174](174-drift-checks-the-views-that-view-models-read.md) |
-| `migrate/config.go` | [11](011-migration-model.md) [60](060-one-program-two-jobs.md) [117](117-the-migrate-program-takes-the-applications-options.md) |
+| `migrate/cli.go` | [11](011-migration-model.md) [55](055-renames.md) [58](058-squashing-needs-no-coordination.md) [59](059-adopting-an-existing-database.md) [116](116-code-files-rerun-after-versioned-migrations.md) [117](117-the-migrate-program-takes-the-applications-options.md) [127](127-commands-refuse-to-guess-which-migration-is-meant.md) [129](129-status-check-fails-a-deploy-gate.md) [144](144-script-stops-before-a-go-migration.md) [172](172-an-enum-value-renames-in-place.md) [174](174-drift-checks-the-views-that-view-models-read.md) [177](177-the-migrate-commands-name-their-database.md) |
+| `migrate/config.go` | [11](011-migration-model.md) [60](060-one-program-two-jobs.md) [117](117-the-migrate-program-takes-the-applications-options.md) [177](177-the-migrate-commands-name-their-database.md) |
 | `migrate/engine.go` | [50](050-three-layers-for-migrations.md) [56](056-failure.md) [58](058-squashing-needs-no-coordination.md) [115](115-a-file-outside-a-transaction-is-recorded-before-it-runs.md) [116](116-code-files-rerun-after-versioned-migrations.md) [126](126-a-migration-runs-as-it-says-or-not-at-all.md) [127](127-commands-refuse-to-guess-which-migration-is-meant.md) |
 | `migrate/generate.go` | [55](055-renames.md) [58](058-squashing-needs-no-coordination.md) [59](059-adopting-an-existing-database.md) [82](082-a-rename-must-land-on-a-name-the-models-have.md) [127](127-commands-refuse-to-guess-which-migration-is-meant.md) [128](128-adopt-leaves-out-roles.md) |
 | `migrate/history.go` | [115](115-a-file-outside-a-transaction-is-recorded-before-it-runs.md) |
@@ -521,6 +522,7 @@ Before changing a file, read the decisions about it.
 | `tests/features/migrations/sequence_drift_test.go` | [158](158-drift-compares-two-explicit-serial-defaults.md) |
 | `tests/features/migrations/source_test.go` | [11](011-migration-model.md) [60](060-one-program-two-jobs.md) [113](113-a-missing-versions-folder-is-an-error.md) |
 | `tests/features/migrations/squash_test.go` | [58](058-squashing-needs-no-coordination.md) |
+| `tests/features/migrations/target_test.go` | [177](177-the-migrate-commands-name-their-database.md) |
 | `tests/features/migrations/team_test.go` | [127](127-commands-refuse-to-guess-which-migration-is-meant.md) |
 | `tests/features/migrations/uint64_test.go` | [138](138-a-uint64-column-on-postgresql-is-numeric.md) |
 | `tests/features/migrations/up_test.go` | [11](011-migration-model.md) [50](050-three-layers-for-migrations.md) [56](056-failure.md) [115](115-a-file-outside-a-transaction-is-recorded-before-it-runs.md) [126](126-a-migration-runs-as-it-says-or-not-at-all.md) [129](129-status-check-fails-a-deploy-gate.md) [133](133-a-concurrent-build-clears-its-leftover.md) |
@@ -668,7 +670,7 @@ Tags on two or more decisions. Search the headers for the rest: `rg -l '^tags: .
 - `Discriminator`: [66](066-several-models-can-share-a-table.md) [90](090-merge-keeps-what-other-writes-keep.md)
 - `DoUpdate`: [80](080-every-write-moves-the-version-on.md) [89](089-one-column-one-value.md) [98](098-an-explicit-write-refuses-the-columns-ant-keeps.md) [103](103-an-upserts-update-stamps-updatedat.md) [170](170-insertfrom-takes-a-conflict-clause.md)
 - `drift`: [55](055-renames.md) [57](057-drift-compares-what-the-server-stored.md) [59](059-adopting-an-existing-database.md) [72](072-partitions-are-not-migrations.md) [73](073-drift-compares-what-models-declare.md) [114](114-an-identity-columns-default-is-not-ants-to-change.md) [119](119-an-upserts-update-writes-the-zero-a-default-field-holds.md) [130](130-partitioning-is-part-of-the-table.md) [133](133-a-concurrent-build-clears-its-leftover.md) [158](158-drift-compares-two-explicit-serial-defaults.md) [173](173-drift-names-the-types-the-models-use-and-do-not-create.md) [174](174-drift-checks-the-views-that-view-models-read.md)
-- `dsn`: [118](118-a-sqlite-dsn-says-whether-foreign-keys-are-on.md) [159](159-a-sqlite-dsn-names-its-lock-behavior.md)
+- `dsn`: [118](118-a-sqlite-dsn-says-whether-foreign-keys-are-on.md) [159](159-a-sqlite-dsn-names-its-lock-behavior.md) [177](177-the-migrate-commands-name-their-database.md)
 - `Each`: [6](006-return-shapes-and-tracking.md) [27](027-all-returns-t.md) [141](141-a-statement-inside-an-each-loop-on-one-connection-is-refused.md)
 - `embed`: [60](060-one-program-two-jobs.md) [113](113-a-missing-versions-folder-is-an-error.md)
 - `embedded`: [87](087-an-embedded-field-must-be-a-struct-value.md) [125](125-open-refuses-a-model-it-would-misread.md) [139](139-a-field-can-not-ask-for-two-things-ant-can-not-both-do.md)
@@ -726,7 +728,7 @@ Tags on two or more decisions. Search the headers for the rest: `rg -l '^tags: .
 - `mariadb`: [13](013-mariadb-shares-the-mysql-package.md) [75](075-generated-values-without-returning.md) [91](091-an-upsert-checks-a-copys-version-on-mysql-and-mariadb.md) [164](164-explain-reads-each-databases-plan-statement.md)
 - `MaxOf`: [145](145-helpers-take-a-field-of-any-type.md) [160](160-sqlite-time-aggregates-read-text.md)
 - `Merge`: [80](080-every-write-moves-the-version-on.md) [89](089-one-column-one-value.md) [90](090-merge-keeps-what-other-writes-keep.md) [166](166-find-reads-the-row-after-a-bulk-delete.md)
-- `migrate`: [11](011-migration-model.md) [50](050-three-layers-for-migrations.md) [60](060-one-program-two-jobs.md) [113](113-a-missing-versions-folder-is-an-error.md)
+- `migrate`: [11](011-migration-model.md) [50](050-three-layers-for-migrations.md) [60](060-one-program-two-jobs.md) [113](113-a-missing-versions-folder-is-an-error.md) [177](177-the-migrate-commands-name-their-database.md)
 - `migrate-up`: [115](115-a-file-outside-a-transaction-is-recorded-before-it-runs.md) [116](116-code-files-rerun-after-versioned-migrations.md)
 - `migrations`: [49](049-postgresql-first.md) [58](058-squashing-needs-no-coordination.md) [82](082-a-rename-must-land-on-a-name-the-models-have.md) [94](094-migrations-keep-a-columns-dependents-working-while-it.md) [172](172-an-enum-value-renames-in-place.md) [173](173-drift-names-the-types-the-models-use-and-do-not-create.md) [174](174-drift-checks-the-views-that-view-models-read.md)
 - `MonthlyPartitions`: [72](072-partitions-are-not-migrations.md) [161](161-a-month-is-read-from-its-bounds.md)

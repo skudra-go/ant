@@ -7,12 +7,15 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/signal"
 	"slices"
 	"strings"
 	"syscall"
 	"text/tabwriter"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/skudra-go/ant"
 	"github.com/skudra-go/ant/dialect"
@@ -59,7 +62,9 @@ Running them (needs a database):
     --seed                 run seeders afterwards
 
 Flags for commands that need a database:
-  --dsn <dsn>            connection string; the default is $DATABASE_URL
+  --dsn <dsn>            connection string (then $DATABASE_URL, then Config.DSN)
+
+The program does not read .env, so load it in your code or export DATABASE_URL.
 `
 
 // Main is the CLI. Call it from a main function in your module, and run that with
@@ -232,12 +237,16 @@ func Run[DB any](ctx context.Context, d dialect.Dialect, args []string, config .
 		return fmt.Errorf("unknown command %q. Run help for the list", command)
 	}
 
+	dsnSource := "--dsn"
+
 	if dsn == "" {
 		dsn = os.Getenv("DATABASE_URL")
+		dsnSource = "DATABASE_URL"
 	}
 
 	if dsn == "" {
 		dsn = c.DSN
+		dsnSource = "Config.DSN"
 	}
 
 	if dsn == "" {
@@ -255,6 +264,12 @@ func Run[DB any](ctx context.Context, d dialect.Dialect, args []string, config .
 	e, err := newEngine(db, c)
 	if err != nil {
 		return err
+	}
+
+	targetCommands := []string{"status", "baseline", "repair", "seed"}
+
+	if command == "up" && !dry || slices.Contains(targetCommands, command) {
+		e.sayDatabaseTarget(ctx, dsnSource)
 	}
 
 	switch command {
@@ -298,6 +313,42 @@ func Run[DB any](ctx context.Context, d dialect.Dialect, args []string, config .
 	}
 
 	return err
+}
+
+// sayDatabaseTarget reads the name and address from the same connection. The
+// driver already resolves URL and keyword connection strings, including fallbacks.
+func (e *engine) sayDatabaseTarget(ctx context.Context, source string) {
+	conn, err := e.pool.Conn(ctx)
+	if err != nil {
+		e.say("Database: unknown (from %s)", source)
+
+		return
+	}
+	defer conn.Close()
+
+	name, err := e.d.Database(ctx, conn)
+	if err != nil {
+		e.say("Database: unknown (from %s)", source)
+
+		return
+	}
+
+	var address net.Addr
+
+	_ = conn.Raw(func(driverConn any) error {
+		if pg, ok := driverConn.(interface{ Conn() *pgx.Conn }); ok {
+			address = pg.Conn().PgConn().Conn().RemoteAddr()
+		}
+
+		return nil
+	})
+
+	switch address.(type) {
+	case *net.TCPAddr, *net.UnixAddr:
+		e.say("Database: %q at %q (from %s)", name, address.String(), source)
+	default:
+		e.say("Database: %q (from %s)", name, source)
+	}
 }
 
 // expected is what the database should hold: the snapshot, since that is what

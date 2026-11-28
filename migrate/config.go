@@ -90,6 +90,7 @@ type Config struct {
 
 	// DSN connects the commands that need a database. The --dsn flag and the
 	// DATABASE_URL variable come first and second, and this is the last resort.
+	// Main and Run do not load .env files; the application may load one itself.
 	DSN string
 	// Options are those the application gives ant.Open. Main and Run pass them
 	// to ant.SchemaOf and ant.Open, so that WithNaming and WithConvention name
