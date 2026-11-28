@@ -562,7 +562,7 @@ func (e *engine) applyInTx(ctx context.Context, conn *sql.Conn, m Migration, r *
 	}
 	defer tx.Rollback()
 
-	if err := e.run(ctx, tx, m); err != nil {
+	if err := e.ran(ctx, tx, m); err != nil {
 		return e.explain(m, err)
 	}
 
@@ -660,22 +660,227 @@ func (e *engine) run(ctx context.Context, tx *sql.Tx, m Migration) error {
 	return m.run(ctx, db, tx)
 }
 
+// ran runs a file's statements one at a time inside tx. PostgreSQL runs a whole
+// file as one string, but a failure then says nothing about which statement it
+// was unless the driver sends a position, which DDL and constraint errors do not
+// (#303). Running them one by one, in the same transaction, lets the failing
+// statement and its line be named. It is one round trip per statement instead of
+// one per file, which a large data migration notices.
+//
+// A file that ends its own transaction never gets here: checkBody has refused it
+// before the transaction began.
+func (e *engine) ran(ctx context.Context, tx *sql.Tx, m Migration) error {
+	if m.run != nil || m.noTransaction {
+		return e.run(ctx, tx, m)
+	}
+
+	lines, ok := splitWithLines(e.d.Split(m.SQL), m.SQL)
+	if !ok || len(lines) == 0 {
+		return e.run(ctx, tx, m)
+	}
+
+	for _, s := range lines {
+		if _, err := tx.ExecContext(ctx, s.text); err != nil {
+			return &statementError{
+				line:    s.line,
+				skipped: s.skipped,
+				text:    s.text,
+				err:     err,
+			}
+		}
+	}
+
+	return nil
+}
+
+// statementError is a statement that failed, with where it starts in the file.
+// line is the statement's first line that carries code; skipped counts the
+// leading comment and blank lines before it, which a position, counted from the
+// statement's text, still includes.
+type statementError struct {
+	line    int
+	skipped int
+	text    string
+	err     error
+}
+
+func (e *statementError) Error() string { return e.err.Error() }
+func (e *statementError) Unwrap() error { return e.err }
+
+// lineOf returns the line in the file that offset points at, where offset is a
+// position within this statement in characters from 1, as a driver sends it, or
+// the statement's first code line when it is past the text. The offset counts
+// from the statement's text, comment lines included, so the lines skipped before
+// its code come off.
+func (e *statementError) lineOf(offset int) int {
+	runes := []rune(e.text)
+	if offset < 1 || offset > len(runes) {
+		return e.line
+	}
+
+	return e.line - e.skipped + strings.Count(string(runes[:offset-1]), "\n")
+}
+
+// splitWithLines matches each statement Split returns back to the line it starts
+// on, by finding it in the script in order. Split keeps the comments before a
+// statement with it, so the line is the first that carries code, not the first
+// comment. A statement Split rebuilt so that it is not a substring of the script
+// leaves ok false, and the caller runs the file whole, as before.
+func splitWithLines(statements []string, script string) ([]splitLine, bool) {
+	out := make([]splitLine, 0, len(statements))
+
+	offset := 0
+
+	for _, statement := range statements {
+		begin, ok := findStatement(script, statement, offset)
+		if !ok {
+			return nil, false
+		}
+
+		code := lineOfCode(script[begin : begin+len(statement)])
+		out = append(out, splitLine{
+			line:    strings.Count(script[:begin], "\n") + code,
+			skipped: code - 1,
+			text:    statement,
+		})
+
+		// Look past this statement for the next, so two alike are told apart.
+		offset = begin + len(statement)
+	}
+
+	return out, true
+}
+
+// findStatement returns where the statement starts in script at or after from.
+//
+// A statement starts where the one before it ended: at the top of the file, or
+// after the semicolon that closed the previous statement. A match anywhere else,
+// as inside a comment that quotes the statement, is another occurrence, and the
+// search moves past it rather than taking it, so a comment above cannot claim the
+// statement's line.
+func findStatement(script, statement string, from int) (int, bool) {
+	for from <= len(script) {
+		at := strings.Index(script[from:], statement)
+		if at < 0 {
+			return 0, false
+		}
+
+		begin := from + at
+		if beginsStatement(script, begin) {
+			return begin, true
+		}
+
+		from = begin + 1
+	}
+
+	return 0, false
+}
+
+// beginsStatement reports whether i is where a statement starts: at the top of
+// the script, or after the semicolon that ended the one before, with only
+// whitespace or a comment between.
+func beginsStatement(script string, i int) bool {
+	if i == 0 {
+		return true
+	}
+
+	for j := i - 1; j >= 0; j-- {
+		switch script[j] {
+		case ' ', '\t', '\r', '\n':
+			continue
+		case ';':
+			return true
+		default:
+			return false
+		}
+	}
+
+	return true
+}
+
+// lineOfCode returns the line within text that first carries code, counting
+// from 1, skipping the blank lines and the comments before it: a line comment to
+// its line's end, and a block comment to where it closes, over the lines it
+// runs and the block comments nested in it, as PostgreSQL reads them. Text that
+// is all comment gives its last line.
+func lineOfCode(text string) int {
+	i := 0
+
+	for i < len(text) {
+		switch {
+		case text[i] == ' ' || text[i] == '\t' || text[i] == '\r' || text[i] == '\n':
+			i++
+		case strings.HasPrefix(text[i:], "--"):
+			end := strings.IndexByte(text[i:], '\n')
+			if end < 0 {
+				return 1 + strings.Count(text, "\n")
+			}
+
+			i += end + 1
+		case strings.HasPrefix(text[i:], "/*"):
+			i = afterBlockComment(text, i)
+		default:
+			return 1 + strings.Count(text[:i], "\n")
+		}
+	}
+
+	return 1 + strings.Count(text, "\n")
+}
+
+// afterBlockComment returns where the block comment that opens at i ends, past
+// its closing mark, or the end of text when it is never closed.
+func afterBlockComment(text string, i int) int {
+	depth := 0
+
+	for i < len(text) {
+		switch {
+		case strings.HasPrefix(text[i:], "/*"):
+			depth++
+			i += 2
+		case strings.HasPrefix(text[i:], "*/"):
+			depth--
+			i += 2
+
+			if depth == 0 {
+				return i
+			}
+		default:
+			i++
+		}
+	}
+
+	return len(text)
+}
+
+type splitLine struct {
+	line    int
+	skipped int
+	text    string
+}
+
 // explain adds the failing migration, its line, and the database's own detail to
-// err. PostgreSQL gets a whole file at once, so without this a message says nothing
-// about where.
+// err. A driver that sends a position gives the line within the text it ran; a
+// statement ran() ran alone is positioned within that statement, so the file
+// before it is added. A driver that sends no position, as for most DDL and
+// constraint errors, leaves it to the statement that failed, which ran() knows.
 func (e *engine) explain(m Migration, err error) error {
 	failure := e.d.Explain(err)
 	where, more := "", ""
 
-	if runes := []rune(m.SQL); failure.Offset > 0 && failure.Offset <= len(runes) {
-		line := strings.Count(string(runes[:failure.Offset-1]), "\n") + 1
-		where = fmt.Sprintf(", at line %d", line)
+	failed, isStatement := errors.AsType[*statementError](err)
 
-		more = fmt.Sprintf(
-			"\n\n  %d | %s",
-			line,
-			strings.TrimSpace(strings.Split(m.SQL, "\n")[line-1]),
-		)
+	switch {
+	case failure.Offset > 0 && isStatement:
+		if line := failed.lineOf(failure.Offset); line > 0 {
+			where, more = lineText(m.SQL, line)
+		}
+	case failure.Offset > 0:
+		if runes := []rune(m.SQL); failure.Offset <= len(runes) {
+			line := strings.Count(string(runes[:failure.Offset-1]), "\n") + 1
+			where, more = lineText(m.SQL, line)
+		}
+	case isStatement:
+		where, more = lineText(m.SQL, failed.line)
 	}
 
 	if failure.Detail != "" {
@@ -692,5 +897,20 @@ func (e *engine) explain(m Migration, err error) error {
 		where,
 		err,
 		more,
+	)
+}
+
+// lineText returns the ", at line N" part and the numbered source line, for a
+// line of the file, or nothing when it is out of range.
+func lineText(script string, line int) (string, string) {
+	lines := strings.Split(script, "\n")
+	if line < 1 || line > len(lines) {
+		return "", ""
+	}
+
+	return fmt.Sprintf(", at line %d", line), fmt.Sprintf(
+		"\n\n  %d | %s",
+		line,
+		strings.TrimSpace(lines[line-1]),
 	)
 }

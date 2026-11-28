@@ -157,6 +157,146 @@ func TestFailedMigration(t *testing.T) {
 	})
 }
 
+// A failure PostgreSQL reports no position for, as most DDL and constraint
+// errors, still says which statement and which line it was (#303).
+func TestFailedMigrationWithoutAPosition(t *testing.T) {
+	each(t, func(t *testing.T, p *project) {
+		p.write("versions/0001_good.up.sql", "CREATE TABLE first (id int);")
+
+		// The second statement names a relation that does not exist. PostgreSQL
+		// reports no position for that, so the line has to come from the
+		// statement the plan for.
+		p.write(
+			"versions/0002_bad.up.sql",
+			"CREATE TABLE alpha (id int);\n\n"+
+				"ALTER TABLE beta ADD COLUMN note text;\n\n"+
+				"CREATE TABLE gamma (id int);\n",
+		)
+
+		_, err := run[V1DB](p, "up")
+		require.Error(t, err)
+
+		t.Run("the error names the line and the statement", func(t *testing.T) {
+			require.ErrorContains(t, err, "failed and was rolled back, at line 3")
+			require.ErrorContains(t, err, "ALTER TABLE beta ADD COLUMN note text;")
+		})
+
+		t.Run("nothing of it remains", func(t *testing.T) {
+			require.Empty(t, p.columns("alpha"))
+		})
+
+		t.Run("fixing the statement is enough", func(t *testing.T) {
+			p.write("versions/0002_bad.up.sql", "CREATE TABLE alpha (id int);\n")
+			must[V1DB](p, "up")
+			require.NotEmpty(t, p.columns("alpha"))
+		})
+	})
+}
+
+// A comment before a statement stays with it, so the line names where the
+// statement's own code is, not where its comment is (#303).
+func TestFailedMigrationUnderAComment(t *testing.T) {
+	each(t, func(t *testing.T, p *project) {
+		p.write("versions/0001_good.up.sql", "CREATE TABLE first (id int);")
+
+		p.write(
+			"versions/0002_bad.up.sql",
+			"CREATE TABLE alpha (id int);\n\n"+
+				"-- what the next statement adds\n\n"+
+				"ALTER TABLE beta ADD COLUMN note text;\n",
+		)
+
+		_, err := run[V1DB](p, "up")
+		require.Error(t, err)
+		require.ErrorContains(t, err, "failed and was rolled back, at line 5")
+		require.ErrorContains(t, err, "5 | ALTER TABLE beta ADD COLUMN note text;")
+	})
+}
+
+// A position the driver sends is counted from the statement's text, comments
+// included, so a comment above the statement does not shift the line it names
+// (#303).
+func TestFailedMigrationWithAPositionUnderAComment(t *testing.T) {
+	each(t, func(t *testing.T, p *project) {
+		p.write("versions/0001_good.up.sql", "CREATE TABLE first (id int);")
+
+		// The cast fails at a position inside the last line of the statement,
+		// which is line 6 of the file.
+		p.write(
+			"versions/0002_bad.up.sql",
+			"CREATE TABLE alpha (n int);\n\n"+
+				"-- the values to add\n"+
+				"INSERT INTO alpha (n)\nVALUES\n('abc'::int);\n",
+		)
+
+		_, err := run[V1DB](p, "up")
+		require.Error(t, err)
+		require.ErrorContains(t, err, "failed and was rolled back, at line 6")
+		require.ErrorContains(t, err, "6 | ('abc'::int);")
+	})
+}
+
+// A block comment before a statement stays with it as a line comment does, over
+// however many lines it runs and whatever it nests, so the line is still the
+// statement's own (#303).
+func TestFailedMigrationUnderABlockComment(t *testing.T) {
+	each(t, func(t *testing.T, p *project) {
+		p.write("versions/0001_good.up.sql", "CREATE TABLE first (id int);")
+
+		p.write(
+			"versions/0002_bad.up.sql",
+			"CREATE TABLE alpha (id int);\n\n"+
+				"/* what the next statement adds,\n"+
+				"   /* nested */ over three lines\n"+
+				"*/\n"+
+				"ALTER TABLE beta ADD COLUMN note text;\n",
+		)
+
+		_, err := run[V1DB](p, "up")
+		require.Error(t, err)
+		require.ErrorContains(t, err, "failed and was rolled back, at line 6")
+		require.ErrorContains(t, err, "6 | ALTER TABLE beta ADD COLUMN note text;")
+	})
+}
+
+// Code that follows a block comment on the same line is on that line (#303).
+func TestFailedMigrationAfterABlockCommentOnItsLine(t *testing.T) {
+	each(t, func(t *testing.T, p *project) {
+		p.write("versions/0001_good.up.sql", "CREATE TABLE first (id int);")
+
+		p.write(
+			"versions/0002_bad.up.sql",
+			"CREATE TABLE alpha (id int);\n\n"+
+				"/* why */ ALTER TABLE beta ADD COLUMN note text;\n",
+		)
+
+		_, err := run[V1DB](p, "up")
+		require.Error(t, err)
+		require.ErrorContains(t, err, "failed and was rolled back, at line 3")
+	})
+}
+
+// A position under a block comment is counted as under a line comment: from the
+// statement's text, the comment's lines included (#303).
+func TestFailedMigrationWithAPositionUnderABlockComment(t *testing.T) {
+	each(t, func(t *testing.T, p *project) {
+		p.write("versions/0001_good.up.sql", "CREATE TABLE first (id int);")
+
+		// The cast fails inside the last line of the statement, line 7 of the file.
+		p.write(
+			"versions/0002_bad.up.sql",
+			"CREATE TABLE alpha (n int);\n\n"+
+				"/* the values\n   to add */\n"+
+				"INSERT INTO alpha (n)\nVALUES\n('abc'::int);\n",
+		)
+
+		_, err := run[V1DB](p, "up")
+		require.Error(t, err)
+		require.ErrorContains(t, err, "failed and was rolled back, at line 7")
+		require.ErrorContains(t, err, "7 | ('abc'::int);")
+	})
+}
+
 // -- ant:no-transaction is for statements PostgreSQL refuses in a transaction.
 func TestNoTransaction(t *testing.T) {
 	each(t, func(t *testing.T, p *project) {

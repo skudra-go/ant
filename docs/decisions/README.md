@@ -276,6 +276,7 @@ On 2026-11-20 the decisions moved from one file, `docs/DECISIONS.md`, to a file 
 | [144](144-script-stops-before-a-go-migration.md) | script stops before a Go migration, and starts from a version | active | `script` `Go-migrations` `no-transaction` `from` `guarded` `OutOfOrder` |
 | [158](158-drift-compares-two-explicit-serial-defaults.md) | Drift compares two explicit serial defaults | active | `drift` `identity` `serial` `nextval` `sequence` `postgres` |
 | [161](161-a-month-is-read-from-its-bounds.md) | A month of a partitioned table is read from its bounds, not its name | active | `partitions` `MonthlyPartitions` `DropBefore` `Ensure` `List` `postgres` `bounds` |
+| [162](162-a-failed-migration-names-its-statement.md) | A failed migration names its statement even when the driver sends no position | active | `migration` `failure` `error` `line` `statement` `Explain` `Split` `DDL` |
 | [172](172-an-enum-value-renames-in-place.md) | An enum value renames in place | active | `enum` `rename` `RENAME VALUE` `Hint` `diff` `schema-diff` `migrations` |
 | [173](173-drift-names-the-types-the-models-use-and-do-not-create.md) | drift names the types the models use and do not create | active | `drift` `adopt` `domain` `extension` `types` `migrations` |
 | [174](174-drift-checks-the-views-that-view-models-read.md) | drift checks the views that view models read | active | `drift` `view` `materialized-view` `db-show` `migrations` |
@@ -421,7 +422,7 @@ Before changing a file, read the decisions about it.
 | `metrics/metrics.go` | [176](176-ants-structs-have-camelcase-json-keys.md) |
 | `migrate/cli.go` | [11](011-migration-model.md) [55](055-renames.md) [58](058-squashing-needs-no-coordination.md) [59](059-adopting-an-existing-database.md) [116](116-code-files-rerun-after-versioned-migrations.md) [117](117-the-migrate-program-takes-the-applications-options.md) [127](127-commands-refuse-to-guess-which-migration-is-meant.md) [129](129-status-check-fails-a-deploy-gate.md) [144](144-script-stops-before-a-go-migration.md) [172](172-an-enum-value-renames-in-place.md) [174](174-drift-checks-the-views-that-view-models-read.md) |
 | `migrate/config.go` | [11](011-migration-model.md) [60](060-one-program-two-jobs.md) [117](117-the-migrate-program-takes-the-applications-options.md) |
-| `migrate/engine.go` | [50](050-three-layers-for-migrations.md) [56](056-failure.md) [58](058-squashing-needs-no-coordination.md) [115](115-a-file-outside-a-transaction-is-recorded-before-it-runs.md) [116](116-code-files-rerun-after-versioned-migrations.md) [126](126-a-migration-runs-as-it-says-or-not-at-all.md) [127](127-commands-refuse-to-guess-which-migration-is-meant.md) |
+| `migrate/engine.go` | [50](050-three-layers-for-migrations.md) [56](056-failure.md) [58](058-squashing-needs-no-coordination.md) [115](115-a-file-outside-a-transaction-is-recorded-before-it-runs.md) [116](116-code-files-rerun-after-versioned-migrations.md) [126](126-a-migration-runs-as-it-says-or-not-at-all.md) [127](127-commands-refuse-to-guess-which-migration-is-meant.md) [162](162-a-failed-migration-names-its-statement.md) |
 | `migrate/generate.go` | [55](055-renames.md) [58](058-squashing-needs-no-coordination.md) [59](059-adopting-an-existing-database.md) [82](082-a-rename-must-land-on-a-name-the-models-have.md) [127](127-commands-refuse-to-guess-which-migration-is-meant.md) [128](128-adopt-leaves-out-roles.md) |
 | `migrate/history.go` | [115](115-a-file-outside-a-transaction-is-recorded-before-it-runs.md) |
 | `migrate/internal_test.go` | [55](055-renames.md) [56](056-failure.md) |
@@ -523,7 +524,7 @@ Before changing a file, read the decisions about it.
 | `tests/features/migrations/squash_test.go` | [58](058-squashing-needs-no-coordination.md) |
 | `tests/features/migrations/team_test.go` | [127](127-commands-refuse-to-guess-which-migration-is-meant.md) |
 | `tests/features/migrations/uint64_test.go` | [138](138-a-uint64-column-on-postgresql-is-numeric.md) |
-| `tests/features/migrations/up_test.go` | [11](011-migration-model.md) [50](050-three-layers-for-migrations.md) [56](056-failure.md) [115](115-a-file-outside-a-transaction-is-recorded-before-it-runs.md) [126](126-a-migration-runs-as-it-says-or-not-at-all.md) [129](129-status-check-fails-a-deploy-gate.md) [133](133-a-concurrent-build-clears-its-leftover.md) |
+| `tests/features/migrations/up_test.go` | [11](011-migration-model.md) [50](050-three-layers-for-migrations.md) [56](056-failure.md) [115](115-a-file-outside-a-transaction-is-recorded-before-it-runs.md) [126](126-a-migration-runs-as-it-says-or-not-at-all.md) [129](129-status-check-fails-a-deploy-gate.md) [133](133-a-concurrent-build-clears-its-leftover.md) [162](162-a-failed-migration-names-its-statement.md) |
 | `tests/features/model_definition/configure_test.go` | [21](021-configuration-runs-when-a-context-opens.md) [66](066-several-models-can-share-a-table.md) |
 | `tests/features/model_definition/conflicting_tags_test.go` | [139](139-a-field-can-not-ask-for-two-things-ant-can-not-both-do.md) |
 | `tests/features/model_definition/custom_types_test.go` | [42](042-converters-are-scanner-and-valuer.md) |
@@ -682,6 +683,7 @@ Tags on two or more decisions. Search the headers for the rest: `rg -l '^tags: .
 - `ErrTxDone`: [31](031-failed-saves.md) [155](155-a-bound-transaction-settles-what-its-contexts-did.md)
 - `ErrUnsupported`: [50](050-three-layers-for-migrations.md) [74](074-dialects-state-their-differences.md)
 - `ErrWrongModel`: [4](004-conditions-are-not-tied-to-a-model.md) [18](018-wrong-model-detection.md)
+- `Explain`: [162](162-a-failed-migration-names-its-statement.md) [164](164-explain-reads-each-databases-plan-statement.md)
 - `Expr`: [35](035-typed-expressions.md) [146](146-ne-matches-null-as-go-does.md)
 - `extension`: [73](073-drift-compares-what-models-declare.md) [173](173-drift-names-the-types-the-models-use-and-do-not-create.md)
 - `Fields`: [21](021-configuration-runs-when-a-context-opens.md) [100](100-probes-are-named-after-their-model-in-the-plural.md)
